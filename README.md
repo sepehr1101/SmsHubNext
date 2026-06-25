@@ -24,7 +24,7 @@
 
 ## 1. Business Requirements Analysis
 
-SmsHubNext is a **high-volume, multi-tenant SMS dispatch and accounting platform**. Its primary documented use case is **utility/organizational notifications** — e.g. water-bill notices sent to subscribers across Iranian provinces, cities, and service zones — billed and reported by provider, geography, business category, and time period (in the Jalali calendar).
+SmsHubNext is a **high-volume, multi-tenant SMS dispatch and accounting platform**. Its primary documented use case is **utility/organizational notifications** — e.g. water-bill notices sent to subscribers across Iranian geographic sections (province → city → zone) — billed and reported by provider, geography, message type, and time period (in the Jalali calendar).
 
 ### 1.1 Expected usage patterns
 
@@ -33,7 +33,7 @@ SmsHubNext is a **high-volume, multi-tenant SMS dispatch and accounting platform
 | **Bursty bulk campaigns** | Billing cycles trigger campaigns of **hundreds of thousands to millions** of messages in a short window. | Heavy concurrent inserts → write path must be the #1 optimization target. |
 | **Steady transactional/OTP traffic** | Lower-volume, latency-sensitive single messages (OTP, alerts). | Small but constant; must not be starved by bulk inserts. |
 | **Asynchronous delivery reports (DLR)** | Each sent message later receives 1+ status updates from the provider, arriving minutes-to-hours later. | High-volume **update** traffic against already-written rows. |
-| **Heavy reporting/analytics** | Finance and operations run aggregate reports by province/city/zone/provider/category/period. | Read path competes with writes → must be isolated from OLTP hot path. |
+| **Heavy reporting/analytics** | Finance and operations run aggregate reports by geo section / provider / message type / period. | Read path competes with writes → must be isolated from OLTP hot path. |
 
 ### 1.2 Expected message volumes (working assumptions for sizing)
 
@@ -51,7 +51,7 @@ Baseline assumption: a national utility footprint, **~10 million messages/month*
 
 The schema must answer, efficiently and accurately:
 
-- Cost by **province / city / zone**, by **provider**, by **business category** (e.g. water bills), by **Jalali period** (e.g. *Spring 1405*).
+- Cost by **geo section** (province / city / zone), by **provider**, by **message type** (e.g. water-bill notices), by **Jalali period** (e.g. *Spring 1405*).
 - **Counts** and **delivery success rates** by the same dimensions.
 - **History of a single subscriber** and **history of a single bill**.
 - **Campaign summaries** and **monthly cost trends**.
@@ -85,8 +85,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | **Customer (Tenant / Customer Context)** | The organization that owns the traffic (e.g. a regional water company). Top-level ownership and isolation boundary for billing and reporting. |
 | **Provider** | An SMS carrier/aggregator (Magfa, …). Owns sender lines and tariffs; source of delivery reports. |
 | **Sender Line** | A specific origin number (`3000…`, `1000…`, `4040…`) belonging to a provider. Affects routing, pricing, and operator reachability. |
-| **Message Type** | Classifies traffic (OTP / Transactional / Bulk-Notification). Drives priority, possibly tariff, and reporting splits. |
-| **Business Category** | The *business reason* for the message (Water Bill, Electricity Bill, …). A core reporting dimension. |
+| **Message Type** | Single classification axis for a message — both its *delivery class* (OTP / Transactional / Bulk-Notification) and its *business purpose* (Water Bill, Outage Alert, …). Drives priority, possibly tariff, and reporting splits. (Business purpose was a separate `BusinessCategory` dimension in an earlier draft; merged here for simplicity.) |
 | **Campaign** | A logical batch of messages produced by one dispatch operation. Unit of operational monitoring and summary reporting. |
 | **Message Template** | The reusable body pattern for a campaign, with merge placeholders. Stored once; not duplicated per recipient. |
 | **Subscriber (Recipient)** | The end party receiving the SMS (a utility subscriber). A **bounded** population reused across millions of messages → modeled as a dimension, not duplicated per message. |
@@ -95,9 +94,9 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | **Tariff** | Time-bounded pricing for a (provider, encoding, message-type) combination. Versioned by effective date range. |
 | **Delivery Report** | The provider's eventual status for a message. Normalized status is folded onto the Message; raw provider codes optionally retained for audit. |
 | **Date (Jalali) Dimension** | Pre-computed mapping of calendar dates to Persian year/season/month for clean period reporting (*Spring 1405*). |
-| **Geography (Province / City / Zone)** | Hierarchical reporting dimensions. Province (31), City (hundreds–thousands), Zone (tens of thousands). |
+| **Geo Section** | A single self-referencing geographic dimension that models the whole location hierarchy (Province → City → Zone → …) in one table via a parent link + `SectionType`. Replaces the former separate `Province`/`City`/`Zone` tables. |
 
-**Fact vs. Dimension split is the spine of this design:** small, stable **dimensions** (provider, line, geography, subscriber, category, date, tariff) are referenced by surrogate keys; the enormous **Message fact** carries denormalized dimension keys so reports group/filter without joining giant tables, and carries a frozen cost snapshot so history is immutable.
+**Fact vs. Dimension split is the spine of this design:** small, stable **dimensions** (provider, line, geo section, subscriber, message-type, date, tariff) are referenced by surrogate keys; the enormous **Message fact** carries denormalized dimension keys so reports group/filter without joining giant tables, and carries a frozen cost snapshot so history is immutable.
 
 ---
 
@@ -112,34 +111,31 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 | 1 | `Customer` | Dimension | <100 | <100 | <500 |
 | 2 | `Provider` | Dimension | <10 | <20 | <50 |
 | 3 | `SenderLine` | Dimension | <100 | <200 | <500 |
-| 4 | `MessageType` | Dimension (seed) | ~5 | ~5 | ~10 |
-| 5 | `BusinessCategory` | Dimension | <50 | <100 | <200 |
-| 6 | `Province` | Dimension (seed) | 31 | 31 | 31 |
-| 7 | `City` | Dimension (seed) | ~1,200 | ~1,200 | ~1,200 |
-| 8 | `Zone` | Dimension | ~30k | ~50k | ~80k |
-| 9 | `Subscriber` | Large dimension | ~5M | ~15M | ~25M |
-| 10 | `Campaign` | Dimension | ~3k | ~40k | ~200k |
-| 11 | `MessageTemplate` | Dimension | ~1k | ~10k | ~50k |
-| 12 | `Tariff` | Dimension (versioned) | <100 | <300 | ~1k |
-| 13 | `TariffRate` | Dimension (versioned) | <500 | ~1.5k | ~5k |
-| 14 | `DimDate` | Dimension (seed) | ~1.8k | ~1.8k | ~3.7k |
-| 15 | **`Message`** | **Fact (hot)** | **~10M** | **~120M** | **~0.6–1B** |
-| 16 | `MessageBody` | Fact satellite (text) | ~10M | ~120M | ~0.6–1B |
-| 17 | `DeliveryReportLog` | Optional audit (raw DLR) | ~12M | ~150M | ~1B+ |
-| 18 | `MessageDailyAggregate` | Pre-aggregated rollup | ~150k | ~1.8M | ~9M |
+| 4 | `MessageType` | Dimension | ~10 | ~30 | ~80 |
+| 5 | `GeoSection` | Dimension (self-referencing) | ~30k | ~50k | ~80k |
+| 6 | `Subscriber` | Large dimension | ~5M | ~15M | ~25M |
+| 7 | `Campaign` | Dimension | ~3k | ~40k | ~200k |
+| 8 | `MessageTemplate` | Dimension | ~1k | ~10k | ~50k |
+| 9 | `Tariff` | Dimension (versioned) | <100 | <300 | ~1k |
+| 10 | `TariffRate` | Dimension (versioned) | <500 | ~1.5k | ~5k |
+| 11 | `DimDate` | Dimension (seed) | ~1.8k | ~1.8k | ~3.7k |
+| 12 | **`Message`** | **Fact (hot)** | **~10M** | **~120M** | **~0.6–1B** |
+| 13 | `MessageBody` | Fact satellite (text) | ~10M | ~120M | ~0.6–1B |
+| 14 | `DeliveryReportLog` | Optional audit (raw DLR) | ~12M | ~150M | ~1B+ |
+| 15 | `MessageDailyAggregate` | Pre-aggregated rollup | ~150k | ~1.8M | ~9M |
 
 > Below, each table is summarized against the required facets. Full column-level detail is in **§4**.
 
-### Dimension tables (1–14) — shared facets
+### Dimension tables (1–11) — shared facets
 
 - **Purpose:** Provide stable, deduplicated reference data referenced by the Message fact via surrogate keys.
-- **Business justification:** Eliminate repetition of descriptive text (province names, line numbers, templates) across ~10⁹ fact rows; enable consistent grouping/filtering in reports.
+- **Business justification:** Eliminate repetition of descriptive text (geo-section names, line numbers, templates) across ~10⁹ fact rows; enable consistent grouping/filtering in reports.
 - **Read pattern:** Tiny lookups; frequently cached in the application; joined to aggregates (not to the raw fact) for labels.
 - **Write pattern:** Rare inserts/updates (admin/onboarding). `Subscriber` is the exception — moderate insert/upsert volume as new subscribers appear, but **bounded** by the real population.
 - **Retention:** Effectively permanent. Versioned dimensions (`Tariff`, `TariffRate`) keep history via effective-date ranges; rows are never hard-deleted.
 - **Storage:** Negligible relative to the fact. Their entire value is *avoiding* duplication in the fact.
 
-### 15. `Message` — the central fact (hot path)
+### 12. `Message` — the central fact (hot path)
 
 - **Purpose:** One row per SMS send. The system of record for what was sent, to whom, by which line/provider, at what cost, with what delivery outcome.
 - **Business justification:** Every report, every cost calculation, and every history lookup ultimately resolves here.
@@ -149,7 +145,7 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 - **Retention:** Long (billing/legal). Aged out by **partition switching** by month, not by row-level `DELETE`.
 - **Storage:** Kept **deliberately narrow** (fixed-width keys + cost snapshot + status; **no free text**) so more rows fit per page → faster scans, smaller indexes, cheaper inserts. Text lives in `MessageBody`.
 
-### 16. `MessageBody` — text satellite (1:1 with Message)
+### 13. `MessageBody` — text satellite (1:1 with Message)
 
 - **Purpose:** Hold the exact sent text (or `TemplateId` + merge variables) separately from the narrow fact.
 - **Business justification:** Audit/legal proof of content without bloating the fact that powers reporting.
@@ -159,7 +155,7 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 - **Retention:** **Shorter** than the fact where policy allows — the body partition can be purged earlier to reclaim the bulk of storage while keeping cost/delivery facts.
 - **Storage:** The largest per-row cost in the system → isolated so it can be compressed and retired independently (see §7).
 
-### 17. `DeliveryReportLog` — optional raw DLR audit
+### 14. `DeliveryReportLog` — optional raw DLR audit
 
 - **Purpose:** Append-only log of raw provider status callbacks/poll results.
 - **Business justification:** Forensic/audit trail and reprocessing; the *normalized* current status already lives on `Message`.
@@ -167,9 +163,9 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 - **Read pattern:** Rare, point lookups by message; mostly write-only.
 - **Write pattern:** Append-only inserts.
 - **Retention:** **Short** (e.g. 30–90 days) — high volume, low long-term value.
-- **Storage:** Justified only if audit/reprocessing is required; **off by default** (see §4.17 tradeoff). The normalized status on `Message` is the source of truth for all reporting.
+- **Storage:** Justified only if audit/reprocessing is required; **off by default** (see §4.14 tradeoff). The normalized status on `Message` is the source of truth for all reporting.
 
-### 18. `MessageDailyAggregate` — pre-rolled reporting cube
+### 15. `MessageDailyAggregate` — pre-rolled reporting cube
 
 - **Purpose:** Pre-summarized counts and costs at a daily grain across the core reporting dimensions.
 - **Business justification:** Turns "sum 200 million rows" into "sum a few thousand rows." This is what the dashboards and finance reports actually read.
@@ -202,9 +198,13 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 | `ProviderId` | `TINYINT IDENTITY` | **PK**, `CIX` |
 | `Name` | `NVARCHAR(100)` | e.g. "Magfa" |
 | `Code` | `VARCHAR(50)` | `NCIX` unique |
+| `BaseUrl` | `VARCHAR(300)` | primary API endpoint (e.g. public-internet gateway) |
+| `FallbackBaseUrl` | `VARCHAR(300)` | secondary endpoint over a different network path (e.g. intranet/private gateway); nullable |
 | `IsActive` | `BIT` | |
 
 **Why:** Provider count is tiny → `TINYINT`. New providers = new rows, never schema change. *Alternative considered:* provider as a string enum on the fact — rejected (4–6 bytes × 10⁹ and no referential integrity).
+
+**Endpoints live here (provider *info*, not reporting); credentials do not.** `Provider` is a small (<50-row) **entity/info** table that is *also* referenced by the fact — but the "keep it lean for reporting" rule applies to the billion-row fact (which only ever stores `ProviderId` and never widens), **not** to this table. Storing connection endpoints here is therefore free and correct. The driving requirement: in Iranian governmental/enterprise deployments the **same provider is reached over more than one network path simultaneously** — e.g. the public internet **and** an intranet/private gateway — with automatic failover between them. That is runtime data the application reads and fails over on, **not** per-environment (`appsettings`) configuration. We model it as **two columns** — `BaseUrl` (primary) + `FallbackBaseUrl` (secondary path) — which covers the realistic *primary + one fallback* case with zero extra machinery. **Credentials** (`username/domain/password`) are deliberately **excluded** from the table: URLs are not secret, but credentials are, so they stay in the secret store (user-secrets/Key Vault), keyed by `Provider.Code`. *Alternative considered (and deferred):* a child `ProviderEndpoint` table supporting **three or more** network paths with an explicit failover order — rejected for now as over-engineering (YAGNI); see §9 for the escalation path if a provider ever needs more than two paths.
 
 ### 4.3 `SenderLine`
 | Column | Type | Notes |
@@ -212,67 +212,63 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 | `SenderLineId` | `SMALLINT IDENTITY` | **PK**, `CIX` |
 | `ProviderId` | `TINYINT` | **FK** → `Provider` |
 | `LineNumber` | `VARCHAR(20)` | `3000…`, `1000…`, `4040…`; `NCIX` |
-| `LineType` | `TINYINT` | shared/dedicated |
+| `IsSharedLine` | `BIT` | shared (public) line vs. dedicated (private) number |
 | `IsActive` | `BIT` | |
 
-**Why:** Lines have distinct pricing/reachability and belong to a provider. Surrogate `SMALLINT` keeps the fact FK small. *Alternative:* storing the raw line string on each message — rejected (repetition + no metadata).
+**Why:** Lines have distinct pricing/reachability and belong to a provider. Surrogate `SMALLINT` keeps the fact FK small. *Alternative:* storing the raw line string on each message — rejected (repetition + no metadata). The shared-vs-dedicated distinction is genuinely **binary**, so it is modeled as a `BIT` (`IsSharedLine`) rather than a `TINYINT` type code — simpler and self-documenting. (Number-class nuances like `3000`/`1000`/`021` are derivable from `LineNumber` and don't warrant a type column; if a true third line *class* ever emerges, promote `IsSharedLine` back to a `TINYINT`/lookup.)
 
 ### 4.4 `MessageType`
 | Column | Type | Notes |
 |---|---|---|
 | `MessageTypeId` | `TINYINT` | **PK** (seeded), `CIX` |
-| `Name` | `NVARCHAR(50)` | OTP / Transactional / Bulk |
-
-**Why:** Drives priority, tariff selection, and report splits. Seeded enum-like dimension. *Alternative:* a `BIT IsOtp` flag — rejected (not extensible to >2 types).
-
-### 4.5 `BusinessCategory`
-| Column | Type | Notes |
-|---|---|---|
-| `BusinessCategoryId` | `SMALLINT IDENTITY` | **PK**, `CIX` |
-| `CustomerId` | `SMALLINT` | **FK** (category may be tenant-scoped) |
-| `Name` | `NVARCHAR(100)` | "Water Bill", … |
+| `Name` | `NVARCHAR(80)` | "OTP", "Transactional", "Bulk", "Water Bill", "Outage Alert", … |
 | `Code` | `VARCHAR(50)` | `NCIX` |
 
-**Why:** "Water bills" is a primary reporting axis; modeling it as a dimension (not a free-text tag on the fact) makes the *"cost for water bills"* report a single indexed key filter. *Alternative:* free-text category on the message — rejected (inconsistent values, no clean grouping, text bloat).
+**Why:** This is now the **single classification axis** for a message — it carries both the *delivery class* (OTP/Transactional/Bulk) and the *business purpose* (Water Bill, Outage Alert, …) after merging the former `BusinessCategory` dimension. Kept **global and `TINYINT`** for simplicity: the realistic value set is a few dozen. *Alternative considered:* keep `BusinessCategory` as a separate tenant-scoped dimension + a second FK on the fact — rejected for now (an extra table, an extra ~2-byte fact key, and an extra report join for a distinction the platform does not currently need). *Alternative:* a `BIT IsOtp` flag — rejected (not extensible). **Future-proofing (additive):** if tenant-specific purposes proliferate, add a nullable `CustomerId` (NULL = global type) and/or widen to `SMALLINT` — both are non-breaking changes.
 
-### 4.6 `Province` / 4.7 `City` / 4.8 `Zone`
-| `Province` | Type | | `City` | Type | | `Zone` | Type |
-|---|---|---|---|---|---|---|---|
-| `ProvinceId` **PK** | `TINYINT` | | `CityId` **PK** | `SMALLINT` | | `ZoneId` **PK** | `INT` |
-| `Name` | `NVARCHAR(60)` | | `ProvinceId` **FK** | `TINYINT` | | `CityId` **FK** | `SMALLINT` |
-| `Code` | `VARCHAR(10)` | | `Name` | `NVARCHAR(80)` | | `Name` | `NVARCHAR(100)` |
-| | | | `Code` | `VARCHAR(15)` | | `Code` | `VARCHAR(20)` |
+### 4.5 `GeoSection` (self-referencing geographic hierarchy)
+| Column | Type | Notes |
+|---|---|---|
+| `GeoSectionId` | `INT IDENTITY` | **PK**, `CIX` |
+| `ParentGeoSectionId` | `INT` | **FK** → `GeoSection` (self); `NULL` at the top level (province) |
+| `SectionType` | `TINYINT` | 1 = Province, 2 = City, 3 = Zone (extensible to more levels) |
+| `Name` | `NVARCHAR(100)` | |
+| `Code` | `VARCHAR(20)` | `NCIX` |
+| `Path` | `VARCHAR(900)` | materialized ancestor path, e.g. `/12/450/8123/`; `NCIX` for fast subtree filters |
+| `IsActive` | `BIT` | |
 
-**Why a 3-level hierarchy of separate tables:** Province (31), City (~1.2k), Zone (~50k) each have independent reporting demand. Right-sized keys (`TINYINT`/`SMALLINT`/`INT`) minimize the fact footprint. The **fact denormalizes all three FK keys** (not just zone) so province/city reports never need to walk the hierarchy at 10⁹ scale. *Alternative considered:* single flattened "Location" table — rejected (loses clean hierarchy + forces wider/ambiguous keys). *Alternative:* store only `ZoneId` on the fact and derive province/city via joins — rejected (a 3-table join against a billion-row fact for the most common reports).
+**Why one self-referencing table instead of three (`Province`/`City`/`Zone`):** the location structure is a strict hierarchy, and modeling it as a single **adjacency-list** table (`ParentGeoSectionId`) collapses three tables into one while *preserving* the hierarchy — so province/city/zone rollups remain possible. Adding a deeper level later (e.g. a sub-zone) is a data insert, not a schema change. The denormalized **`Path`** (materialized path of ancestor ids) makes "everything under Tehran province" a single sargable `Path LIKE '/<TehranId>/%'` filter, avoiding recursive walks at report time.
 
-### 4.9 `Subscriber`
+**How reports still avoid hierarchy walks on the billion-row fact:** the fact stores a **single** `GeoSectionId` (the most-specific section, typically the zone) instead of three separate keys. Province/city rollups are **not** done against the fact — they are done against the small `MessageDailyAggregate` joined to the small `GeoSection` tree via `Path`. So the billion-row fact is never hierarchy-walked; the aggregate (a few million rows) is. This preserves the original "no multi-join over 10⁹ rows" guarantee with one fact column instead of three (a small storage win: 4 bytes vs. 7).
+
+*Alternatives considered:* (a) keep three separate `Province`/`City`/`Zone` tables with three denormalized fact keys — workable but more tables/keys than needed; superseded by this consolidation at the user's request. (b) a **flat, non-hierarchical** "Section" tag (one level, no parent) — rejected because reports #1/#3/#4/#10 require province/city/zone rollups, which a flat tag cannot express. (c) SQL Server's native **`HIERARCHYID`** type instead of a `Path` string — a valid alternative with built-in `IsDescendantOf`/ordering support; `Path` is chosen here for transparency and portability, but `HIERARCHYID` is an easy swap if subtree queries become hot.
+
+### 4.6 `Subscriber`
 | Column | Type | Notes |
 |---|---|---|
 | `SubscriberId` | `BIGINT IDENTITY` | **PK**, `CIX` |
 | `CustomerId` | `SMALLINT` | **FK** |
 | `MobileNumber` | `VARCHAR(15)` | canonical `98…`; **`NCIX` unique** per customer |
-| `ProvinceId` | `TINYINT` | **FK** (subscriber's home geo) |
-| `CityId` | `SMALLINT` | **FK** |
-| `ZoneId` | `INT` | **FK** |
+| `GeoSectionId` | `INT` | **FK** → `GeoSection` (subscriber's home section, typically zone) |
 | `CreatedAtUtc` | `DATETIME2(3)` | |
 
-**Why separated:** The same subscriber receives many messages; storing the phone number + geography **once** per subscriber rather than once per message saves enormous space and enables *"history of a subscriber"* via a single FK. **Note the deliberate redundancy:** geography also lives on the Message fact (denormalized) — this is intentional (see §7) so reports don't join the 25M-row subscriber table. *Alternative:* no subscriber table, phone number repeated on every message — rejected (15 bytes × 10⁹ + no subscriber-level history + no upsert dedupe).
+**Why separated:** The same subscriber receives many messages; storing the phone number + home section **once** per subscriber rather than once per message saves enormous space and enables *"history of a subscriber"* via a single FK. **Note the deliberate redundancy:** `GeoSectionId` also lives on the Message fact (denormalized) — this is intentional (see §7) so reports don't join the 25M-row subscriber table. *Alternative:* no subscriber table, phone number repeated on every message — rejected (15 bytes × 10⁹ + no subscriber-level history + no upsert dedupe).
 
-### 4.10 `Campaign`
+### 4.7 `Campaign`
 | Column | Type | Notes |
 |---|---|---|
 | `CampaignId` | `BIGINT IDENTITY` | **PK**, `CIX` |
 | `CustomerId` | `SMALLINT` | **FK** |
-| `BusinessCategoryId` | `SMALLINT` | **FK** |
+| `MessageTypeId` | `TINYINT` | **FK** — the campaign's classification/purpose |
 | `MessageTemplateId` | `BIGINT` | **FK** (nullable) |
 | `Name` | `NVARCHAR(200)` | |
 | `Status` | `TINYINT` | Draft/Running/Completed/Failed |
 | `CreatedAtUtc` | `DATETIME2(3)` | |
 | `TotalCount` / `SentCount` / `FailedCount` | `INT` | maintained counters |
 
-**Why:** Operational grouping + the unit of the *campaign summary* report. Counters are maintained by the rollup process, not recomputed by scanning the fact. *Alternative:* derive campaigns implicitly from message timestamps — rejected (no durable identity, no template link, no clean summary).
+**Why:** Operational grouping + the unit of the *campaign summary* report. A campaign sends one kind of message, so it carries a default `MessageTypeId` (which replaced the former `BusinessCategoryId`). Counters are maintained by the rollup process, not recomputed by scanning the fact. *Alternative:* derive campaigns implicitly from message timestamps — rejected (no durable identity, no template link, no clean summary).
 
-### 4.11 `MessageTemplate`
+### 4.8 `MessageTemplate`
 | Column | Type | Notes |
 |---|---|---|
 | `MessageTemplateId` | `BIGINT IDENTITY` | **PK**, `CIX` |
@@ -283,7 +279,7 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 
 **Why separated:** A campaign of 1M messages shares **one** template body. Storing the body once and referencing it (with per-message merge variables in `MessageBody`) instead of repeating ~200 chars × 1M is a decisive storage win. *Alternative:* render and store full text on every message — rejected for campaigns (see §7); still allowed for ad-hoc/transactional messages.
 
-### 4.12 `Tariff` (versioned header)
+### 4.9 `Tariff` (versioned header)
 | Column | Type | Notes |
 |---|---|---|
 | `TariffId` | `INT IDENTITY` | **PK**, `CIX` |
@@ -296,7 +292,7 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 | `IsActive` | `BIT` | |
 | | | `NCIX (ProviderId, MessageTypeId, Encoding, EffectiveFromUtc)` |
 
-### 4.13 `TariffRate` (per-segment detail)
+### 4.10 `TariffRate` (per-segment detail)
 | Column | Type | Notes |
 |---|---|---|
 | `TariffRateId` | `INT IDENTITY` | **PK**, `CIX` |
@@ -307,7 +303,7 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 
 **Why two tables:** the **header** carries the validity window and applicability; the **detail** carries the price banding by character range / segment. This separates "*which tariff applies*" (effective-date resolution) from "*how much*" (rate bands), and lets a tariff version own multiple bands without nullable sprawl. *Alternatives considered:* (a) a single wide tariff row with fixed columns per band — rejected (inflexible, not future-proof for new bands); (b) computing price in application config — rejected (prices must be **data**, auditable and snapshotted). **Crucially, tariff tables are never used at report time** — the resolved price is frozen onto the message (see §6).
 
-### 4.14 `DimDate`
+### 4.11 `DimDate`
 | Column | Type | Notes |
 |---|---|---|
 | `DateKey` | `INT` | **PK**, `CIX` — `yyyymmdd` (Gregorian) |
@@ -320,7 +316,7 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 
 **Why:** *"Spring 1405"* is not expressible as a contiguous Gregorian range without conversion. A pre-computed Jalali dimension turns it into `WHERE PersianYear=1405 AND PersianSeason=1`. The fact stores an `INT DateKey` (4 bytes, cheaper than `DATE`/`DATETIME2` for grouping and partition alignment). *Alternative:* convert Jalali at query time with functions — rejected (non-sargable, kills index usage on a billion rows).
 
-### 4.15 `Message` — the fact (most-scrutinized table)
+### 4.12 `Message` — the fact (most-scrutinized table)
 | Column | Type | Notes |
 |---|---|---|
 | `MessageId` | `BIGINT IDENTITY` | **PK** (nonclustered — see §8) |
@@ -331,11 +327,8 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 | `SubscriberId` | `BIGINT` | **FK** |
 | `ProviderId` | `TINYINT` | **FK** (denormalized) |
 | `SenderLineId` | `SMALLINT` | **FK** |
-| `MessageTypeId` | `TINYINT` | **FK** |
-| `BusinessCategoryId` | `SMALLINT` | **FK** |
-| `ProvinceId` | `TINYINT` | **FK** (denormalized from subscriber) |
-| `CityId` | `SMALLINT` | **FK** (denormalized) |
-| `ZoneId` | `INT` | **FK** (denormalized) |
+| `MessageTypeId` | `TINYINT` | **FK** (delivery class + business purpose) |
+| `GeoSectionId` | `INT` | **FK** → `GeoSection` (denormalized from subscriber; most-specific section, typically zone) |
 | `BillNumber` | `VARCHAR(40)` | nullable; business reference for *bill history* |
 | `Encoding` | `TINYINT` | GSM7 / UCS2 (snapshot) |
 | `CharacterCount` | `SMALLINT` | snapshot |
@@ -357,17 +350,18 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 
 **Why this structure is preferred:**
 - **Narrow + fixed-width:** no free text; every reporting/cost attribute is a small key or number → maximal rows per page, smaller indexes, cheaper inserts, faster scans.
-- **Denormalized dimension keys** (`ProvinceId/CityId/ZoneId/ProviderId/BusinessCategoryId/MessageTypeId`): the §5 reports filter/group on these **without joining** the huge fact to dimensions. Joins (for labels) happen only against the tiny aggregate output.
+- **Denormalized dimension keys** (`GeoSectionId/ProviderId/MessageTypeId/CustomerId`): the §5 reports filter/group on these **without joining** the huge fact to dimensions. Joins (for labels / hierarchy rollup) happen only against the tiny aggregate output.
 - **Frozen cost snapshot** (`Encoding/CharacterCount/SegmentCount/TariffId/UnitPrice/TotalCost`): historical accuracy is independent of later tariff edits.
 - **Normalized `Status` + `ProviderMessageId`:** provider-agnostic reporting + an efficient DLR update path.
 
 **Alternatives considered & rejected:**
-- *Fully normalized fact (only `ZoneId` + `SubscriberId`, derive everything by join):* rejected — multi-join aggregation over 10⁹ rows is the exact anti-pattern the requirements forbid.
+- *Fully normalized fact (only `SubscriberId`, derive geo/provider/type by join):* rejected — multi-join aggregation over 10⁹ rows is the exact anti-pattern the requirements forbid.
+- *Three geo keys (`ProvinceId/CityId/ZoneId`) on the fact:* superseded — a single `GeoSectionId` + the `GeoSection` tree gives the same rollups with one column.
 - *Cost computed at report time from tariff tables:* rejected — breaks historical accuracy and makes every cost report join versioned tariffs.
-- *Storing message text inline:* rejected — bloats the fact, slashes rows-per-page, and couples retention of cheap facts to expensive text (see §16/§7).
+- *Storing message text inline:* rejected — bloats the fact, slashes rows-per-page, and couples retention of cheap facts to expensive text (see §4.13 / §7).
 - *`UNIQUEIDENTIFIER` key:* rejected — random GUID clustered key causes fragmentation and worse page density; even as a nonclustered PK it is 16 bytes × 10⁹.
 
-### 4.16 `MessageBody`
+### 4.13 `MessageBody`
 | Column | Type | Notes |
 |---|---|---|
 | `MessageId` | `BIGINT` | **PK = FK** → `Message` (1:1), `CIX`, partition-aligned on `SubmitDateKey` |
@@ -378,7 +372,7 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 
 **Why separated from `Message`:** detailed in §7. Short version: keeps the fact narrow and lets text be compressed and **purged on its own (shorter) retention schedule**. *Alternative:* one wide table — rejected (couples hot fact to cold text). *Alternative:* always store `RenderedText` — rejected for campaigns (template + variables is far smaller).
 
-### 4.17 `DeliveryReportLog` (optional, off by default)
+### 4.14 `DeliveryReportLog` (optional, off by default)
 | Column | Type | Notes |
 |---|---|---|
 | `DeliveryReportLogId` | `BIGINT IDENTITY` | **PK**, `CIX` |
@@ -389,43 +383,41 @@ Tables are grouped by role. Volume estimates assume the §1.2 sizing.
 
 **Why optional:** the **current** normalized status already lives on `Message`, which satisfies all reporting. A full per-event log **at least doubles the row count of the largest table**. **Tradeoff/decision:** enable only if forensic audit or DLR reprocessing is a hard requirement; if enabled, give it **aggressive short retention** (30–90 days) and its own partitioning. *Default recommendation: keep disabled; rely on the snapshot status on `Message`.*
 
-### 4.18 `MessageDailyAggregate`
+### 4.15 `MessageDailyAggregate`
 | Column | Type | Notes |
 |---|---|---|
 | `DateKey` | `INT` | part of **PK**, **FK** → `DimDate` |
 | `CustomerId` | `SMALLINT` | part of PK |
-| `ProvinceId` | `TINYINT` | part of PK |
-| `CityId` | `SMALLINT` | part of PK |
+| `GeoSectionId` | `INT` | part of PK — at the configured reporting level (city by default) |
 | `ProviderId` | `TINYINT` | part of PK |
-| `BusinessCategoryId` | `SMALLINT` | part of PK |
-| `MessageTypeId` | `TINYINT` | part of PK |
+| `MessageTypeId` | `TINYINT` | part of PK (delivery class + business purpose) |
 | `NormalizedStatus` | `TINYINT` | part of PK (for success-rate reports) |
 | `MessageCount` | `BIGINT` | measure |
 | `SegmentCount` | `BIGINT` | measure |
 | `TotalCost` | `DECIMAL(19,4)` | measure |
 
-**Indexing:** clustered on the composite key above (chosen so the most common range filter — `DateKey` — leads, enabling partition-eliminable, range-friendly scans). **Zone is intentionally excluded** from the default grain to bound cardinality; zone-level analytics use the columnstore on the fact instead. *Alternative:* include every dimension (incl. zone) — rejected (combinatorial explosion erodes the aggregate's value). *Alternative:* materialized/indexed view — considered, but a **physically maintained table** updated post-commit avoids indexed-view locking/maintenance overhead on the hot insert path.
+**Indexing:** clustered on the composite key above (chosen so the most common range filter — `DateKey` — leads, enabling partition-eliminable, range-friendly scans). **The cube is keyed on `GeoSectionId` at a bounded reporting level (city by default).** The async rollup resolves each message's zone up to its city ancestor (a cheap `GeoSection` lookup) before upserting, which **bounds cardinality** the same way the earlier design excluded `Zone`. Province/top-level rollups are obtained by joining the small aggregate to the `GeoSection` tree via `Path`; **zone-level** detail is served by the columnstore on the fact (§8). *Alternative:* key the cube at zone granularity — rejected by default (combinatorial explosion: zones × days × provider × type × status). *Alternative:* materialized/indexed view — considered, but a **physically maintained table** updated post-commit avoids indexed-view locking/maintenance overhead on the hot insert path.
 
 ---
 
 ## 5. Reporting Validation
 
-For each report: **required tables**, **join strategy**, **performance considerations**. The recurring theme: **aggregate reports read `MessageDailyAggregate` (tiny) and join only to small dimensions for labels; they never scan the billion-row fact.** Point-lookup reports hit a targeted nonclustered index on the fact.
+For each report: **required tables**, **join strategy**, **performance considerations**. The recurring theme: **aggregate reports read `MessageDailyAggregate` (tiny) and join only to small dimensions/the geo tree for labels & rollups; they never scan the billion-row fact.** Point-lookup reports hit a targeted nonclustered index on the fact.
 
 | # | Report | Required tables | Join strategy | Performance |
 |---|---|---|---|---|
-| 1 | **Cost for Tehran province, Spring 1405, water bills** | `MessageDailyAggregate` + `DimDate` + `Province` + `BusinessCategory` | Filter `DimDate` (`PersianYear=1405, PersianSeason=1`) → join `DateKey`; filter `ProvinceId=<Tehran>`, `BusinessCategoryId=<Water>`; `SUM(TotalCost)` | Aggregate-only; hundreds–thousands of rows; sub-second. No fact scan. |
+| 1 | **Cost for Tehran province, Spring 1405, water bills** | `MessageDailyAggregate` + `DimDate` + `GeoSection` + `MessageType` | Filter `DimDate` (`PersianYear=1405, PersianSeason=1`) → join `DateKey`; resolve Tehran's `GeoSectionId`, restrict aggregate rows under it via `GeoSection.Path LIKE '/<Tehran>/%'`; filter `MessageTypeId=<Water Bill>`; `SUM(TotalCost)` | Aggregate + small-tree join; sub-second. No fact scan. |
 | 2 | **Cost by provider** | `MessageDailyAggregate` + `Provider` | `GROUP BY ProviderId`, join `Provider` for names | Trivial; aggregate scan + tiny join. |
-| 3 | **Count by city** | `MessageDailyAggregate` + `City` | `GROUP BY CityId` | Aggregate-only. |
-| 4 | **Count by zone** | `Message` (columnstore) **or** a dedicated zone aggregate | `GROUP BY ZoneId` over partition-eliminated columnstore | Zone excluded from default aggregate → use columnstore with date-partition elimination; seconds, not minutes. |
+| 3 | **Count by city** | `MessageDailyAggregate` + `GeoSection` | `GROUP BY GeoSectionId` (cube is at city level), join `GeoSection` for names | Aggregate-only. |
+| 4 | **Count by zone** | `Message` (columnstore) + `GeoSection` | `GROUP BY GeoSectionId` (zone) over partition-eliminated columnstore | Zone excluded from default cube → columnstore with date-partition elimination; seconds, not minutes. |
 | 5 | **History of a subscriber** | `Message` + `MessageBody` + `Subscriber` | Point lookup via `NCIX (SubscriberId, SubmitDateKey)`; optional body join | Index seek; milliseconds. Body fetched only if displayed. |
 | 6 | **History of a bill** | `Message` (+`MessageBody`) | Seek `filtered NCIX (BillNumber)` | Index seek; few rows; fast. |
 | 7 | **Delivery success rate by provider** | `MessageDailyAggregate` | `SUM(CASE Status=Delivered)/SUM(MessageCount) GROUP BY ProviderId` | `NormalizedStatus` is part of the aggregate grain → direct. |
 | 8 | **Campaign summary** | `Campaign` (+ `Message` if drill-down) | Read maintained counters on `Campaign`; drill-down via `NCIX` on `CampaignId` if needed | Counters = O(1). Drill-down = partitioned index seek. |
 | 9 | **Monthly cost trend** | `MessageDailyAggregate` + `DimDate` | `GROUP BY PersianYearMonth` | Aggregate-only; ideal for time series. |
-| 10 | **Top provinces by spend** | `MessageDailyAggregate` + `Province` | `GROUP BY ProvinceId ORDER BY SUM(TotalCost) DESC` | Aggregate-only; trivial. |
+| 10 | **Top provinces by spend** | `MessageDailyAggregate` + `GeoSection` | Roll each cube row up to its province ancestor via `GeoSection.Path`; `GROUP BY province ORDER BY SUM(TotalCost) DESC` | Aggregate + small-tree join; trivial. |
 
-**Key validation outcome:** every *aggregate* report is answerable from a table that grows with **dimension combinations × days**, not with **messages** — so reporting performance stays flat as the fact grows from 10M to 1B. Every *point-lookup* report is answerable by a single, deliberately chosen nonclustered index seek on the fact. A reporting query for a campaign that fires DLR updates does **not** contend with the fact's hot insert region because reads target the aggregate / cold partitions (see §8).
+**Key validation outcome:** every *aggregate* report is answerable from a table that grows with **dimension combinations × days**, not with **messages** — so reporting performance stays flat as the fact grows from 10M to 1B. Province/city rollups join only the small aggregate to the small `GeoSection` tree (never the fact). Every *point-lookup* report is answerable by a single, deliberately chosen nonclustered index seek on the fact. A reporting query for a campaign that fires DLR updates does **not** contend with the fact's hot insert region because reads target the aggregate / cold partitions (see §8).
 
 ---
 
@@ -466,12 +458,12 @@ This makes each `Message` row a **self-contained billing record**: even if `Tari
 At 10⁸–10⁹ rows, storage strategy *is* the architecture. Principle: **duplicate small fixed-width keys freely (cheap, kills joins); never duplicate large/variable text (expensive).**
 
 ### 7.1 What should be duplicated (denormalized) — and why it's worth it
-- **Geographic keys (`ProvinceId/CityId/ZoneId`) and `ProviderId` on the fact.** These are 1–4 byte keys. Duplicating them across the fact removes multi-join hops from every report. The cost (a few bytes × rows) is trivial next to the read-time savings.
+- **Geo-section key (`GeoSectionId`, a 4-byte INT) and `ProviderId` on the fact.** These are tiny keys. Duplicating them across the fact removes multi-join hops from every report. The cost (a few bytes × rows) is trivial next to the read-time savings — and the single `GeoSectionId` is *cheaper* than the former three geo keys.
 - **Cost snapshot on the fact.** Duplicating `UnitPrice/TotalCost` (already implied by §6) buys immutability and join-free cost reporting.
 
 ### 7.2 What should **not** be duplicated
 - **Phone numbers / subscriber attributes** → live once in `Subscriber`; fact stores `SubscriberId`. (15-byte string × 10⁹ avoided.)
-- **Descriptive names** (province/city/provider/category names) → never on the fact; joined for labels only against tiny dimensions or aggregate output.
+- **Descriptive names** (geo-section / provider / message-type names) → never on the fact; joined for labels only against tiny dimensions or aggregate output.
 - **Template bodies** → stored once in `MessageTemplate`.
 
 ### 7.3 Should message text be normalized? → **Yes, separated and conditionally normalized**
@@ -482,16 +474,17 @@ At 10⁸–10⁹ rows, storage strategy *is* the architecture. Principle: **dupl
 - Apply **`PAGE` compression** (and Unicode compression) to `MessageBody`.
 
 ### 7.4 Should campaign templates be stored separately? → **Yes**
-One template body per campaign vs. repeating it across up to millions of rows is among the largest single storage wins; it also enables template reuse and analytics. (See `MessageTemplate`, §4.11.)
+One template body per campaign vs. repeating it across up to millions of rows is among the largest single storage wins; it also enables template reuse and analytics. (See `MessageTemplate`, §4.8.)
 
 ### 7.5 Should recipients be separated from messages? → **Yes**
-`Subscriber` is a **bounded** population reused across the unbounded message stream. Separation (a) deduplicates phone/geography, (b) enables subscriber-level history via one FK, (c) supports upsert/dedup of inbound recipient lists. The deliberate **counter-duplication** of geography keys onto the fact (so reports avoid joining the 25M-row subscriber table) is the consciously accepted tradeoff.
+`Subscriber` is a **bounded** population reused across the unbounded message stream. Separation (a) deduplicates phone/geo, (b) enables subscriber-level history via one FK, (c) supports upsert/dedup of inbound recipient lists. The deliberate **counter-duplication** of `GeoSectionId` onto the fact (so reports avoid joining the 25M-row subscriber table) is the consciously accepted tradeoff.
 
 ### 7.6 Tradeoff summary
 
 | Decision | Saves | Costs | Verdict |
 |---|---|---|---|
-| Denormalize geo/provider keys onto fact | Join elimination at 10⁹ scale | ~8–10 bytes/row | **Adopt** |
+| Denormalize geo-section + provider keys onto fact | Join elimination at 10⁹ scale | ~5 bytes/row | **Adopt** |
+| Single `GeoSection` tree vs. three geo tables | One fact key + fewer tables | Rollups join the small geo tree | **Adopt** |
 | Subscriber as dimension | Phone/geo dedupe; subscriber history | One FK join for some lookups | **Adopt** |
 | Text in `MessageBody` (separate) | Narrow fact; independent retention/compression | 1 extra 1:1 table | **Adopt** |
 | Template + variables for campaigns | Largest text saving | On-demand render to view body | **Adopt** |
@@ -562,8 +555,11 @@ The schema is built so that the following changes are **additive (insert rows / 
 
 | Future need | How it's absorbed |
 |---|---|
-| **New SMS provider** | Insert into `Provider`, `SenderLine`, `Tariff`/`TariffRate`. Fact stores `ProviderId` + normalized `Status` → no schema or report change. Provider-specific codes map into the existing normalized status. |
-| **New business metadata** | Add nullable columns to the **fact** (cheap fixed-width) or to `MessageBody` (variable). Existing rows default to NULL; no backfill required. New *categorical* metadata → a new dimension table + a `SMALLINT` FK on the fact. |
+| **New SMS provider** | Insert into `Provider` (incl. its `BaseUrl`/`FallbackBaseUrl`), `SenderLine`, `Tariff`/`TariffRate`; add only the provider's **credentials** to the secret store. Fact stores `ProviderId` + normalized `Status` → no schema or report change. Provider-specific codes map into the existing normalized status. |
+| **More than two provider network paths** | *(Deferred — only if required.)* `Provider` carries `BaseUrl` + `FallbackBaseUrl` (primary + one fallback). If a provider must be reached over **three or more** network paths (e.g. internet + multiple intranets) with explicit failover ordering, escalate to a child `ProviderEndpoint(ProviderId, NetworkType, BaseUrl, Priority, IsActive)` table rather than adding more URL columns (see §4.2). |
+| **Deeper geography (sub-zones, regions above province)** | Insert `GeoSection` rows at a new `SectionType` level; the self-referencing tree and `Path` absorb arbitrary depth with no schema change. |
+| **Tenant-specific message types / business purposes** | Add a nullable `CustomerId` to `MessageType` (NULL = global) and/or widen `MessageTypeId` to `SMALLINT` — additive; no fact rewrite. |
+| **New business metadata** | Add nullable columns to the **fact** (cheap fixed-width) or to `MessageBody` (variable). Existing rows default to NULL; no backfill required. New *categorical* metadata → a new dimension table + a narrow FK on the fact. |
 | **New reporting dimension** | Add the dimension table + a narrow FK key on the fact; extend `MessageDailyAggregate` grain (or add a second purpose-built aggregate). Columnstore on the fact covers ad-hoc needs immediately. |
 | **New delivery-report mechanism** (push webhooks, richer states) | The normalized `Status` enum extends with new values; `DeliveryReportLog` (if enabled) captures new raw codes. No change to reporting that reads normalized status. |
 | **New Jalali reporting periods / fiscal calendars** | Add columns to `DimDate` (e.g. fiscal week); fact/aggregate unaffected. |
@@ -577,8 +573,8 @@ Per the explicit mandate — **not** normalization purity or theoretical eleganc
 
 1. **High-volume processing first.** Narrow fixed-width fact, partition-aligned clustered key, sequential-key optimization, minimal indexes, batched short-transaction inserts, async aggregation.
 2. **Reporting simplicity.** Denormalized dimension keys on the fact + a pre-aggregated cube ⇒ aggregate reports are flat-cost regardless of fact size; point-lookups are single index seeks.
-3. **Long-term maintainability.** Additive evolution; versioned tariffs; provider-agnostic normalized status; clean fact/dimension separation.
-4. **Low storage consumption.** No duplicated text/phones/names; templates and bodies separated; campaign messages store template+variables; compression on cold data; optional high-volume log off by default.
+3. **Long-term maintainability.** Additive evolution; versioned tariffs; provider-agnostic normalized status; clean fact/dimension separation; one geo tree instead of three tables.
+4. **Low storage consumption.** No duplicated text/phones/names; one geo key instead of three; templates and bodies separated; campaign messages store template+variables; compression on cold data; optional high-volume log off by default.
 5. **Minimal deadlocks.** Partition-scoped locking, sub-escalation batch sizes, RCSI reads, async post-commit rollups, consistent write ordering.
 6. **Simple operational support.** Retention via partition switching (no delete storms); self-contained billing rows (auditable without tariff tables); small dimensions easy to cache and reason about.
 
@@ -589,7 +585,7 @@ Per the explicit mandate — **not** normalization purity or theoretical eleganc
 ### Open decisions for reviewers
 
 1. **`DeliveryReportLog`** — confirm whether forensic/raw-DLR audit is a hard requirement (default: **off**, status snapshot on `Message` only).
-2. **`MessageDailyAggregate` grain** — confirm exclusion of `Zone` from the default cube (zone served via columnstore). Add a second zone-grain aggregate if zone reports are frequent.
+2. **`MessageDailyAggregate` geo grain** — confirm the cube's default reporting level is **city** (zone rolled up at write time; zone-level detail via columnstore), vs. keying the cube at zone granularity.
 3. **Body retention window** — confirm a shorter retention for `MessageBody` than for `Message` is legally acceptable.
-4. **Multi-tenancy depth** — confirm `Customer` is the isolation grain and whether per-customer tariffs are ever needed (currently tariffs are per provider).
+4. **`MessageType` scope** — confirm a single global, type-merged dimension (delivery class + business purpose) is sufficient, or whether tenant-specific purposes (nullable `CustomerId`) are needed now.
 5. **Partition cadence** — monthly proposed; confirm vs. weekly given peak daily volumes.
