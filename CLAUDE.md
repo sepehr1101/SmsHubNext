@@ -6,11 +6,12 @@ Guidance for Claude when working in the **SmsHubNext** repository. Keep this fil
 
 ## 1. What this project is
 
-**SmsHubNext** is a high-volume, multi-tenant **SMS dispatch and accounting platform** for Iranian SMS providers. Primary use case: utility/organizational notifications (e.g. water-bill SMS) sent to subscribers across Iranian provinces/cities/zones, billed and reported by provider, geography, business category, and **Jalali (Persian) calendar** period.
+**SmsHubNext** is a high-volume, multi-tenant **SMS dispatch and accounting platform** for Iranian SMS providers. Primary use case: utility/organizational notifications (e.g. water-bill SMS) sent to **ad-hoc recipients** across Iranian geographic sections (province → city → zone), billed and reported by provider, geography, message type, and **Jalali (Persian) calendar** period.
 
 - **First provider:** Magfa (sender lines `3000…`, `1000…`, `4040…`, etc.). Designed so more providers are added later by inserting data, not changing schema.
 - **Currency:** Iranian Rial (IRR).
-- **Reporting calendar:** Jalali (e.g. "Spring 1405"), stored UTC + a Jalali date dimension.
+- **Reporting calendar:** Jalali (e.g. "Spring 1405"); precise instant stored UTC (`SubmittedAtUtc`), and a single `SubmitDateJalali CHAR(10)` (`1405/01/03`) is the partition + period key (no date-dimension table).
+- **Each message is distinct** (caller supplies the full text); **customers authenticate with API keys**.
 
 ## 2. CURRENT PHASE — scope guardrails ⚠️
 
@@ -37,6 +38,8 @@ We are in the **database & storage architecture design** phase. The data model m
 | Database | **SQL Server (2019+)** | Chosen for partitioning, `OPTIMIZE_FOR_SEQUENTIAL_KEY`, lock-escalation control, columnstore |
 | Money type | `DECIMAL(19,4)`, IRR | |
 | Text | `NVARCHAR` for Persian; `VARCHAR` for phone numbers/codes (ASCII) | |
+| Naming | Every table's PK is `Id`; FKs are `<Table>Id` (`CustomerId`, `ProviderId`, `MessageId`, …) | |
+| Auth | Per-customer **API keys**, stored as **SHA-256 hash** only (never plaintext); optional per-key CIDR allow-list | |
 | Architecture (later) | Clean Architecture; providers as pluggable adapters behind `ISmsProvider` | Not built yet |
 | Send model (later) | Async outbox + status polling (recommended) | Not built yet |
 
@@ -45,16 +48,22 @@ We are in the **database & storage architecture design** phase. The data model m
 These are the load-bearing choices from `README.md`. Don't silently contradict them:
 
 - **Fact + dimension model.** `Message` is the central high-volume fact (up to ~1B rows at 5yr). Small dimensions referenced by surrogate keys.
-- **Deliberate denormalization for reporting.** The fact carries denormalized dimension keys (`ProvinceId/CityId/ZoneId/ProviderId/BusinessCategoryId/MessageTypeId`) so aggregate reports don't join the billion-row fact.
+- **Deliberate denormalization for reporting.** The fact carries denormalized dimension keys (`GeoSectionId/ProviderId/MessageTypeId/CustomerId`), the Jalali date (`SubmitDateJalali`), and the current `DeliveryStatus` so aggregate reports don't join the billion-row fact.
+- **Single self-referencing `GeoSection`** (Province → City → Zone via `ParentGeoSectionId` + `SectionType` + materialized `Path`) replaces separate Province/City/Zone tables.
+- **`MessageType` is the single classification axis** — delivery class **and** business purpose merged (no separate `BusinessCategory`).
 - **Cost snapshotting.** Tariffs are versioned by effective-date range, but the resolved price (`Encoding/CharacterCount/SegmentCount/TariffId/UnitPrice/TotalCost`) is **frozen onto each `Message`** at submission so history stays accurate after tariff changes. Reporting never re-resolves tariffs.
-- **Narrow fact, separate text.** No free text on `Message`; the body lives in a 1:1 `MessageBody` table (template + merge vars for campaigns; full text for ad-hoc) with shorter retention.
-- **Pre-aggregation.** `MessageDailyAggregate` powers aggregate reports at flat cost regardless of fact growth.
-- **Concurrency:** monthly **partitioning** by `SubmitDateKey`; clustered key `(SubmitDateKey, MessageId)` with `OPTIMIZE_FOR_SEQUENTIAL_KEY = ON`; minimal nonclustered indexes; batch inserts < 5,000 rows/txn (under lock-escalation threshold); RCSI reads; async post-commit aggregation; retention via partition switching.
+- **Narrow fact, separate text.** No text on `Message`; the distinct body lives in a 1:1 `MessageBody` (keyed by `Id`, partitioned by `Id`, shorter independent retention).
+- **Delivery model (CQRS-ish).** `Message` carries a **denormalized current `DeliveryStatus`** (read model, updated in place **only on the hot rowstore partition** — terminal by the time a partition is columnstore-compressed) ⇒ success rate is a **join-free `GROUP BY`**. Full status history is the **append-only `DeliveryReport`** stream.
+- **Analytics via columnstore**, not a pre-aggregate cube (the former `MessageDailyAggregate` was removed). Nonclustered columnstore on cold partitions.
+- **Concurrency:** **Jalali-monthly partitioning** by `SubmitDateJalali`; clustered key `(SubmitDateJalali, Id)` with `OPTIMIZE_FOR_SEQUENTIAL_KEY = ON`; minimal nonclustered indexes (`DeliveryStatus` deliberately un-indexed); batch inserts < 5,000 rows/txn; append-only DLR history + narrow hot-partition status updates; RCSI reads; retention via partition switching.
+- **Removed (re-introducible additively):** `Campaign`, `MessageTemplate`, `Subscriber`, `DimDate`, `MessageDailyAggregate`, `BusinessCategory`. Don't reintroduce without explicit ask.
 - **Optimize for:** write throughput, reporting simplicity, low storage, minimal deadlocks, maintainability — **not** normalization purity.
 
 ## 5. Domain glossary (quick reference)
 
-Customer (tenant) · Provider · SenderLine · MessageType · BusinessCategory · Province/City/Zone · Subscriber (recipient) · Campaign · MessageTemplate · Message (fact) · MessageBody · Tariff/TariffRate · DeliveryReport (normalized status on Message) · DimDate (Jalali).
+12 tables: Customer · ApiKey · ApiKeyIpRestriction · Provider · SenderLine · MessageType · GeoSection (self-referencing) · Tariff · TariffRate · Message (fact + current `DeliveryStatus`) · MessageBody · DeliveryReport (append-only status history).
+
+Recipient = `MobileNumber` on the message (ad-hoc, no Subscriber table). Caller references on the message: `ClientCorrelatedId` (idempotency), `BillId`, `PayId` (all nullable).
 
 Full table-by-table detail lives in **`README.md`** — read it before changing the schema.
 
@@ -81,8 +90,9 @@ Full table-by-table detail lives in **`README.md`** — read it before changing 
 
 ## 8. Open review questions (from README §10)
 
-1. `DeliveryReportLog` raw-DLR audit — keep off by default?
-2. `MessageDailyAggregate` grain — exclude `Zone` (served via columnstore)?
-3. `MessageBody` shorter retention than `Message` — legally OK?
-4. Multi-tenancy grain = `Customer`; per-customer tariffs ever needed?
-5. Partition cadence — monthly vs. weekly given peak daily volume?
+1. Delivery model — confirm denormalized `Message.DeliveryStatus` (fast reads) + append-only `DeliveryReport` (history).
+2. `DeliveryReport` retention — full history in lockstep with `Message`, or shorten/make optional?
+3. `MessageBody` shorter, `Id`-partitioned retention — legally OK?
+4. `MessageType` scope — single global type-merged dimension, or tenant-specific purposes now?
+5. API key model — hashed `ApiKey` + optional `ApiKeyIpRestriction` sufficient, or scopes/per-message attribution now?
+6. Partition cadence — Jalali-monthly vs. weekly given peak daily volume?
