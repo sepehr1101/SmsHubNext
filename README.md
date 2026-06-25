@@ -1,6 +1,6 @@
 # SmsHubNext — Database & Storage Architecture Design
 
-> **Status:** Design proposal — *for architectural review*
+> **Status:** **Design validated — data model locked** (review closed; see §10). Implementation not yet started.
 > **Scope of this document:** Data model and storage architecture **only**. No application, transport (RabbitMQ), provider integration, or API code is described here. The goal is to **validate the data model before any implementation begins.**
 > **Target engine:** **Microsoft SQL Server** (2019+). The requirements explicitly reference *lock escalation, page contention, clustered/nonclustered indexes,* and *hot partitions* — all SQL Server concepts — and the platform is built on .NET. The logical model remains portable; the physical tuning notes are SQL-Server-specific and are flagged as such.
 > **Naming:** every table's own primary key is `Id`; a foreign key is named after the table it references (`CustomerId`, `ProviderId`, `MessageId`, …).
@@ -513,11 +513,15 @@ All additive — insert rows / add a nullable column / add a partition / add a t
 
 ---
 
-### Open decisions for reviewers
+### Resolved decisions (design review closed)
 
-1. **Delivery model** — confirm the **denormalized `Message.DeliveryStatus` (fast reads) + append-only `DeliveryReport` (history)** split.
-2. **`DeliveryReport` retention** — keep full history in lockstep with `Message`, or shorten/make optional now that current state is on `Message`?
-3. **Body retention window** — confirm shorter, `Id`-partitioned retention for `MessageBody` is legally acceptable.
-4. **`MessageType` scope** — single global type-merged dimension sufficient, or tenant-specific purposes now?
-5. **API key model** — hashed `ApiKey` + optional `ApiKeyIpRestriction` sufficient, or scopes/per-message attribution now?
-6. **Partition cadence** — Jalali-monthly proposed; confirm vs. weekly given peak daily volumes.
+All six reviewer questions were resolved in favor of the design as presented:
+
+1. **Delivery model — ✅ confirmed.** Denormalized `Message.DeliveryStatus` (join-free, fast reads) **plus** the append-only `DeliveryReport` history.
+2. **`DeliveryReport` retention — ✅ lockstep with `Message`.** Full delivery history is kept and dropped together by partition switching.
+3. **Body retention — ✅ shorter is acceptable.** `MessageBody` is purged earlier on its own `Id`-partitioned schedule.
+4. **`MessageType` scope — ✅ single global `TINYINT`.** Tenant-specific purposes remain an additive option (nullable `CustomerId` / widen to `SMALLINT`).
+5. **API key model — ✅ sufficient.** Hashed `ApiKey` + optional `ApiKeyIpRestriction`; scopes and per-message attribution remain additive options (§9).
+6. **Partition cadence — ✅ Jalali-monthly.** Weekly remains an additive fallback if a hot partition grows too large.
+
+> **The data model is locked for the current phase.** Changes from here should be additive (§9) unless a decision above is explicitly reopened.

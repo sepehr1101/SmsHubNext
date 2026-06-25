@@ -15,7 +15,7 @@ Guidance for Claude when working in the **SmsHubNext** repository. Keep this fil
 
 ## 2. CURRENT PHASE — scope guardrails ⚠️
 
-We are in the **database & storage architecture design** phase. The data model must be validated before any implementation.
+The **database & storage architecture design** is **validated and locked** (the 6 review questions are resolved — see §8 / README §10). We remain **pre-implementation**: do not start app code until the user explicitly moves to Phase 0. Schema changes from here should be **additive** (README §9) unless a locked decision is explicitly reopened.
 
 **Do NOT, in this phase:**
 - ❌ Implement the application or write ASP.NET Core code
@@ -88,11 +88,13 @@ Full table-by-table detail lives in **`README.md`** — read it before changing 
 - **Match surrounding code/docs style.** This repo's design docs are detailed and justify tradeoffs — keep that bar.
 - **When a tradeoff exists, explain the reasoning** rather than just picking one.
 
-## 8. Open review questions (from README §10)
+## 8. Resolved review decisions (locked)
 
-1. Delivery model — confirm denormalized `Message.DeliveryStatus` (fast reads) + append-only `DeliveryReport` (history).
-2. `DeliveryReport` retention — full history in lockstep with `Message`, or shorten/make optional?
-3. `MessageBody` shorter, `Id`-partitioned retention — legally OK?
-4. `MessageType` scope — single global type-merged dimension, or tenant-specific purposes now?
-5. API key model — hashed `ApiKey` + optional `ApiKeyIpRestriction` sufficient, or scopes/per-message attribution now?
-6. Partition cadence — Jalali-monthly vs. weekly given peak daily volume?
+All resolved in favor of the design as presented (README §10):
+
+1. Delivery model — **denormalized `Message.DeliveryStatus` + append-only `DeliveryReport`**.
+2. `DeliveryReport` retention — **lockstep with `Message`** (full history).
+3. `MessageBody` retention — **shorter, `Id`-partitioned** purge is acceptable.
+4. `MessageType` — **single global `TINYINT`** (tenant-scoping additive later).
+5. API keys — **hashed `ApiKey` + optional `ApiKeyIpRestriction`** sufficient (scopes/attribution additive later).
+6. Partition cadence — **Jalali-monthly** (weekly is an additive fallback).
