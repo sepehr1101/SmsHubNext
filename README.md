@@ -86,9 +86,12 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | **Provider** | An SMS carrier/aggregator (Magfa, …). Owns sender lines and tariffs; source of delivery reports. |
 | **Sender Line** | A specific origin number (`3000…`, `1000…`, `4040…`). |
 | **Message Type** | Single classification axis — *delivery class* (OTP/Transactional/Bulk) **and** *business purpose* (Water Bill, …). |
-| **Message** | The central **fact**: one SMS send. Carries text reference, recipient, references, Jalali date, cost snapshot, **send-lifecycle status**, and a **denormalized current `DeliveryStatus`** (read model). |
+| **Message Batch** | One row per API call (the request/accounting unit): who called (`CustomerId`, `ApiKeyId`), counts + cost rollups, batch idempotency, and a dispatch lifecycle `Status`/`StatusReason` (incl. provider-credit holds). Each `Message` references its batch. |
+| **Message** | The central **fact**: one SMS send. Carries text reference, recipient, references, Jalali date, cost snapshot, **send-lifecycle status**, a **denormalized current `DeliveryStatus`** (read model), and a FK to its `MessageBatch`. |
 | **Message Body** | The exact sent text (1:1 with Message), separated for storage/retention. |
 | **Delivery Report** | An **append-only** status event for a message; full history. The current state is projected onto `Message.DeliveryStatus`. |
+| **Customer Balance** | A customer's current **prepaid** balance (IRR); one row per customer. Debited atomically at batch accept. |
+| **Balance Transaction** | Append-only money **ledger** (top-up / debit / refund / adjustment) for audit and reconciliation against `CustomerBalance`. |
 | **Recipient** | The receiver — a **`MobileNumber` on the message** (ad-hoc; not a managed dimension). |
 | **Client / Business references** | Caller-supplied ids on the message: `ClientCorrelatedId` (idempotency), `BillId`, `PayId`. |
 | **Tariff** | Time-bounded pricing for a (provider, encoding, message-type) combination; versioned by effective range. |
@@ -118,6 +121,9 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | 10 | **`Message`** | **Fact (hot) + delivery read model** | **~10M** | **~120M** | **~0.6–1B** |
 | 11 | `MessageBody` | Fact satellite (text) | ~10M | ~120M | ~0.6–1B |
 | 12 | **`DeliveryReport`** | **Status-event history (append-only)** | ~12M | ~150M | ~1B+ |
+| 13 | `MessageBatch` | Request/accounting header (one per API call) | ~1M | ~12M | ~60M |
+| 14 | `CustomerBalance` | Prepaid balance (1 row/customer) | <100 | <100 | <500 |
+| 15 | `BalanceTransaction` | Append-only money ledger | ~1.5M | ~18M | ~90M |
 
 > Each table is summarized against the required facets below. Full column detail in **§4**.
 
@@ -272,8 +278,9 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 |---|---|---|
 | `Id` | `BIGINT IDENTITY` | **PK** (nonclustered — see §8) |
 | `SubmitDateJalali` | `CHAR(10)` | **partition column** — `yyyy/mm/dd` (e.g. `1405/01/03`); part of `CIX`; sargable period key |
+| `MessageBatchId` | `BIGINT` | **FK** → `MessageBatch` (the API call this message belongs to) |
 | `SubmittedAtUtc` | `DATETIME2(3)` | precise UTC instant |
-| `CustomerId` | `SMALLINT` | **FK** (tenant/sender) |
+| `CustomerId` | `SMALLINT` | **FK** (tenant/sender; denormalized — kept on the fact for join-free reporting) |
 | `ProviderId` | `TINYINT` | **FK** |
 | `SenderLineId` | `SMALLINT` | **FK** |
 | `MessageTypeId` | `TINYINT` | **FK** (delivery class + business purpose) |
@@ -337,6 +344,53 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 **Indexes:** **CIX** `(SubmitDateJalali, MessageId, ReceivedAtUtc DESC)` — partition-aligned; clusters a message's reports together for history reads. Nonclustered **columnstore on cold partitions** for any bulk re-derivation.
 
 **Why keep it (given `Message.DeliveryStatus` exists):** it is the **full audit history** — every raw report, multiple per message, with provider codes and timestamps — used for forensics, disputes, and re-deriving the projection if logic changes. *Why partition by the message's `SubmitDateJalali`* (not the report's receive date): co-locates a message and its reports for lockstep retention. *Could be downgraded* to optional/short-retention if full history isn't required (§10 Q2).
+
+### 4.13 `MessageBatch` — request/accounting header (one row per API call)
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | `BIGINT IDENTITY` | **PK** (nonclustered) |
+| `SubmitDateJalali` | `CHAR(10)` | **partition column**; part of `CIX` (lockstep retention with `Message`) |
+| `ReceivedAtUtc` | `DATETIME2(3)` | when the API call arrived |
+| `CustomerId` | `SMALLINT` | **FK** — who called |
+| `ApiKeyId` | `INT` | **FK** — which key made the call (per-call attribution, off the hot fact) |
+| `SenderLineId` | `SMALLINT` | **FK** — requested line |
+| `ProviderId` | `TINYINT` | **FK** — requested/primary provider |
+| `ClientBatchId` | `VARCHAR(100)` | nullable — caller's batch idempotency key |
+| `MessageCount` | `INT` | rollup |
+| `SegmentCount` | `INT` | rollup |
+| `TotalCost` | `DECIMAL(19,4)` | rollup (∑ message costs) |
+| `Status` | `TINYINT` | Received / Dispatching / Completed / PartiallyFailed / **Held** / Rejected / Failed |
+| `StatusReason` | `TINYINT` | nullable — e.g. `InsufficientProviderCredit`, `InsufficientCustomerBalance` |
+| `ProviderResultCode` | `INT` | nullable — raw provider submission code |
+
+**Indexes:** **CIX** `(SubmitDateJalali, Id)` (partition-aligned); `NCIX (CustomerId, SubmitDateJalali)` for "batches by customer"; `Filtered NCIX (ClientBatchId) WHERE NOT NULL` for batch idempotency.
+
+**Why it exists:** the unit of *who called and what it cost* — accounting, per-call API-key attribution, batch idempotency, and the home for **dispatch-level outcomes** (notably provider-credit **holds**). A credit hold sets `Status = Held` / `StatusReason = InsufficientProviderCredit` while the member messages stay `Queued` (never burned as `Failed`); a worker retries and resumes only the still-`Queued` rows. This is the request/accounting record (distinct from the removed templated-send `Campaign`). *Volume:* far below `Message` (one row per call, not per recipient).
+
+### 4.14 `CustomerBalance` — prepaid balance (1 row/customer)
+| Column | Type | Notes |
+|---|---|---|
+| `CustomerId` | `SMALLINT` | **PK = FK** → `Customer` (1:1), `CIX` |
+| `Balance` | `DECIMAL(19,4)` | current available prepaid balance (IRR) |
+| `UpdatedAtUtc` | `DATETIME2(3)` | |
+
+**Why a current-balance column (not summed from the ledger):** affordability must be checked on every send; reading one row is O(1) where summing the ledger is O(n). The ledger (§4.15) is the audit trail and must reconcile to this column. **Overspend-proof debit** is a single atomic statement — `UPDATE CustomerBalance SET Balance = Balance - @cost WHERE CustomerId=@id AND Balance >= @cost` — where a `0` rowcount means insufficient funds. No SELECT-then-UPDATE race; per-customer single-row contention; deadlock-safe (see §8).
+
+### 4.15 `BalanceTransaction` — append-only money ledger
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | `BIGINT IDENTITY` | **PK** (nonclustered) |
+| `CustomerId` | `SMALLINT` | **FK**; part of `CIX` |
+| `Type` | `TINYINT` | TopUp / Debit / Refund / Adjustment |
+| `Amount` | `DECIMAL(19,4)` | signed (+ credit, − debit) |
+| `BalanceAfter` | `DECIMAL(19,4)` | running balance snapshot after this entry |
+| `MessageBatchId` | `BIGINT` | nullable **FK** — the batch that caused a debit/refund |
+| `Reference` | `VARCHAR(100)` | nullable — e.g. payment id for a top-up |
+| `CreatedAtUtc` | `DATETIME2(3)` | |
+
+**Indexes:** **CIX** `(CustomerId, Id)` — clusters each tenant's ledger together, append-ordered.
+
+**Why append-only:** an immutable money trail is required for audit/reconciliation; balances are never edited in place — every change is a new entry, and `SUM(Amount)` must equal `CustomerBalance.Balance`. **Flow:** debit (−) at batch accept; **refund** (+) for messages the provider *rejects at submission* (never sent); **no refund** for delivery failures (the SMS was sent and charged); `TopUp` (+) on payment; `Adjustment` for manual corrections.
 
 ---
 
@@ -433,7 +487,7 @@ The current `DeliveryStatus` lives on `Message` (fast reads); the full event his
 > Workload: bursty **concurrent batch inserts**, **append-only DLR inserts**, **narrow hot-partition `DeliveryStatus` updates**, and concurrent **columnstore reads**.
 
 ### 8.1 Partitioning — the foundation
-- **`Message` and `DeliveryReport` are range-partitioned by `SubmitDateJalali` (one partition per Jalali month); `MessageBody` is range-partitioned by `Id`** (its own, shorter-retention schedule).
+- **`Message`, `DeliveryReport`, and `MessageBatch` are range-partitioned by `SubmitDateJalali` (one partition per Jalali month); `MessageBody` is range-partitioned by `Id`** (its own, shorter-retention schedule). The billing tables (`CustomerBalance`, `BalanceTransaction`) are small/OLTP and unpartitioned.
 - **Lock escalation contained to a partition** (`LOCK_ESCALATION = AUTO`).
 - **Current (hot) partitions are rowstore; closed partitions carry columnstores** — inserts/updates and analytics are physically separated, and the hot-partition `DeliveryStatus` updates never reach a columnstore.
 - **Retention by `SWITCH`/drop**; `Message`+`DeliveryReport` in lockstep, `MessageBody` independently.
@@ -465,11 +519,16 @@ The current `DeliveryStatus` lives on `Message` (fast reads); the full event his
 ### 8.5 Delivery-report handling (append + narrow hot update)
 - An arriving DLR is matched via `Message NCIX (ProviderId, ProviderMessageId)` (seek), then: (1) **inserted** into `DeliveryReport` (history), and (2) used to **update `Message.DeliveryStatus`/`DeliveredAtUtc`** — a single-column, **un-indexed**, hot-partition (rowstore) update. No row movement, no index churn, no columnstore impact. Status only ever advances toward a terminal value, so updates are bounded and idempotent.
 
-### 8.6 Read pattern (reporting isolation)
+### 8.6 Prepaid balance debit (overspend-safe, deadlock-safe)
+- The accept-time charge is **one atomic statement** — `UPDATE CustomerBalance SET Balance = Balance - @cost WHERE CustomerId=@id AND Balance >= @cost` — then an append to `BalanceTransaction`, in a short transaction (consistent order: `CustomerBalance` → `BalanceTransaction`).
+- A `0` rowcount = insufficient funds → the batch is rejected (`Status = Rejected / InsufficientCustomerBalance`); no SELECT-then-UPDATE race, no overspend.
+- Contention is a **single row keyed by `CustomerId`** — different tenants never contend; concurrent batches for one tenant serialize briefly on that row. No deadlock risk given the consistent access order.
+
+### 8.7 Read pattern (reporting isolation)
 - Aggregate/success-rate reads target the **columnstores on cold partitions**; current-month reads hit the rowstore.
 - **Enable RCSI** so reporting `SELECT`s use row-versioning and never block writers.
 
-### 8.7 Summary of how each risk is mitigated
+### 8.8 Summary of how each risk is mitigated
 | Risk | Mitigation |
 |---|---|
 | **Last-page insert contention** | `OPTIMIZE_FOR_SEQUENTIAL_KEY`; batched short transactions |
@@ -523,5 +582,7 @@ All six reviewer questions were resolved in favor of the design as presented:
 4. **`MessageType` scope — ✅ single global `TINYINT`.** Tenant-specific purposes remain an additive option (nullable `CustomerId` / widen to `SMALLINT`).
 5. **API key model — ✅ sufficient.** Hashed `ApiKey` + optional `ApiKeyIpRestriction`; scopes and per-message attribution remain additive options (§9).
 6. **Partition cadence — ✅ Jalali-monthly.** Weekly remains an additive fallback if a hot partition grows too large.
+7. **Request accounting — ✅ `MessageBatch` added.** One row per API call (counts, cost rollups, API-key attribution, batch idempotency) + a `MessageBatchId` FK on `Message`; dimension keys stay denormalized on the fact (not moved up).
+8. **Billing model — ✅ prepaid.** `CustomerBalance` (current) + append-only `BalanceTransaction` ledger; overspend-safe atomic debit at batch accept. *Business rules adopted:* immediate-debit + refund-on-failure (no reserved/available split); refund only messages the provider **rejects at submission** (not delivery failures). Provider low-credit ⇒ batch `Held`, messages stay `Queued`, no refund.
 
 > **The data model is locked for the current phase.** Changes from here should be additive (§9) unless a decision above is explicitly reopened.

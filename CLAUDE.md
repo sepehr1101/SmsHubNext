@@ -61,9 +61,9 @@ These are the load-bearing choices from `README.md`. Don't silently contradict t
 
 ## 5. Domain glossary (quick reference)
 
-12 tables: Customer · ApiKey · ApiKeyIpRestriction · Provider · SenderLine · MessageType · GeoSection (self-referencing) · Tariff · TariffRate · Message (fact + current `DeliveryStatus`) · MessageBody · DeliveryReport (append-only status history).
+15 tables: Customer · ApiKey · ApiKeyIpRestriction · Provider · SenderLine · MessageType · GeoSection (self-referencing) · Tariff · TariffRate · Message (fact + current `DeliveryStatus` + `MessageBatchId`) · MessageBody · DeliveryReport (append-only status history) · MessageBatch (one per API call: accounting/attribution/idempotency + dispatch `Status`/holds) · CustomerBalance (prepaid, 1/customer) · BalanceTransaction (append-only money ledger).
 
-Recipient = `MobileNumber` on the message (ad-hoc, no Subscriber table). Caller references on the message: `ClientCorrelatedId` (idempotency), `BillId`, `PayId` (all nullable).
+Recipient = `MobileNumber` on the message (ad-hoc, no Subscriber table). Caller references on the message: `ClientCorrelatedId` (idempotency), `BillId`, `PayId` (all nullable). **Billing is prepaid:** atomic overspend-safe debit at batch accept; provider low-credit ⇒ batch `Held`, messages stay `Queued`.
 
 Full table-by-table detail lives in **`README.md`** — read it before changing the schema.
 
@@ -98,3 +98,5 @@ All resolved in favor of the design as presented (README §10):
 4. `MessageType` — **single global `TINYINT`** (tenant-scoping additive later).
 5. API keys — **hashed `ApiKey` + optional `ApiKeyIpRestriction`** sufficient (scopes/attribution additive later).
 6. Partition cadence — **Jalali-monthly** (weekly is an additive fallback).
+7. Request accounting — **`MessageBatch`** added (one per API call) + `MessageBatchId` FK on `Message`; fact keys stay denormalized (not moved up).
+8. Billing — **prepaid**: `CustomerBalance` + `BalanceTransaction` ledger; atomic debit; immediate-debit + refund only on provider submission-reject.
