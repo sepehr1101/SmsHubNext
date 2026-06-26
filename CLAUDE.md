@@ -61,7 +61,7 @@ These are the load-bearing choices from `README.md`. Don't silently contradict t
 
 ## 5. Domain glossary (quick reference)
 
-15 tables: Customer · ApiKey · ApiKeyIpRestriction · Provider · SenderLine · MessageType · GeoSection (self-referencing) · Tariff · TariffRate · Message (fact + current `DeliveryStatus` + `MessageBatchId`) · MessageBody · DeliveryReport (append-only status history) · MessageBatch (one per API call: accounting/attribution/idempotency + dispatch `Status`/holds) · CustomerBalance (prepaid, 1/customer) · BalanceTransaction (append-only money ledger).
+16 tables: Customer · ApiKey · ApiKeyIpRestriction · Provider · SenderLine · MessageType · GeoSection (self-referencing) · Tariff · TariffRate · Message (fact + current `DeliveryStatus` + `MessageBatchId`) · MessageBody · DeliveryReport (append-only status history) · MessageBatch (one per API call: accounting/attribution/idempotency + dispatch `Status`/holds + 3 lifecycle timestamps) · CustomerBalance (prepaid, 1/customer) · BalanceTransaction (append-only money ledger) · MessageBatchEvent (operational event store, append-only, ~90-day retention).
 
 Recipient = `MobileNumber` on the message (ad-hoc, no Subscriber table). Caller references on the message: `ClientCorrelatedId` (idempotency), `BillId`, `PayId` (all nullable). **Billing is prepaid:** atomic overspend-safe debit at batch accept; provider low-credit ⇒ batch `Held`, messages stay `Queued`.
 
@@ -100,3 +100,4 @@ All resolved in favor of the design as presented (README §10):
 6. Partition cadence — **Jalali-monthly** (weekly is an additive fallback).
 7. Request accounting — **`MessageBatch`** added (one per API call) + `MessageBatchId` FK on `Message`; fact keys stay denormalized (not moved up).
 8. Billing — **prepaid**: `CustomerBalance` + `BalanceTransaction` ledger; atomic debit; immediate-debit + refund only on provider submission-reject.
+9. Batch ops visibility — authoritative `MessageBatch.Status` + 3 timestamps (`ReceivedAtUtc`/`DispatchStartedAtUtc`/`FinishedAtUtc` + rolling `StatusChangedAtUtc`); **no per-status timestamps**. Granular timeline in `MessageBatchEvent` (operational event store, append-only, ~90-day retention — **not** business audit).

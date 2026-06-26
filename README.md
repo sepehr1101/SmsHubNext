@@ -92,6 +92,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | **Delivery Report** | An **append-only** status event for a message; full history. The current state is projected onto `Message.DeliveryStatus`. |
 | **Customer Balance** | A customer's current **prepaid** balance (IRR); one row per customer. Debited atomically at batch accept. |
 | **Balance Transaction** | Append-only money **ledger** (top-up / debit / refund / adjustment) for audit and reconciliation against `CustomerBalance`. |
+| **Message Batch Event** | An **operational event store** (append-only, ~90-day retention) recording a batch's lifecycle timeline (dispatch started, retry, provider timeout, …) for troubleshooting/monitoring — *not* a business-audit table. |
 | **Recipient** | The receiver — a **`MobileNumber` on the message** (ad-hoc; not a managed dimension). |
 | **Client / Business references** | Caller-supplied ids on the message: `ClientCorrelatedId` (idempotency), `BillId`, `PayId`. |
 | **Tariff** | Time-bounded pricing for a (provider, encoding, message-type) combination; versioned by effective range. |
@@ -124,6 +125,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | 13 | `MessageBatch` | Request/accounting header (one per API call) | ~1M | ~12M | ~60M |
 | 14 | `CustomerBalance` | Prepaid balance (1 row/customer) | <100 | <100 | <500 |
 | 15 | `BalanceTransaction` | Append-only money ledger | ~1.5M | ~18M | ~90M |
+| 16 | `MessageBatchEvent` | Operational event store (append-only, ~90-day retention) | ~3M | ~3M (rolling) | ~3M (rolling) |
 
 > Each table is summarized against the required facets below. Full column detail in **§4**.
 
@@ -359,13 +361,18 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `MessageCount` | `INT` | rollup |
 | `SegmentCount` | `INT` | rollup |
 | `TotalCost` | `DECIMAL(19,4)` | rollup (∑ message costs) |
-| `Status` | `TINYINT` | Received / Dispatching / Completed / PartiallyFailed / **Held** / Rejected / Failed |
+| `Status` | `TINYINT` | **authoritative current state**: Received / Dispatching / Completed / PartiallyFailed / **Held** / Rejected / Failed |
 | `StatusReason` | `TINYINT` | nullable — e.g. `InsufficientProviderCredit`, `InsufficientCustomerBalance` |
 | `ProviderResultCode` | `INT` | nullable — raw provider submission code |
+| `DispatchStartedAtUtc` | `DATETIME2(3)` | nullable — fixed milestone; `− ReceivedAtUtc` = queue wait |
+| `FinishedAtUtc` | `DATETIME2(3)` | nullable — fixed milestone, set on reaching **any terminal** status; `− DispatchStartedAtUtc` = dispatch duration |
+| `StatusChangedAtUtc` | `DATETIME2(3)` | **not null** — when the current `Status` was entered (= `ReceivedAtUtc` initially); powers stuck-batch alerts |
 
-**Indexes:** **CIX** `(SubmitDateJalali, Id)` (partition-aligned); `NCIX (CustomerId, SubmitDateJalali)` for "batches by customer"; `Filtered NCIX (ClientBatchId) WHERE NOT NULL` for batch idempotency.
+**Indexes:** **CIX** `(SubmitDateJalali, Id)` (partition-aligned); `NCIX (CustomerId, SubmitDateJalali)` for "batches by customer"; `Filtered NCIX (ClientBatchId) WHERE NOT NULL` for batch idempotency. **Nonclustered columnstore on cold partitions** so duration aggregates (e.g. avg dispatch time by provider) stay scans, not joins.
 
 **Why it exists:** the unit of *who called and what it cost* — accounting, per-call API-key attribution, batch idempotency, and the home for **dispatch-level outcomes** (notably provider-credit **holds**). A credit hold sets `Status = Held` / `StatusReason = InsufficientProviderCredit` while the member messages stay `Queued` (never burned as `Failed`); a worker retries and resumes only the still-`Queued` rows. This is the request/accounting record (distinct from the removed templated-send `Campaign`). *Volume:* far below `Message` (one row per call, not per recipient).
+
+**Lifecycle timestamps — deliberately only three.** `Status` is the authoritative current state; `ReceivedAtUtc` / `DispatchStartedAtUtc` / `FinishedAtUtc` are **fixed milestones** that make operational *aggregates* (queue wait, dispatch duration, avg-by-provider) cheap columnstore scans with no joins; `StatusChangedAtUtc` is the **rolling** "entered current state" marker that makes the live "held > 30 min" alert a trivial indexed filter. We deliberately do **not** add a timestamp per status (`HeldAtUtc`, `FailedAtUtc`, …) — that is mostly-null noise; `StatusChangedAtUtc` + current `Status` covers "time in *this* state" for any status, and the *historical* timeline (when it entered Held the 2nd time, retries, timeouts) lives in `MessageBatchEvent` (§4.16).
 
 ### 4.14 `CustomerBalance` — prepaid balance (1 row/customer)
 | Column | Type | Notes |
@@ -391,6 +398,22 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 **Indexes:** **CIX** `(CustomerId, Id)` — clusters each tenant's ledger together, append-ordered.
 
 **Why append-only:** an immutable money trail is required for audit/reconciliation; balances are never edited in place — every change is a new entry, and `SUM(Amount)` must equal `CustomerBalance.Balance`. **Flow:** debit (−) at batch accept; **refund** (+) for messages the provider *rejects at submission* (never sent); **no refund** for delivery failures (the SMS was sent and charged); `TopUp` (+) on payment; `Adjustment` for manual corrections.
+
+### 4.16 `MessageBatchEvent` — operational event store (append-only, short retention)
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | `BIGINT IDENTITY` | **PK** (nonclustered) |
+| `MessageBatchId` | `BIGINT` | **FK** → `MessageBatch` |
+| `EventType` | `TINYINT` | Received / DispatchStarted / InsufficientProviderCredit / RetryScheduled / RetryStarted / ProviderTimeout / ProviderUnavailable / DispatchResumed / Completed / Failed |
+| `EventTimeUtc` | `DATETIME2(3)` | **partition column** (monthly) |
+| `ProviderId` | `TINYINT` | nullable |
+| `RawProviderCode` | `INT` | nullable — provider-native code |
+| `Detail` | `NVARCHAR(400)` | nullable — short free-text note |
+| `CorrelationId` | `VARCHAR(64)` | nullable — ties to a dispatch attempt / trace id |
+
+**Indexes:** **CIX** `(EventTimeUtc, Id)` — append locality + time-range purge; **NCIX** `(MessageBatchId, EventTimeUtc)` — "show this batch's timeline."
+
+**This is an _operational event store_, NOT an audit/business-history table.** Its purpose is **troubleshooting, monitoring, and operational analysis** — the granular lifecycle timeline (retries, timeouts, provider-unavailable, resume) that would otherwise force ever more nullable columns onto `MessageBatch`. Accordingly it is **append-only with short retention (~90 days)**, partitioned by `EventTimeUtc` and purged by partition switching — **not** kept lockstep with the business tables. (Contrast: `DeliveryReport` is business delivery history kept long; `BalanceTransaction` is an immutable money trail kept forever; this table is disposable ops telemetry.) `MetadataJson` is **intentionally omitted** — the typed columns plus `Detail` suffice; add JSON later only against a concrete need. *Volume:* ~3–5× batches, but bounded by the short retention window.
 
 ---
 
@@ -487,7 +510,7 @@ The current `DeliveryStatus` lives on `Message` (fast reads); the full event his
 > Workload: bursty **concurrent batch inserts**, **append-only DLR inserts**, **narrow hot-partition `DeliveryStatus` updates**, and concurrent **columnstore reads**.
 
 ### 8.1 Partitioning — the foundation
-- **`Message`, `DeliveryReport`, and `MessageBatch` are range-partitioned by `SubmitDateJalali` (one partition per Jalali month); `MessageBody` is range-partitioned by `Id`** (its own, shorter-retention schedule). The billing tables (`CustomerBalance`, `BalanceTransaction`) are small/OLTP and unpartitioned.
+- **`Message`, `DeliveryReport`, and `MessageBatch` are range-partitioned by `SubmitDateJalali` (one partition per Jalali month); `MessageBody` is range-partitioned by `Id`** (its own, shorter-retention schedule). `MessageBatchEvent` is partitioned by `EventTimeUtc` (monthly) with **short ~90-day retention** — old partitions dropped, *not* kept lockstep with the business tables. The billing tables (`CustomerBalance`, `BalanceTransaction`) are small/OLTP and unpartitioned.
 - **Lock escalation contained to a partition** (`LOCK_ESCALATION = AUTO`).
 - **Current (hot) partitions are rowstore; closed partitions carry columnstores** — inserts/updates and analytics are physically separated, and the hot-partition `DeliveryStatus` updates never reach a columnstore.
 - **Retention by `SWITCH`/drop**; `Message`+`DeliveryReport` in lockstep, `MessageBody` independently.
@@ -584,5 +607,6 @@ All six reviewer questions were resolved in favor of the design as presented:
 6. **Partition cadence — ✅ Jalali-monthly.** Weekly remains an additive fallback if a hot partition grows too large.
 7. **Request accounting — ✅ `MessageBatch` added.** One row per API call (counts, cost rollups, API-key attribution, batch idempotency) + a `MessageBatchId` FK on `Message`; dimension keys stay denormalized on the fact (not moved up).
 8. **Billing model — ✅ prepaid.** `CustomerBalance` (current) + append-only `BalanceTransaction` ledger; overspend-safe atomic debit at batch accept. *Business rules adopted:* immediate-debit + refund-on-failure (no reserved/available split); refund only messages the provider **rejects at submission** (not delivery failures). Provider low-credit ⇒ batch `Held`, messages stay `Queued`, no refund.
+9. **Batch operational visibility — ✅ current state + 3 timestamps + event store.** `MessageBatch.Status` is authoritative; `ReceivedAtUtc`/`DispatchStartedAtUtc`/`FinishedAtUtc` (fixed milestones) + `StatusChangedAtUtc` (rolling) cover operational aggregates and stuck-batch alerts — **no per-status timestamp columns**. Granular history lives in `MessageBatchEvent`, an **operational event store** (append-only, ~90-day retention), explicitly *not* a business-audit table.
 
 > **The data model is locked for the current phase.** Changes from here should be additive (§9) unless a decision above is explicitly reopened.
