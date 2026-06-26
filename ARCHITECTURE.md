@@ -28,11 +28,11 @@ This is a small-to-medium **monolithic backend service** that should **stay simp
 |---|---|---|
 | 1 | **Organized by feature; one deployable** | Related code lives together; no cross-folder hopping per feature. |
 | 2 | **Dapper + feature-local SQL; no Repository / Unit-of-Work / persistence layer / repo interfaces** | They hide the hand-tuned SQL that is the point and add zero swappability. |
-| 3 | **Minimal APIs; no MediatR, no FluentValidation, no AutoMapper** | Endpoints call plain feature handlers; validation and mapping are explicit, local code. |
+| 3 | **ASP.NET Core Controllers; no MediatR, no FluentValidation, no AutoMapper** | Endpoints call plain feature handlers; validation and mapping are explicit, local code. |
 | 4 | **Very few abstractions, each justified** | `ISmsProvider` (≥2 impls) and BCL `TimeProvider` (test determinism). That's essentially it. |
 | 5 | **Result pattern for expected failures; exceptions for the unexpected** | Predictable control flow + one Result→HTTP mapping at the edge. |
 | 6 | **Hosting: Windows + IIS, in-process background work** | One deployable; resumable outbox tolerates app-pool recycles. |
-| 7 | **Reliable dispatch via SQL-backed jobs; transport is swappable (Hangfire a candidate), not baked in** | Feature job-logic stays scheduler-agnostic. |
+| 7 | **Reliable dispatch via SQL-backed jobs; transport is swappable (built-in BackgroundService), not baked in** | Feature job-logic stays scheduler-agnostic. |
 | 8 | **Secrets: provider credentials encrypted in SQL Server** (`ProviderCredential`) | App-side Data Protection (DPAPI key, outside the DB). |
 | 9 | **Migrations: DbUp** · **Logging: Serilog (no OpenTelemetry)** · **Result: hand-rolled** | Least ceremony; forward-only raw SQL; structured logs without OTel weight. |
 
@@ -46,8 +46,8 @@ This is a small-to-medium **monolithic backend service** that should **stay simp
 SmsHubNext/
 ├─ SmsHubNext.sln
 ├─ src/
-│  └─ SmsHubNext/                      # THE single deployable (ASP.NET Core, .NET 8)
-│     ├─ Program.cs                    # host, DI, middleware, maps each feature's endpoints
+│  └─ SmsHubNext/                      # THE single deployable (ASP.NET Core, .NET 10)
+│     ├─ Program.cs                    # host, DI, middleware, controller registration, hosted workers
 │     │
 │     ├─ Features/                     # ← business capabilities (the bulk of the code)
 │     │   ├─ Sending/                  # accept + send messages (the core path)
@@ -85,7 +85,7 @@ A feature folder is flat and holds *everything for that capability*. Example:
 
 ```
 Features/Sending/
-├─ SendMessagesEndpoint.cs     # minimal-API endpoint(s): MapPost(...) → handler
+├─ SendMessagesController.cs     # ASP.NET Core controller actions → handler
 ├─ SendMessagesRequest.cs      # request model + a plain Validate() returning errors
 ├─ SendMessagesResponse.cs     # response model
 ├─ SendMessagesHandler.cs      # the feature logic (a plain class, injected) → Result<T>
@@ -122,7 +122,7 @@ No FluentValidation. Each feature validates its own request **explicitly**:
 
 - A `Validate()` method on the request (or guard checks at the top of the handler) returns a **`Result` with `Validation` errors** — never throws for bad input.
 - Rules live **next to the request** they validate, not in a global `Validators/` folder.
-- The endpoint maps a validation `Result` to **400** via the single mapper (§7).
+- The controller maps a validation `Result` to **400** via the single mapper (§7).
 
 *Why no framework:* validation here is simple field/relationship checks; a fluent DSL + a `IValidator<T>` registry is ceremony for little gain, and it scatters rules away from the feature.
 
@@ -132,7 +132,7 @@ No FluentValidation. Each feature validates its own request **explicitly**:
 
 - **`Result` / `Result<T>` for *expected* outcomes** — validation, business-rule rejections (insufficient balance, unknown line), not-found, idempotency hits, **provider send rejections**.
 - **Exceptions for the *unexpected*** — DB down, misconfig, bugs → handled by middleware.
-- **Flow:** feature handlers and `ISmsProvider.SendAsync` return `Result<T>` (never throw for expected failures); **the endpoint owns the single `Result → ProblemDetails` mapping** (error category → HTTP status).
+- **Flow:** feature handlers and `ISmsProvider.SendAsync` return `Result<T>` (never throw for expected failures); **the controller owns the single `Result → ProblemDetails` mapping** (error category → HTTP status).
 - **Shape (lean, hand-rolled ~1 file):** `Result`, `Result<T>`, `Error(Code, Message, ErrorType)` where `ErrorType ∈ Validation/NotFound/Conflict/Unauthorized/Provider/Unexpected` drives the status code.
 
 ---
@@ -142,7 +142,7 @@ No FluentValidation. Each feature validates its own request **explicitly**:
 | Abstraction | Keep? | Justification |
 |---|---|---|
 | **`ISmsProvider`** | ✅ | **≥2 real implementations** (Magfa now, more later) — genuine polymorphism behind one seam. |
-| **`TimeProvider`** (BCL) | ✅ | Test-determinism for Jalali/time logic — and it's the **built-in** .NET 8 type, so **zero custom abstraction**. |
+| **`TimeProvider`** (BCL) | ✅ | Test-determinism for Jalali/time logic — and it's the **built-in** .NET 10 type, so **zero custom abstraction**. |
 | DB connection helper | concrete class, **no interface** | One implementation; integration tests use a real DB. |
 | Repositories / UoW / `IValidator` / generic service interfaces | ❌ removed | No second impl, no real seam — pure ceremony. |
 
@@ -150,15 +150,23 @@ Prefer **composition over inheritance**; avoid base classes unless they remove r
 
 ---
 
-## 9. Background processing — reliable, implementation-agnostic
+## 9. Background processing — reliable, in-process
 
-Sending is async (accept → background dispatch → status). The **job *logic*** (outbox dispatch, DLR ingestion, `MessageBody` purge, partition-switch retention, `MessageBatchEvent` purge, balance reconciliation) lives in the relevant **features** as plain classes. The **scheduling/hosting mechanism is a thin, swappable host concern** — features don't reference it.
+Sending is asynchronous (accept → background dispatch → status).
 
-- **Reliability comes from SQL, not the scheduler:** messages persist as `Queued`; dispatch is **claim-based, idempotent, and resumable**, so any host restart/recycle just resumes.
-- **Candidate hosts:** **Hangfire** (SQL-Server-backed jobs with retries + dashboard; survives IIS recycles via its own server — attractive on Windows/IIS) **or** plain in-process `BackgroundService`s with a polling claimer. The architecture does **not** depend on either — the choice is wired in `Program.cs`, not in features.
-- **One deployable:** whichever host, it runs in-process with the API (app pool AlwaysRunning); a separate Windows Service remains the documented upgrade only if recycle pauses ever prove unacceptable.
+Background work is implemented using the built-in ASP.NET Core hosting infrastructure (`BackgroundService`). Each worker is responsible only for hosting and scheduling execution; all business logic remains inside ordinary feature classes.
 
----
+Examples include SMS dispatch, delivery-report polling, cleanup, retention and balance reconciliation.
+
+Workers remain intentionally thin. They do not contain business logic, retry rules or SQL. Reliability comes from SQL Server:
+
+- Messages are persisted as `Queued`.
+- Workers claim messages atomically.
+- Processing is idempotent.
+- Status transitions are persisted.
+- After an application restart or IIS recycle, workers resume processing from the database.
+
+No external job scheduler is required. The application depends only on the built-in .NET hosting infrastructure.
 
 ## 10. Runtime, deployment & infrastructure
 
@@ -175,12 +183,12 @@ Sending is async (accept → background dispatch → status). The **job *logic**
 
 | Area | Choice |
 |---|---|
-| Runtime / language | .NET 8 (LTS), C# |
-| Web | ASP.NET Core **minimal APIs** |
+| Runtime / language | .NET 10 (LTS), C# |
+| Web | ASP.NET Core **ASP.NET Core Controllers** |
 | Hosting | **Windows + IIS**, in-process background work (one deployable) |
 | Data access | **Dapper** + feature-local raw SQL |
 | Database | SQL Server (2019+) |
-| Background jobs | implementation-agnostic; **Hangfire** a candidate (SQL-backed) |
+| Background jobs | ASP.NET Core BackgroundService |
 | Migrations | **DbUp** (forward-only raw SQL) |
 | Secrets | `ProviderCredential` (encrypted) via ASP.NET **Data Protection** (DPAPI) |
 | Validation | **plain in-feature code** (no framework) |
