@@ -93,6 +93,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | **Customer Balance** | A customer's current **prepaid** balance (IRR); one row per customer. Debited atomically at batch accept. |
 | **Balance Transaction** | Append-only money **ledger** (top-up / debit / refund / adjustment) for audit and reconciliation against `CustomerBalance`. |
 | **Message Batch Event** | An **operational event store** (append-only, ~90-day retention) recording a batch's lifecycle timeline (dispatch started, retry, provider timeout, …) for troubleshooting/monitoring — *not* a business-audit table. |
+| **Provider Credential** | Provider secrets (`username`/`domain`/`password`) stored **encrypted** in SQL Server; decrypted in-app with a key held outside the DB. |
 | **Recipient** | The receiver — a **`MobileNumber` on the message** (ad-hoc; not a managed dimension). |
 | **Client / Business references** | Caller-supplied ids on the message: `ClientCorrelatedId` (idempotency), `BillId`, `PayId`. |
 | **Tariff** | Time-bounded pricing for a (provider, encoding, message-type) combination; versioned by effective range. |
@@ -126,6 +127,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | 14 | `CustomerBalance` | Prepaid balance (1 row/customer) | <100 | <100 | <500 |
 | 15 | `BalanceTransaction` | Append-only money ledger | ~1.5M | ~18M | ~90M |
 | 16 | `MessageBatchEvent` | Operational event store (append-only, ~90-day retention) | ~3M | ~3M (rolling) | ~3M (rolling) |
+| 17 | `ProviderCredential` | Encrypted provider secrets (security/infra) | <10 | <20 | <50 |
 
 > Each table is summarized against the required facets below. Full column detail in **§4**.
 
@@ -216,7 +218,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `FallbackBaseUrl` | `VARCHAR(300)` | secondary endpoint over a different network path (e.g. intranet); nullable |
 | `IsActive` | `BIT` | |
 
-**Why:** Tiny → `TINYINT`. **Endpoints live here (provider info), credentials do not** — the same provider is reached over internet **and** intranet with failover (runtime data, not `appsettings`); credentials stay in the secret store keyed by `Code`. *Deferred:* a child `ProviderEndpoint` for ≥3 paths (§9). *Alternative:* provider string on the fact — rejected (bytes × 10⁹, no FK).
+**Why:** Tiny → `TINYINT`. **Endpoints live here (provider info), credentials do not** — the same provider is reached over internet **and** intranet with failover (runtime data, not `appsettings`); credentials live **encrypted** in `ProviderCredential` (§4.17), not in plaintext here. *Deferred:* a child `ProviderEndpoint` for ≥3 paths (§9). *Alternative:* provider string on the fact — rejected (bytes × 10⁹, no FK).
 
 ### 4.5 `SenderLine`
 | Column | Type | Notes |
@@ -414,6 +416,15 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 **Indexes:** **CIX** `(EventTimeUtc, Id)` — append locality + time-range purge; **NCIX** `(MessageBatchId, EventTimeUtc)` — "show this batch's timeline."
 
 **This is an _operational event store_, NOT an audit/business-history table.** Its purpose is **troubleshooting, monitoring, and operational analysis** — the granular lifecycle timeline (retries, timeouts, provider-unavailable, resume) that would otherwise force ever more nullable columns onto `MessageBatch`. Accordingly it is **append-only with short retention (~90 days)**, partitioned by `EventTimeUtc` and purged by partition switching — **not** kept lockstep with the business tables. (Contrast: `DeliveryReport` is business delivery history kept long; `BalanceTransaction` is an immutable money trail kept forever; this table is disposable ops telemetry.) `MetadataJson` is **intentionally omitted** — the typed columns plus `Detail` suffice; add JSON later only against a concrete need. *Volume:* ~3–5× batches, but bounded by the short retention window.
+
+### 4.17 `ProviderCredential` — encrypted provider secrets (security/infra)
+| Column | Type | Notes |
+|---|---|---|
+| `ProviderId` | `TINYINT` | **PK = FK** → `Provider` (1:1), `CIX` |
+| `SecretCipher` | `VARBINARY(MAX)` | encrypted `{username, domain, password}` blob — **ciphertext only** |
+| `UpdatedAtUtc` | `DATETIME2(3)` | |
+
+**Why it exists / how it's protected:** the platform is **on-prem**, so provider credentials are stored **encrypted in SQL Server** rather than an external vault. The app encrypts/decrypts via **ASP.NET Core Data Protection**, whose key ring is **protected by Windows DPAPI (machine-scoped)** — so the encryption key lives **outside** the database and a stolen connection string alone cannot decrypt the secrets. SQL Server only ever sees ciphertext. *(The DB connection string itself is plaintext in `appsettings.json` for now — a conscious temporary simplification; hardening path = SQL **Always Encrypted** + DPAPI-protected config. See `ARCHITECTURE.md §10.3`.)* This is an **infrastructure/security** table, separate from the `Provider` reporting dimension.
 
 ---
 

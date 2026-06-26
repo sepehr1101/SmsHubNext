@@ -24,8 +24,12 @@ Every project, abstraction, interface, or layer must justify itself with concret
 | 1 | **Single deployable, feature-organized (vertical-slice) monolith** | Related code lives together; no cross-project hopping per feature. |
 | 2 | **Dapper + colocated SQL; no Generic Repository / Unit-of-Work / persistence layer / repository interfaces** | These hide the hand-tuned SQL that is the whole point and add zero swappability. |
 | 3 | **Keep only the abstractions that pay for themselves** | `ISmsProvider` (real polymorphism), a thin `Domain/` shared kernel, separate test projects, raw-SQL migrations. |
-| 4 | **No .NET Aspire** | Its value (distributed orchestration, cloud deploy) doesn't apply to an on-prem monolith; take OpenTelemetry + health checks + Polly + docker-compose à la carte. |
+| 4 | **No .NET Aspire** | Its value (distributed orchestration, cloud deploy) doesn't apply to an on-prem monolith; take OpenTelemetry + health checks + Polly à la carte. |
 | 5 | **Result pattern for expected failures; exceptions for the unexpected** | Predictable control flow + one Result→HTTP mapping at the edge. |
+| 6 | **Hosting: Windows + IIS** (API) **+ a Windows Service worker** (background jobs) | Idiomatic on-prem Windows; IIS recycling makes in-process background work fragile. |
+| 7 | **Async dispatch: DB-backed outbox, no RabbitMQ** | Messages already persist; a resumable outbox gives reliability with zero new infrastructure. |
+| 8 | **Secrets: provider credentials encrypted in SQL Server** (`ProviderCredential`) | App-side Data Protection (DPAPI key, outside the DB); connection string plaintext in config *for now*. |
+| 9 | **Migrations: DbUp** · **Logging: Serilog + OpenTelemetry** · **Result: hand-rolled** | Least ceremony; forward-only raw SQL; no extra dependency. |
 
 ---
 
@@ -140,7 +144,7 @@ With Dapper hitting a real SQL Server and integration tests covering it:
 - **No MediatR / AutoMapper by default** — plain handler classes injected into minimal-API endpoints; hand-mapped DTOs. Add a pipeline only after feeling the pain.
 - **Slices don't call slices.** Cross-feature needs are promoted into `Domain/` or `Common/`.
 - **`Domain/` and `Common/` stay thin.** If they bloat, they're absorbing feature logic — push it back out.
-- **Secrets** (provider credentials) never in code or DB — secret store, keyed by `Provider.Code`.
+- **Secrets:** provider credentials stored **encrypted in SQL Server** (`ProviderCredential`), decrypted in-app via Data Protection (key outside the DB) — see §10.3. Never in plaintext in code or DB.
 - **Naming** follows the data model: table PK is `Id`, FKs are `<Table>Id`.
 
 ---
@@ -151,23 +155,54 @@ With Dapper hitting a real SQL Server and integration tests covering it:
 |---|---|
 | Runtime / language | .NET 8 (LTS), C# |
 | Web | ASP.NET Core minimal APIs |
+| Hosting | **Windows + IIS** (API) **+ Windows Service** (background worker) |
 | Data access | **Dapper** + raw SQL |
 | Database | SQL Server (2019+) |
-| Migrations | DbUp or FluentMigrator (raw SQL) |
+| Async dispatch | **DB-backed outbox** (no RabbitMQ) |
+| Migrations | **DbUp** (forward-only raw SQL) |
+| Secrets | `ProviderCredential` (SQL Server, encrypted) via ASP.NET **Data Protection** (DPAPI) |
 | Validation | FluentValidation → `Result` |
 | Resilience | Polly via `Microsoft.Extensions.Http.Resilience` |
-| Observability | OpenTelemetry + health checks |
+| Result | hand-rolled (no dependency) |
+| Logging / observability | **Serilog** (+ Seq, Windows Event Log) · **OpenTelemetry** · health checks |
 | Tests | xUnit · Testcontainers (SQL Server) · WireMock.Net (Magfa) |
-| Local infra | docker-compose |
 
 ---
 
-## 10. Open / under revision
+## 10. Runtime, deployment & infrastructure
 
-This document is a **living draft**; expected revision points:
+### 10.1 Hosting & deployment — Windows + IIS
+- API hosted in **IIS** (ASP.NET Core Module → Kestrel) on Windows Server, co-located with SQL Server in the data center.
+- SQL auth: prefer **Integrated Security (Windows/AD)** where available; otherwise a SQL login. Connection string in `appsettings.json` (plaintext **for now** — §10.3).
 
-- Migration tool choice (DbUp vs. FluentMigrator) — to confirm.
-- Whether to split `Features/Providers/Magfa` into its own project once provider deps are known.
-- Background-worker hosting shape (hosted services vs. a separate worker) for DLR ingestion, batch dispatch/retry, body purge, partition-switch retention.
-- Async dispatch transport (outbox table + worker vs. RabbitMQ) — deferred; see roadmap.
-- Result type: hand-rolled vs. a minimal library — currently hand-rolled.
+### 10.2 Async dispatch & background work — DB outbox + Windows Service worker (no RabbitMQ)
+- **Transport:** a **DB-backed outbox** in SQL Server. Messages persist as `Queued`; a **claim-based, idempotent, resumable** worker dispatches them. No RabbitMQ — one fewer system to install/secure/monitor on-prem.
+- **Hosting the jobs:** a **separate Windows Service** (same solution/codebase, shared DB), **not** in-process under IIS — IIS app-pool recycling/idle makes in-process background work fragile for billing-grade dispatch. Two host processes from one codebase (Api + Worker) — *not* microservices.
+  - Jobs: outbox dispatch, DLR ingestion/polling, `Message.DeliveryStatus` projection, `MessageBody` purge, partition-switch retention, `MessageBatchEvent` purge, balance reconciliation.
+  - *Simpler fallback (one process):* in-process `BackgroundService` under an app pool set **AlwaysRunning + idle-timeout 0 + Application Initialization**; the resumable outbox tolerates recycles. **← final choice pending confirmation.**
+
+### 10.3 Secrets & credentials — encrypted in SQL Server
+- **Provider credentials** (Magfa `username`/`domain`/`password`) live **encrypted in SQL Server** in **`ProviderCredential`** (ciphertext only), decrypted in-app via **ASP.NET Core Data Protection** with the key ring **protected by Windows DPAPI (machine-scoped)** — the key lives **outside** the DB, so a stolen connection string can't decrypt them.
+- **Connection string:** plaintext in `appsettings.json` **for now** (explicitly temporary).
+- *Hardening path:* SQL Server **Always Encrypted** (master key in the Windows cert store), and moving the connection string into a protected/DPAPI config section — when a security review requires it.
+
+### 10.4 Migrations — DbUp (forward-only)
+- Ordered raw-SQL scripts run by **DbUp** at deploy. Forward-only (no down-migrations); partitioning/columnstore DDL is hand-written. FluentMigrator only if rollback becomes a hard requirement.
+
+### 10.5 Logging & observability — Serilog + OpenTelemetry
+- **Serilog** (structured) → console + rolling file + **Seq** (v1) + **Windows Event Log** for service-level errors; **OpenTelemetry** traces/metrics. Feed an existing Prometheus/Grafana or ELK if the org already runs one *(open — §11)*.
+
+### 10.6 Web, validation, errors — locked defaults
+- Minimal APIs · FluentValidation → `Result` · hand-rolled `Result` · no MediatR/AutoMapper · built-in ASP.NET **rate limiter** keyed by API key (header auth) · **Testcontainers** integration tests · Jalali via BCL `PersianCalendar`.
+
+---
+
+## 11. Open / under revision
+
+This document is a **living draft**. Resolved this round: hosting (Windows/IIS), async transport (DB outbox), secrets (`ProviderCredential`), migrations (DbUp), logging (Serilog/OTel), Result (hand-rolled). Still open:
+
+- **Background-worker hosting — final nod needed.** Recommended: a **separate Windows Service**; fallback: in-process `BackgroundService` under an AlwaysRunning app pool (§10.2).
+- **Logging sink:** does the org already run **ELK/Grafana/Prometheus** we should feed instead of standing up Seq?
+- **Connection-string protection:** plaintext now → DPAPI/protected config + SQL **Always Encrypted** as the hardening path (§10.3) — when to do it.
+- **Split `Features/Providers/Magfa`** into its own project — only once provider NuGet deps are known.
+- **Result library** (e.g. ErrorOr) vs. hand-rolled — currently hand-rolled; revisit if ergonomics demand.
