@@ -40,7 +40,7 @@ The **database & storage architecture design** is **validated and locked** (the 
 | Text | `NVARCHAR` for Persian; `VARCHAR` for phone numbers/codes (ASCII) | |
 | Naming | Every table's PK is `Id`; FKs are `<Table>Id` (`CustomerId`, `ProviderId`, `MessageId`, …) | |
 | Auth | Per-customer **API keys**, stored as **SHA-256 hash** only (never plaintext); optional per-key CIDR allow-list | |
-| App architecture | **Feature-organized (vertical-slice) monolith**, Dapper (no repo/UoW), Result pattern, no Aspire | See `ARCHITECTURE.md` (living draft); providers pluggable behind `ISmsProvider` |
+| App architecture | **Feature-first monolith** (DntSite-inspired), minimal APIs, Dapper (no repo/UoW), **plain in-feature validation** (no FluentValidation), no MediatR, Result pattern, no Aspire | See `ARCHITECTURE.md`; providers pluggable behind `ISmsProvider`; background impl-agnostic (Hangfire candidate) |
 | Send model (later) | Async outbox + status polling (recommended) | Not built yet |
 
 ## 4. Architecture decisions that must be respected

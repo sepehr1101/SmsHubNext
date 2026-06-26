@@ -1,19 +1,24 @@
 # SmsHubNext — Application Architecture
 
-> **Status:** **Living draft — under active revision.** The *data model* is locked (see `README.md`); this *application* architecture is agreed in direction but expected to evolve. Implementation has not started (pre-Phase 0).
-> **Optimize for (highest → lowest):** Simplicity · Developer productivity · Readability · Maintainability · Performance · Extensibility. Architectural elegance is **not** a goal — minimizing cognitive load for future developers is.
+> **Status:** **Living draft — decision-complete.** The *data model* is locked (`README.md`); this *application* architecture is agreed. Implementation not started (pre-Phase 0).
+> **Optimize for (highest → lowest):** Simplicity · Developer productivity · Readability · Maintainability · Performance · Extensibility. The goal is **minimal cognitive load for the next developer** — not architectural purity.
 
 ---
 
-## 1. Context & constraints
+## 1. Philosophy — a feature-first, pragmatic monolith
 
-On-prem **Enterprise SMS Platform**, .NET 8 / SQL Server. It is, and will remain:
+Organize around **business features**, not technical layers. Inspiration is the *organization and developer experience* of the **DntSite** project (feature cohesion, low ceremony) — not its exact tech or folders.
 
-- a **single deployable application** — no microservices, no modular-monolith boundaries, no independent module deployment;
-- maintained by a **small team**, optimized for fast feature work and easy onboarding;
-- high-throughput (billion-row fact tables; hand-tuned SQL, partitioning, columnstore).
+**This project is NOT** Clean/Onion Architecture, CQRS, MediatR, FluentValidation, or microservices. We do not add abstraction layers or patterns unless they earn their place.
 
-Every project, abstraction, interface, or layer must justify itself with concrete practical value. **Prefer deleting code over adding abstractions** unless they clearly reduce future complexity.
+- **Features come first.** Each feature is as self-contained as practical — its endpoints, requests, handler/service, validation, Dapper SQL, models, and mapping live **together** in one folder.
+- **No global technical buckets.** No `Services/`, `Repositories/`, `DTOs/`, `Validators/`, or `Interfaces/` folders collecting unrelated code from different features.
+- **Shared code stays small** and holds only *truly* cross-cutting concerns.
+- **High cohesion, low coupling.** Features don't call each other; shared needs move into `Shared/`.
+- **Explicit over generic.** Straightforward code a developer can grasp in a few minutes beats a clever abstraction.
+- **"Modular monolith"** here means feature *modules as folders* inside **one project / one deployable** — not enforced module boundaries or separate assemblies.
+
+**Rule for any abstraction (interface/wrapper/base class): justify it.** It must have **≥2 real implementations** *or* wrap a **genuinely external/non-deterministic dependency**. Otherwise, delete it and write the concrete code.
 
 ---
 
@@ -21,187 +26,178 @@ Every project, abstraction, interface, or layer must justify itself with concret
 
 | # | Decision | One-line rationale |
 |---|---|---|
-| 1 | **Single deployable, feature-organized (vertical-slice) monolith** | Related code lives together; no cross-project hopping per feature. |
-| 2 | **Dapper + colocated SQL; no Generic Repository / Unit-of-Work / persistence layer / repository interfaces** | These hide the hand-tuned SQL that is the whole point and add zero swappability. |
-| 3 | **Keep only the abstractions that pay for themselves** | `ISmsProvider` (real polymorphism), a thin `Domain/` shared kernel, separate test projects, raw-SQL migrations. |
-| 4 | **No .NET Aspire** | Its value (distributed orchestration, cloud deploy) doesn't apply to an on-prem monolith; take Serilog + health checks + Polly à la carte. |
+| 1 | **Feature-first monolith, one deployable** | Related code lives together; no cross-folder hopping per feature. |
+| 2 | **Dapper + feature-local SQL; no Repository / Unit-of-Work / persistence layer / repo interfaces** | They hide the hand-tuned SQL that is the point and add zero swappability. |
+| 3 | **Minimal APIs; no MediatR, no FluentValidation, no AutoMapper** | Endpoints call plain feature handlers; validation and mapping are explicit, local code. |
+| 4 | **Very few abstractions, each justified** | `ISmsProvider` (≥2 impls) and BCL `TimeProvider` (test determinism). That's essentially it. |
 | 5 | **Result pattern for expected failures; exceptions for the unexpected** | Predictable control flow + one Result→HTTP mapping at the edge. |
-| 6 | **Hosting: Windows + IIS** (API) **+ in-process background worker** | Simplest — one deployable; the resumable outbox tolerates app-pool recycles. |
-| 7 | **Async dispatch: DB-backed outbox, no RabbitMQ** | Messages already persist; a resumable outbox gives reliability with zero new infrastructure. |
-| 8 | **Secrets: provider credentials encrypted in SQL Server** (`ProviderCredential`) | App-side Data Protection (DPAPI key, outside the DB); connection string plaintext in config *for now*. |
-| 9 | **Migrations: DbUp** · **Logging: Serilog (no OpenTelemetry)** · **Result: hand-rolled** | Least ceremony; forward-only raw SQL; structured logs without the OTel weight; no extra dependency. |
+| 6 | **Hosting: Windows + IIS, in-process background work** | One deployable; resumable outbox tolerates app-pool recycles. |
+| 7 | **Reliable dispatch via SQL-backed jobs; transport is swappable (Hangfire a candidate), not baked in** | Feature job-logic stays scheduler-agnostic. |
+| 8 | **Secrets: provider credentials encrypted in SQL Server** (`ProviderCredential`) | App-side Data Protection (DPAPI key, outside the DB). |
+| 9 | **Migrations: DbUp** · **Logging: Serilog (no OpenTelemetry)** · **Result: hand-rolled** | Least ceremony; forward-only raw SQL; structured logs without OTel weight. |
 
 ---
 
 ## 3. Solution structure
 
-**3 projects total:** one application + two test projects.
+**3 projects:** one application + two test projects. Within the app, **`Features/` dominates**; everything else is small.
 
 ```
 SmsHubNext/
 ├─ SmsHubNext.sln
 ├─ src/
-│  └─ SmsHubNext/                      # THE single deployable app (ASP.NET Core, .NET 8)
-│     ├─ Program.cs                    # host, DI, middleware, endpoint mapping
+│  └─ SmsHubNext/                      # THE single deployable (ASP.NET Core, .NET 8)
+│     ├─ Program.cs                    # host, DI, middleware, maps each feature's endpoints
 │     │
-│     ├─ Common/                       # genuinely cross-cutting, kept tiny
-│     │   ├─ Data/                     # IDbConnectionFactory (Dapper), type handlers
-│     │   ├─ Auth/                     # API-key hashing (SHA-256) + auth middleware
-│     │   ├─ Time/                     # IClock, Jalali calendar helpers
-│     │   └─ Results/                  # Result / Result<T> / Error + Result→HTTP mapping
-│     │
-│     ├─ Domain/                       # SHARED KERNEL — schema types + pure logic only
-│     │   ├─ Entities/                 # row/record types (Message, MessageBatch, …)
-│     │   ├─ Enums/                    # SendStatus, DeliveryStatus, BatchStatus, Encoding…
-│     │   ├─ ValueObjects/             # MobileNumber, Money(IRR), JalaliDate
-│     │   └─ Sms/                      # segment counting, encoding detection, cost calc
-│     │
-│     ├─ Features/                     # VERTICAL SLICES (endpoint + DTO + validation + SQL + handler)
-│     │   ├─ Messages/                 # send, status, recipient/bill history
-│     │   ├─ Batches/                  # accept batch, batch status, batch events
-│     │   ├─ DeliveryReports/          # DLR ingestion worker → append + DeliveryStatus projection
+│     ├─ Features/                     # ← business capabilities (the bulk of the code)
+│     │   ├─ Sending/                  # accept + send messages (the core path)
+│     │   ├─ Batches/                  # batch status, batch events
+│     │   ├─ DeliveryReports/          # DLR ingestion + DeliveryStatus projection
 │     │   ├─ Billing/                  # balance debit/refund/top-up, ledger
-│     │   ├─ Reports/                  # success rate, cost-by-geo/provider, trends, dispatch durations
+│     │   ├─ Reports/                  # cost/success-rate/trend queries
 │     │   ├─ Tariffs/                  # tariff resolution + admin
 │     │   ├─ ApiKeys/                  # issue/rotate/revoke; auth lookup
-│     │   ├─ Providers/
-│     │   │   ├─ ISmsProvider.cs        # ← the one justified abstraction
-│     │   │   └─ Magfa/                 # MagfaSmsProvider, MagfaOptions, status-code map
+│     │   ├─ Providers/                # ISmsProvider + Magfa/ (the one real seam)
 │     │   └─ ReferenceData/            # GeoSection, SenderLine, MessageType, Customer admin
 │     │
-│     ├─ Migrations/                   # raw SQL (DbUp / FluentMigrator): partition func/scheme,
-│     │                                #   columnstore, filtered indexes, OPTIMIZE_FOR_SEQUENTIAL_KEY
-│     └─ appsettings*.json             # provider URLs; secrets via user-secrets / secret store
+│     ├─ Shared/                       # SMALL, truly cross-cutting only
+│     │   ├─ Database/                 # connection helper, Dapper setup/type handlers
+│     │   ├─ Results/                  # Result / Result<T> / Error + Result→HTTP mapping
+│     │   ├─ Security/                 # API-key hashing (SHA-256)
+│     │   ├─ Sms/                      # pure: segment counting, encoding detection, cost calc
+│     │   └─ Enums/                    # cross-feature enums (SendStatus, DeliveryStatus, BatchStatus…)
+│     │
+│     ├─ Migrations/                   # raw SQL (DbUp): partitioning, columnstore, filtered indexes
+│     └─ appsettings*.json            # provider URLs; connection string (plaintext for now)
 │
 └─ tests/
-   ├─ SmsHubNext.UnitTests/            # segment counting, cost calc, status mapping, Jalali, Result flow
+   ├─ SmsHubNext.UnitTests/            # Shared/Sms calc, status mapping, Result flow, Jalali
    └─ SmsHubNext.IntegrationTests/     # Dapper + SQL Server (Testcontainers), Magfa via WireMock
 ```
 
-**Dependency flow:** `Features/` → `Domain/` + `Common/`. Features never reference each other. `Domain/` and `Common/` reference nothing outward.
+There is **no `Domain/` / `Application/` / `Infrastructure/`** layering. Persistence models are **feature-local** (each Dapper query projects exactly the columns it needs into a small record next to the query) — so there is no shared "entities" god-folder, and features don't drift against a monolithic model.
 
 ---
 
-## 4. Per-folder justification
+## 4. Anatomy of a feature
 
-| Folder | Why it exists / what it holds | Why not a separate project |
-|---|---|---|
-| **`Common/`** | Things used *everywhere* and external: DB connection factory, API-key hashing, clock/Jalali, `Result` types. | Tiny; a project boundary buys nothing for a single deployable. |
-| **`Domain/`** | **Shared kernel**, not a Clean-Arch layer: one definition of each schema row-type/enum/VO + the **pure, testable SMS logic** (segment counting, cost calc) reused across slices. | Compile-time "no outward deps" is low value for a small team; the *logic* matters, the *assembly* doesn't. |
-| **`Features/`** | One folder per capability, each owning its endpoints, DTOs, validation, handler, and **its own SQL**. 90% of feature work happens here. | Splitting features into projects is the cross-project navigation we're avoiding. |
-| **`Features/Providers/`** | `ISmsProvider` + `Magfa/` adapter. | Adapter stays a folder until a provider drags heavy/conflicting NuGet deps — then split *that* one. |
-| **`Migrations/`** | Hand-written DDL — partitioning, columnstore, filtered indexes can't be auto-generated. | Belongs with the app it migrates. |
-| **`tests/*`** | The two boundaries that genuinely earn their own assemblies (distinct deps: xUnit, Testcontainers, WireMock). | — |
+A feature folder is flat and holds *everything for that capability*. Example:
 
-### What was removed from the original Clean-Architecture proposal, and why
-- **Domain / Application / Infrastructure projects → folders** in the single app. The only thing separate assemblies bought was compile-time dependency-direction enforcement — low value for this team, high friction.
-- **Providers.Abstractions / Providers.Magfa projects → `Features/Providers/`.** Pluggability is real; a per-provider *project* is not (no independent deployment).
-- **Generic Repository, Unit-of-Work, separate Persistence layer, Repository interfaces → deleted.** See §5.
+```
+Features/Sending/
+├─ SendMessagesEndpoint.cs     # minimal-API endpoint(s): MapPost(...) → handler
+├─ SendMessagesRequest.cs      # request model + a plain Validate() returning errors
+├─ SendMessagesResponse.cs     # response model
+├─ SendMessagesHandler.cs      # the feature logic (a plain class, injected) → Result<T>
+├─ SendSql.cs                  # the Dapper SQL strings + small row records for this feature
+└─ (anything else only Sending needs)
+```
+
+- **Endpoint** is a thin minimal-API mapping that binds the request, calls the handler, and translates `Result` → HTTP.
+- **Handler/service** is a plain class (no MediatR, no base class) holding the feature's logic; dependencies are obvious constructor params.
+- **Validation** is plain code (see §6).
+- **Data access** is Dapper SQL **in the feature** (see §5).
+- A feature may use `Shared/` and `Features/Providers/ISmsProvider`; it **must not** reference another feature.
 
 ---
 
 ## 5. Data access — Dapper, no ceremony
 
-With Dapper hitting a real SQL Server and integration tests covering it:
+SQL lives **in the feature** that owns it; the only shared piece is a tiny connection helper in `Shared/Database`.
 
 | Pattern | Verdict | Why |
 |---|---|---|
-| Generic Repository | **Removed** | Hides the hand-tuned SQL that is the point; can't generically operate a partitioned columnstore fact; zero swappability (we're not swapping SQL Server). |
-| Unit-of-Work abstraction | **Removed** | Atomic multi-writes are `using var tx = conn.BeginTransaction()` in the handler. |
-| Separate Persistence layer | **Removed** | SQL lives in the feature; the only shared piece is `IDbConnectionFactory` in `Common/Data`. |
-| Repository interfaces | **Removed** | They mostly enable mocking SQL — which we don't do; we integration-test against real SQL Server. |
+| Generic Repository | **Removed** | Hides the hand-tuned SQL that is the point; can't generically operate a partitioned columnstore fact; zero swappability (not swapping SQL Server). |
+| Unit-of-Work | **Removed** | Atomic multi-writes are `using var tx = conn.BeginTransaction()` in the handler. |
+| Persistence layer / repo interfaces | **Removed** | They mostly enable mocking SQL — which we don't do; we integration-test against real SQL Server. |
 
-**Interface bar (project-wide rule):** an interface must have **≥2 real implementations** *or* wrap a **genuinely external/non-deterministic dependency** (e.g. `ISmsProvider`, `IClock`). Otherwise it is deleted.
-
-**One way to access data:** `IDbConnectionFactory` + Dapper + SQL colocated in the feature. No second pattern creeps in.
+- Open connections via a small concrete `Db` helper (reads the connection string, returns `SqlConnection`). **No interface** — there is no second implementation and we don't mock it.
+- Models are **feature-local records** matching each query's projection.
 
 ---
 
-## 6. Observability & infra — à la carte, not Aspire
+## 6. Validation — plain, in-feature (no framework)
 
-.NET Aspire targets distributed/cloud-native systems; this is an on-prem monolith, so it would add projects and a framework layer for value we don't use. Instead — kept deliberately minimal:
+No FluentValidation. Each feature validates its own request **explicitly**:
 
-- **Logging:** **Serilog** (structured) → console + rolling file (+ Seq optionally). **OpenTelemetry is intentionally not adopted** — simpler is better; structured logs + health checks cover operational needs without the OTel/exporter machinery. *(Add OTel later only if distributed tracing becomes a real need.)*
-- **Health:** ASP.NET Core health checks (a few lines) for IIS/monitoring probes.
-- **Resilience:** `Microsoft.Extensions.Http.Resilience` (Polly) on the Magfa `HttpClient`.
+- A `Validate()` method on the request (or guard checks at the top of the handler) returns a **`Result` with `Validation` errors** — never throws for bad input.
+- Rules live **next to the request** they validate, not in a global `Validators/` folder.
+- The endpoint maps a validation `Result` to **400** via the single mapper (§7).
 
-*(Revisit only if the team later wants distributed tracing or the Aspire dev dashboard.)*
+*Why no framework:* validation here is simple field/relationship checks; a fluent DSL + a `IValidator<T>` registry is ceremony for little gain, and it scatters rules away from the feature.
 
 ---
 
 ## 7. Error handling — Result pattern
 
 - **`Result` / `Result<T>` for *expected* outcomes** — validation, business-rule rejections (insufficient balance, unknown line), not-found, idempotency hits, **provider send rejections**.
-- **Exceptions for the *unexpected*** — DB down, misconfig, programming errors → handled by middleware.
-- **Flow:** feature handlers and `ISmsProvider.SendAsync` return `Result<T>` (never throw for expected failures); **endpoints own the single `Result → ProblemDetails` mapping** (error category → HTTP status).
-- **Shape (lean):** `Result`, `Result<T>`, `Error(Code, Message, ErrorType)` where `ErrorType ∈ Validation/NotFound/Conflict/Unauthorized/Provider/Unexpected` drives the status code. Hand-rolled (~1 small file) to avoid a dependency.
-- **Guardrails:** don't wrap pure helpers that can't fail; no nested `Result<Result<T>>`; errors are typed by category, not free-form strings.
+- **Exceptions for the *unexpected*** — DB down, misconfig, bugs → handled by middleware.
+- **Flow:** feature handlers and `ISmsProvider.SendAsync` return `Result<T>` (never throw for expected failures); **the endpoint owns the single `Result → ProblemDetails` mapping** (error category → HTTP status).
+- **Shape (lean, hand-rolled ~1 file):** `Result`, `Result<T>`, `Error(Code, Message, ErrorType)` where `ErrorType ∈ Validation/NotFound/Conflict/Unauthorized/Provider/Unexpected` drives the status code.
 
 ---
 
-## 8. Cross-cutting conventions
+## 8. Abstractions we keep (and what we deliberately don't)
 
-- **No MediatR / AutoMapper by default** — plain handler classes injected into minimal-API endpoints; hand-mapped DTOs. Add a pipeline only after feeling the pain.
-- **Slices don't call slices.** Cross-feature needs are promoted into `Domain/` or `Common/`.
-- **`Domain/` and `Common/` stay thin.** If they bloat, they're absorbing feature logic — push it back out.
-- **Secrets:** provider credentials stored **encrypted in SQL Server** (`ProviderCredential`), decrypted in-app via Data Protection (key outside the DB) — see §10.3. Never in plaintext in code or DB.
-- **Naming** follows the data model: table PK is `Id`, FKs are `<Table>Id`.
+| Abstraction | Keep? | Justification |
+|---|---|---|
+| **`ISmsProvider`** | ✅ | **≥2 real implementations** (Magfa now, more later) — genuine polymorphism behind one seam. |
+| **`TimeProvider`** (BCL) | ✅ | Test-determinism for Jalali/time logic — and it's the **built-in** .NET 8 type, so **zero custom abstraction**. |
+| DB connection helper | concrete class, **no interface** | One implementation; integration tests use a real DB. |
+| Repositories / UoW / `IValidator` / generic service interfaces | ❌ removed | No second impl, no real seam — pure ceremony. |
+
+Prefer **composition over inheritance**; avoid base classes unless they remove real duplication.
 
 ---
 
-## 9. Tech stack
+## 9. Background processing — reliable, implementation-agnostic
 
-| Area | Choice |
-|---|---|
-| Runtime / language | .NET 8 (LTS), C# |
-| Web | ASP.NET Core minimal APIs |
-| Hosting | **Windows + IIS** (API) **+ in-process background worker** (one deployable) |
-| Data access | **Dapper** + raw SQL |
-| Database | SQL Server (2019+) |
-| Async dispatch | **DB-backed outbox** (no RabbitMQ) |
-| Migrations | **DbUp** (forward-only raw SQL) |
-| Secrets | `ProviderCredential` (SQL Server, encrypted) via ASP.NET **Data Protection** (DPAPI) |
-| Validation | FluentValidation → `Result` |
-| Resilience | Polly via `Microsoft.Extensions.Http.Resilience` |
-| Result | hand-rolled (no dependency) |
-| Logging | **Serilog** → console + rolling file (Seq optional) · health checks · **no OpenTelemetry** |
-| Tests | xUnit · Testcontainers (SQL Server) · WireMock.Net (Magfa) |
+Sending is async (accept → background dispatch → status). The **job *logic*** (outbox dispatch, DLR ingestion, `MessageBody` purge, partition-switch retention, `MessageBatchEvent` purge, balance reconciliation) lives in the relevant **features** as plain classes. The **scheduling/hosting mechanism is a thin, swappable host concern** — features don't reference it.
+
+- **Reliability comes from SQL, not the scheduler:** messages persist as `Queued`; dispatch is **claim-based, idempotent, and resumable**, so any host restart/recycle just resumes.
+- **Candidate hosts:** **Hangfire** (SQL-Server-backed jobs with retries + dashboard; survives IIS recycles via its own server — attractive on Windows/IIS) **or** plain in-process `BackgroundService`s with a polling claimer. The architecture does **not** depend on either — the choice is wired in `Program.cs`, not in features.
+- **One deployable:** whichever host, it runs in-process with the API (app pool AlwaysRunning); a separate Windows Service remains the documented upgrade only if recycle pauses ever prove unacceptable.
 
 ---
 
 ## 10. Runtime, deployment & infrastructure
 
-### 10.1 Hosting & deployment — Windows + IIS
-- API hosted in **IIS** (ASP.NET Core Module → Kestrel) on Windows Server, co-located with SQL Server in the data center.
-- SQL auth: prefer **Integrated Security (Windows/AD)** where available; otherwise a SQL login. Connection string in `appsettings.json` (plaintext **for now** — §10.3).
-
-### 10.2 Async dispatch & background work — DB outbox + in-process worker (no RabbitMQ)
-- **Transport:** a **DB-backed outbox** in SQL Server. Messages persist as `Queued`; a **claim-based, idempotent, resumable** worker dispatches them. No RabbitMQ — one fewer system to install/secure/monitor on-prem.
-- **Hosting the jobs: in-process `BackgroundService`s** in the IIS-hosted app — **one deployable** (chosen for simplicity). The app pool is set **AlwaysRunning + idle-timeout 0 + Application Initialization** so the worker stays alive; because dispatch is **claim-based, idempotent, and resumable** via the outbox, an app-pool recycle just pauses briefly and resumes — safe for billing-grade work.
-  - Jobs: outbox dispatch, DLR ingestion/polling, `Message.DeliveryStatus` projection, `MessageBody` purge, partition-switch retention, `MessageBatchEvent` purge, balance reconciliation.
-  - *Keep worker code host-agnostic* so it can be lifted into a **separate Windows Service** later **only if** recycle-induced pauses ever prove unacceptable (the documented upgrade path).
-
-### 10.3 Secrets & credentials — encrypted in SQL Server
-- **Provider credentials** (Magfa `username`/`domain`/`password`) live **encrypted in SQL Server** in **`ProviderCredential`** (ciphertext only), decrypted in-app via **ASP.NET Core Data Protection** with the key ring **protected by Windows DPAPI (machine-scoped)** — the key lives **outside** the DB, so a stolen connection string can't decrypt them.
-- **Connection string:** plaintext in `appsettings.json` **for now** (explicitly temporary).
-- *Hardening path:* SQL Server **Always Encrypted** (master key in the Windows cert store), and moving the connection string into a protected/DPAPI config section — when a security review requires it.
-
-### 10.4 Migrations — DbUp (forward-only)
-- Ordered raw-SQL scripts run by **DbUp** at deploy. Forward-only (no down-migrations); partitioning/columnstore DDL is hand-written. FluentMigrator only if rollback becomes a hard requirement.
-
-### 10.5 Logging — Serilog (no OpenTelemetry)
-- **Serilog** (structured) → console + **rolling file**, with **Seq** as an optional on-prem viewer and the **Windows Event Log** for service-level errors. **OpenTelemetry is intentionally omitted** (simpler is better) — add distributed tracing later only if a real need appears. ASP.NET Core **health checks** for IIS/monitoring probes.
-
-### 10.6 Web, validation, errors — locked defaults
-- Minimal APIs · FluentValidation → `Result` · hand-rolled `Result` · no MediatR/AutoMapper · built-in ASP.NET **rate limiter** keyed by API key (header auth) · **Testcontainers** integration tests · Jalali via BCL `PersianCalendar`.
+- **Hosting:** **Windows + IIS** (ASP.NET Core Module → Kestrel), co-located with SQL Server. SQL auth prefers **Integrated Security** where available.
+- **Secrets:** provider credentials **encrypted in SQL Server** (`ProviderCredential`, ciphertext only), decrypted in-app via **ASP.NET Core Data Protection** with the key ring **protected by Windows DPAPI** — key lives **outside** the DB. Connection string plaintext in `appsettings.json` **for now** (temporary; hardening path = SQL **Always Encrypted** + protected config).
+- **Migrations:** **DbUp** — ordered, forward-only raw-SQL scripts run at deploy; partitioning/columnstore DDL is hand-written.
+- **Logging:** **Serilog** (structured) → console + rolling file (+ Seq optional, Windows Event Log for service errors). **OpenTelemetry intentionally omitted** (simpler is better) — add tracing later only if a real need appears. ASP.NET Core **health checks** for IIS probes.
+- **Resilience:** Polly via `Microsoft.Extensions.Http.Resilience` on the Magfa `HttpClient`.
+- **Auth:** API key in header; built-in ASP.NET **rate limiter** keyed by API key.
 
 ---
 
-## 11. Open / under revision
+## 11. Tech stack
 
-This document is a **living draft**. Resolved: hosting (Windows/IIS, **in-process** worker), async transport (DB outbox), secrets (`ProviderCredential`), migrations (DbUp), logging (**Serilog, no OTel**), Result (hand-rolled), web/validation defaults. No load-bearing decisions remain open. Minor revisit-later items:
+| Area | Choice |
+|---|---|
+| Runtime / language | .NET 8 (LTS), C# |
+| Web | ASP.NET Core **minimal APIs** |
+| Hosting | **Windows + IIS**, in-process background work (one deployable) |
+| Data access | **Dapper** + feature-local raw SQL |
+| Database | SQL Server (2019+) |
+| Background jobs | implementation-agnostic; **Hangfire** a candidate (SQL-backed) |
+| Migrations | **DbUp** (forward-only raw SQL) |
+| Secrets | `ProviderCredential` (encrypted) via ASP.NET **Data Protection** (DPAPI) |
+| Validation | **plain in-feature code** (no framework) |
+| Result | **hand-rolled** |
+| Time | BCL **`TimeProvider`** |
+| Resilience | Polly (`Microsoft.Extensions.Http.Resilience`) |
+| Logging | **Serilog** → console + rolling file (Seq optional) · health checks · **no OpenTelemetry** |
+| Tests | xUnit · Testcontainers (SQL Server) · WireMock.Net (Magfa) |
 
-- **Connection-string protection:** plaintext now → DPAPI/protected config + SQL **Always Encrypted** as the hardening path (§10.3) — when a security review requires it.
-- **Worker → separate Windows Service:** only if in-process recycle pauses ever prove unacceptable (§10.2).
+---
+
+## 12. Open / revisit later
+
+Decision-complete; nothing load-bearing remains. Revisit only on a concrete trigger:
+
+- **Background host:** confirm Hangfire vs. plain hosted services when we build dispatch (both fit; impl-agnostic until then).
+- **Connection-string protection:** plaintext now → DPAPI/Always Encrypted when a security review requires it.
+- **Worker → separate Windows Service:** only if in-process recycle pauses ever prove unacceptable.
 - **Split `Features/Providers/Magfa`** into its own project — only once provider NuGet deps are known.
-- **Logging viewer:** stand up Seq, or feed an existing ELK/Grafana if the org already runs one.
+- **Logging viewer:** Seq vs. an existing ELK/Grafana, if the org already runs one.
