@@ -1,24 +1,24 @@
 # SmsHubNext — Application Architecture
 
-> **Status:** **Living draft — decision-complete.** The *data model* is locked (`README.md`); this *application* architecture is agreed. Implementation not started (pre-Phase 0).
-> **Optimize for (highest → lowest):** Simplicity · Developer productivity · Readability · Maintainability · Performance · Extensibility. The goal is **minimal cognitive load for the next developer** — not architectural purity.
+> **Status:** **Living draft — decision-complete.** The *data model* is locked (`README.md`); this *application* design is agreed. Implementation not started (pre-Phase 0).
+> **Optimize for (in order):** **1. Simplicity · 2. Readability · 3. Developer productivity · 4. Maintainability.** A developer should open a feature folder and find almost everything for that business capability in one place.
 
 ---
 
-## 1. Philosophy — a feature-first, pragmatic monolith
+## 1. How the code is organized — by feature
 
-Organize around **business features**, not technical layers. Inspiration is the *organization and developer experience* of the **DntSite** project (feature cohesion, low ceremony) — not its exact tech or folders.
+This is a small-to-medium **monolithic backend service** that should **stay simple for years**. Code is organized **by business feature, not by technical layer** — the inspiration is the coding style and project organization of **DntSite**, nothing more.
 
-**This project is NOT** Clean/Onion Architecture, CQRS, MediatR, FluentValidation, or microservices. We do not add abstraction layers or patterns unless they earn their place.
+**We are not implementing any named architecture** — not Clean, Onion, Hexagonal, CQRS, "Vertical Slice", or microservices, and no MediatR or FluentValidation. There is no pattern to satisfy. We just keep the code for one capability together and keep it readable.
 
-- **Features come first.** Each feature is as self-contained as practical — its endpoints, requests, handler/service, validation, Dapper SQL, models, and mapping live **together** in one folder.
-- **No global technical buckets.** No `Services/`, `Repositories/`, `DTOs/`, `Validators/`, or `Interfaces/` folders collecting unrelated code from different features.
-- **Shared code stays small** and holds only *truly* cross-cutting concerns.
-- **High cohesion, low coupling.** Features don't call each other; shared needs move into `Shared/`.
-- **Explicit over generic.** Straightforward code a developer can grasp in a few minutes beats a clever abstraction.
-- **"Modular monolith"** here means feature *modules as folders* inside **one project / one deployable** — not enforced module boundaries or separate assemblies.
+- **Everything for a feature lives together** — its endpoints, requests, handler/service, validation, Dapper SQL, models, and mapping, in one folder.
+- **No global technical buckets** — no `Services/`, `Repositories/`, `DTOs/`, `Validators/`, or `Interfaces/` folders pulling unrelated code together.
+- **Shared code stays small** — only genuinely cross-cutting things.
+- **Features don't call each other** — anything shared moves into `Shared/`.
+- **Explicit over generic** — straightforward code a developer grasps in a few minutes beats a clever abstraction.
+- **One project, one deployable.** A "feature" is just a folder.
 
-**Rule for any abstraction (interface/wrapper/base class): justify it.** It must have **≥2 real implementations** *or* wrap a **genuinely external/non-deterministic dependency**. Otherwise, delete it and write the concrete code.
+**Abstractions:** if an abstraction (interface/wrapper/base class) genuinely makes the code **simpler**, use it. If it mainly exists to satisfy a pattern or a "best practice," don't — write the concrete code. When several solutions are valid, pick the simpler one.
 
 ---
 
@@ -26,7 +26,7 @@ Organize around **business features**, not technical layers. Inspiration is the 
 
 | # | Decision | One-line rationale |
 |---|---|---|
-| 1 | **Feature-first monolith, one deployable** | Related code lives together; no cross-folder hopping per feature. |
+| 1 | **Organized by feature; one deployable** | Related code lives together; no cross-folder hopping per feature. |
 | 2 | **Dapper + feature-local SQL; no Repository / Unit-of-Work / persistence layer / repo interfaces** | They hide the hand-tuned SQL that is the point and add zero swappability. |
 | 3 | **Minimal APIs; no MediatR, no FluentValidation, no AutoMapper** | Endpoints call plain feature handlers; validation and mapping are explicit, local code. |
 | 4 | **Very few abstractions, each justified** | `ISmsProvider` (≥2 impls) and BCL `TimeProvider` (test determinism). That's essentially it. |
