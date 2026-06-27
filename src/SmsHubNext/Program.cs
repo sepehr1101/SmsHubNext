@@ -35,6 +35,7 @@ builder.Services.AddScoped<ListProvidersHandler>();
 builder.Services.AddScoped<CreateProviderHandler>();
 builder.Services.AddScoped<ListSenderLinesHandler>();
 builder.Services.AddScoped<ListGeoSectionsHandler>();
+builder.Services.AddScoped<CreateGeoSectionHandler>();
 builder.Services.AddScoped<CreateCustomerHandler>();
 builder.Services.AddScoped<ListCustomersHandler>();
 builder.Services.AddScoped<IssueApiKeyHandler>();
@@ -42,8 +43,10 @@ builder.Services.AddScoped<ListApiKeysHandler>();
 builder.Services.AddScoped<AddIpRestrictionHandler>();
 builder.Services.AddScoped<ListIpRestrictionsHandler>();
 builder.Services.AddScoped<ListTariffsHandler>();
+builder.Services.AddScoped<QuoteHandler>();
 builder.Services.AddScoped<GetBalanceHandler>();
 builder.Services.AddScoped<TopUpHandler>();
+builder.Services.AddScoped<ListTransactionsHandler>();
 
 // Health checks: a database readiness probe (more added as dependencies arrive).
 builder.Services.AddHealthChecks()
@@ -82,6 +85,7 @@ app.MapGet("/", () => new
         customers = "/customers",
         apiKeys = "/api-keys?customerId=1",
         tariffs = "/tariffs",
+        quote = "/tariffs/quote",
         balances = "/balances?customerId=1",
     },
 });

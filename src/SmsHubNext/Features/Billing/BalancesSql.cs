@@ -22,4 +22,12 @@ internal static class BalancesSql
         INSERT INTO dbo.BalanceTransaction (CustomerId, Type, Amount, BalanceAfter, Reference)
         VALUES (@CustomerId, @Type, @Amount, @BalanceAfter, @Reference);
         """;
+
+    public const string ListTransactions =
+        """
+        SELECT Id, CustomerId, Type, Amount, BalanceAfter, MessageBatchId, Reference, CreatedAtUtc
+        FROM dbo.BalanceTransaction
+        WHERE CustomerId = @CustomerId
+        ORDER BY Id;
+        """;
 }
