@@ -5,7 +5,7 @@ using SmsHubNext.Shared.Results;
 namespace SmsHubNext.Features.Sending;
 
 [ApiController]
-[Route("api/messages")]
+[Route("messages")]
 public sealed class SendMessagesController : ControllerBase
 {
     private readonly SendMessagesHandler _handler;

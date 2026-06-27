@@ -94,6 +94,7 @@ Features/Sending/
 ```
 
 - **Endpoint** is a thin minimal-API mapping that binds the request, calls the handler, and translates `Result` → HTTP.
+- **Routes** carry **no `api/` prefix** — controllers route on the resource directly (e.g. `[Route("messages")]`, `[Route("reference-data/message-types")]`).
 - **Handler/service** is a plain class (no MediatR, no base class) holding the feature's logic; dependencies are obvious constructor params.
 - **Validation** is plain code (see §6).
 - **Data access** is Dapper SQL **in the feature** (see §5).

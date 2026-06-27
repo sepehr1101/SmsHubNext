@@ -4,7 +4,7 @@ using SmsHubNext.Shared.Results;
 namespace SmsHubNext.Features.ReferenceData;
 
 [ApiController]
-[Route("api/reference-data/message-types")]
+[Route("reference-data/message-types")]
 public sealed class MessageTypesController : ControllerBase
 {
     private readonly ListMessageTypesHandler _handler;

@@ -55,7 +55,7 @@ app.MapGet("/", () => new
     {
         health = "/health",
         openApi = "/openapi/v1.json",
-        messageTypes = "/api/reference-data/message-types",
+        messageTypes = "/reference-data/message-types",
     },
 });
 
