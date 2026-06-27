@@ -1,4 +1,5 @@
 using Serilog;
+using SmsHubNext.Features.Sending;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +11,9 @@ builder.Host.UseSerilog((context, configuration) => configuration
 
 // MVC controllers (feature controllers live under Features/*; see ADR-004).
 builder.Services.AddControllers();
+
+// Feature handlers (plain classes, resolved per request).
+builder.Services.AddScoped<SendMessagesHandler>();
 
 // Liveness probe — fleshed out as real dependencies (SQL Server, providers) arrive.
 builder.Services.AddHealthChecks();
