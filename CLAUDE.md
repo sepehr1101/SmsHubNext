@@ -87,6 +87,7 @@ Full table-by-table detail lives in **`README.md`** — read it before changing 
 * **Commits:** clear, descriptive messages. Commit author/email must be `Claude <noreply@anthropic.com>` so GitHub shows commits as verified.
 * **PRs:** do **not** open a pull request unless explicitly asked.
 * **Dependencies:** pin **exact** NuGet versions in `Directory.Packages.props` (Central Package Management). **No floating versions** (`2.*`, ranges) — see ADR-013.
+* **Composition root:** keep `Program.cs` **minimal** — builder creation, calling extension methods, `Build()`/`Run()` only. All service registration and HTTP-pipeline wiring go through `Extensions/` (`ServiceCollectionExtensions.AddApplicationServices`, `ApplicationBuilderExtensions.ConfigurePipeline`, `DatabaseExtensions.MigrateDatabase`). New feature handlers are registered in `AddFeatureHandlers`, not in `Program.cs`.
 * **Match surrounding code/docs style.** This repo's design docs are detailed and justify tradeoffs — keep that bar.
 * **When a tradeoff exists, explain the reasoning** rather than just picking one.
 

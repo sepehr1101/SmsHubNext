@@ -47,7 +47,8 @@ SmsHubNext/
 ├─ SmsHubNext.slnx
 ├─ src/
 │  └─ SmsHubNext/                      # THE single deployable (ASP.NET Core, .NET 10)
-│     ├─ Program.cs                    # host, DI, middleware, controller registration, hosted workers
+│     ├─ Program.cs                    # minimal composition root (builder → extensions → run)
+│     ├─ Extensions/                   # composition root wiring: DI, HTTP pipeline, DB bootstrap
 │     │
 │     ├─ Features/                     # ← business capabilities (the bulk of the code)
 │     │   ├─ Sending/                  # accept + send messages (the core path)
@@ -76,6 +77,8 @@ SmsHubNext/
 ```
 
 There is **no `Domain/` / `Application/` / `Infrastructure/`** layering. Persistence models are **feature-local** (each Dapper query projects exactly the columns it needs into a small record next to the query) — so there is no shared "entities" god-folder, and features don't drift against a monolithic model.
+
+**Composition root.** `Program.cs` stays a **minimal** composition root — create the builder, call extension methods, build and run — and nothing else. The wiring lives in `Extensions/`: `ServiceCollectionExtensions.AddApplicationServices` (DI: controllers, OpenAPI, `Db`, feature handlers, health checks), `ApplicationBuilderExtensions.ConfigurePipeline` (Serilog request logging, OpenAPI + Scalar, root endpoint, controller + health-check mapping), and `DatabaseExtensions.MigrateDatabase` (startup migrations). Why: **separation of concerns** (registration vs. pipeline vs. bootstrap are distinct), **maintainability** at the volume this platform grows to (a single ballooning `Program.cs` becomes a merge-conflict magnet), and **consistency with the feature-first monolith** (each feature adds its handler in one obvious place rather than padding the host file).
 
 ---
 
