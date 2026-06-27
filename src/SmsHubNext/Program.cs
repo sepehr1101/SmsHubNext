@@ -1,5 +1,6 @@
 using Serilog;
 using SmsHubNext.Features.Sending;
+using SmsHubNext.Shared.Database;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,13 @@ builder.Host.UseSerilog((context, configuration) => configuration
 
 // MVC controllers (feature controllers live under Features/*; see ADR-004).
 builder.Services.AddControllers();
+
+// Database access (concrete, no interface — see ARCHITECTURE.md §5).
+// Read the connection string here so misconfiguration fails fast at startup.
+builder.Services.AddSingleton(new Db(
+    builder.Configuration.GetConnectionString(Db.ConnectionStringName)
+        ?? throw new InvalidOperationException(
+            $"Connection string '{Db.ConnectionStringName}' is not configured.")));
 
 // Feature handlers (plain classes, resolved per request).
 builder.Services.AddScoped<SendMessagesHandler>();
