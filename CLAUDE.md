@@ -86,6 +86,7 @@ Full table-by-table detail lives in **`README.md`** — read it before changing 
 * **Branch:** develop on the designated feature branch (currently `claude/continue-previous-work-c6qqvn`). Never push elsewhere without explicit permission.
 * **Commits:** clear, descriptive messages. Commit author/email must be `Claude <noreply@anthropic.com>` so GitHub shows commits as verified.
 * **PRs:** do **not** open a pull request unless explicitly asked.
+* **Dependencies:** pin **exact** NuGet versions in `Directory.Packages.props` (Central Package Management). **No floating versions** (`2.*`, ranges) — see ADR-013.
 * **Match surrounding code/docs style.** This repo's design docs are detailed and justify tradeoffs — keep that bar.
 * **When a tradeoff exists, explain the reasoning** rather than just picking one.
 

@@ -327,6 +327,33 @@ Only if the same host ever needs to serve non-API surfaces (for example a server
 
 ---
 
+# ADR-013
+## Explicit package versions only (no floating)
+
+### Decision
+
+Every NuGet dependency is pinned to an exact version in `Directory.Packages.props`.
+
+Floating versions (`2.*`, `[2.0,)`, and similar) are not allowed.
+
+### Why
+
+Reproducible, deterministic builds: the same commit restores the same bytes on every machine and in CI.
+
+Floating versions silently change dependencies between restores, which undermines the project's `Deterministic` build setting and makes failures hard to reproduce.
+
+### How
+
+Central Package Management with `CentralPackageFloatingVersionsEnabled` left off (the default), so a floating version fails the build (NU1011) instead of slipping through.
+
+Upgrades are explicit edits to `Directory.Packages.props`.
+
+### Revisit
+
+Not expected.
+
+---
+
 # Future Reconsideration
 
 These decisions are intentionally conservative.
