@@ -177,6 +177,7 @@ No external job scheduler is required. The application depends only on the built
 - **Logging:** **Serilog** (structured) → console + rolling file (+ Seq optional, Windows Event Log for service errors). **OpenTelemetry intentionally omitted** (simpler is better) — add tracing later only if a real need appears. ASP.NET Core **health checks** for IIS probes.
 - **Resilience:** Polly via `Microsoft.Extensions.Http.Resilience` on the Magfa `HttpClient`.
 - **Auth:** API key in header; built-in ASP.NET **rate limiter** keyed by API key.
+- **API docs:** **OpenAPI** document (built-in `Microsoft.AspNetCore.OpenApi`) at `/openapi/v1.json`, rendered by **Scalar** at `/scalar/v1` — **Development only** (not exposed in production).
 
 ---
 
@@ -197,6 +198,7 @@ No external job scheduler is required. The application depends only on the built
 | Time | BCL **`TimeProvider`** |
 | Resilience | Polly (`Microsoft.Extensions.Http.Resilience`) |
 | Logging | **Serilog** → console + rolling file (Seq optional) · health checks · **no OpenTelemetry** |
+| API docs | **OpenAPI** (`Microsoft.AspNetCore.OpenApi`) + **Scalar** UI · Development only |
 | Tests | xUnit · Testcontainers (SQL Server) · WireMock.Net (Magfa) |
 
 ---
