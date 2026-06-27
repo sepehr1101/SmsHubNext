@@ -299,6 +299,34 @@ No in-memory state is required for correctness.
 
 ---
 
+# ADR-012
+## No `api/` route prefix
+
+### Decision
+
+Controllers route on the resource directly, with no `api/` prefix.
+
+Examples:
+
+- `[Route("messages")]`
+- `[Route("reference-data/message-types")]`
+
+### Why
+
+The service exposes only an API, so an `api/` segment on every route is redundant noise that adds nothing to readability or organization.
+
+Routes stay short and read as the resource they represent.
+
+### Consequences
+
+Routes are grouped by resource, not by a blanket prefix.
+
+### Revisit
+
+Only if the same host ever needs to serve non-API surfaces (for example a server-rendered UI) alongside the API, where a prefix would disambiguate.
+
+---
+
 # Future Reconsideration
 
 These decisions are intentionally conservative.
