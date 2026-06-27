@@ -10,6 +10,12 @@
     <AssemblyName>SmsHubNext</AssemblyName>
   </PropertyGroup>
 
+  <!-- DbUp runs these as embedded resources; remove from the default None glob first. -->
+  <ItemGroup>
+    <None Remove="Migrations/Scripts/*.sql" />
+    <EmbeddedResource Include="Migrations/Scripts/*.sql" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Data access: hand-written SQL (ADR-002, ADR-003) -->
     <PackageReference Include="Dapper" />

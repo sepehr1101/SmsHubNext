@@ -1,4 +1,5 @@
 using Serilog;
+using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Shared.Database;
 
@@ -15,19 +16,25 @@ builder.Services.AddControllers();
 
 // Database access (concrete, no interface — see ARCHITECTURE.md §5).
 // Read the connection string here so misconfiguration fails fast at startup.
-builder.Services.AddSingleton(new Db(
-    builder.Configuration.GetConnectionString(Db.ConnectionStringName)
-        ?? throw new InvalidOperationException(
-            $"Connection string '{Db.ConnectionStringName}' is not configured.")));
+var connectionString = builder.Configuration.GetConnectionString(Db.ConnectionStringName)
+    ?? throw new InvalidOperationException(
+        $"Connection string '{Db.ConnectionStringName}' is not configured.");
+builder.Services.AddSingleton(new Db(connectionString));
 
 // Feature handlers (plain classes, resolved per request).
 builder.Services.AddScoped<SendMessagesHandler>();
+builder.Services.AddScoped<ListMessageTypesHandler>();
 
 // Health checks: a database readiness probe (more added as dependencies arrive).
 builder.Services.AddHealthChecks()
     .AddCheck<SqlServerHealthCheck>("sql-server");
 
 var app = builder.Build();
+
+// Apply forward-only database migrations at startup (idempotent; fail fast).
+var migration = new DatabaseMigrator(connectionString).Migrate();
+if (!migration.Successful)
+    throw new InvalidOperationException("Database migration failed.", migration.Error);
 
 app.UseSerilogRequestLogging();
 
