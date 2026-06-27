@@ -2,35 +2,56 @@ using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.Sending;
 
-/// <summary>One send request: a batch of recipients sharing a single message body.</summary>
+/// <summary>
+/// One send request: a batch of independent recipient/message pairs sent on a
+/// single sender line. Each item carries its own text, so recipients can receive
+/// different messages (personalization, OTPs, invoices, …).
+/// </summary>
 public sealed class SendMessagesRequest
 {
-    /// <summary>The originating sender line (e.g. <c>3000...</c>).</summary>
+    /// <summary>Maximum messages accepted in a single request.</summary>
+    public const int MaxMessages = 1000;
+
+    /// <summary>The originating sender line for the whole batch (e.g. <c>3000...</c>).</summary>
     public string SenderLine { get; init; } = string.Empty;
 
-    /// <summary>Ad-hoc recipient mobile numbers.</summary>
-    public IReadOnlyList<string> Recipients { get; init; } = [];
+    /// <summary>Optional batch-level idempotency key.</summary>
+    public string? ClientBatchId { get; init; }
 
-    /// <summary>The exact message text (caller-supplied; each message is distinct).</summary>
-    public string Text { get; init; } = string.Empty;
-
-    /// <summary>Optional caller idempotency key.</summary>
-    public string? ClientCorrelatedId { get; init; }
+    /// <summary>The recipient/message pairs to send.</summary>
+    public IReadOnlyList<SendMessageItem> Messages { get; init; } = [];
 
     /// <summary>
-    /// Plain, in-feature validation (ARCHITECTURE.md §6). Returns the first problem
-    /// found, or <see cref="Result.Success()"/> when the request is well-formed.
+    /// Plain, in-feature validation (ARCHITECTURE.md §6). Validates the request and
+    /// every item; returns the first problem found (with its item index).
     /// </summary>
     public Result Validate()
     {
         if (string.IsNullOrWhiteSpace(SenderLine))
             return Error.Validation("sending.sender_line_required", "A sender line is required.");
 
-        if (Recipients.Count == 0)
-            return Error.Validation("sending.recipients_required", "At least one recipient is required.");
+        if (Messages.Count == 0)
+            return Error.Validation("sending.messages_required", "At least one message is required.");
 
-        if (string.IsNullOrWhiteSpace(Text))
-            return Error.Validation("sending.text_required", "Message text is required.");
+        if (Messages.Count > MaxMessages)
+            return Error.Validation(
+                "sending.too_many_messages",
+                $"A request may contain at most {MaxMessages} messages.");
+
+        for (var index = 0; index < Messages.Count; index++)
+        {
+            var message = Messages[index];
+
+            if (string.IsNullOrWhiteSpace(message.Recipient))
+                return Error.Validation(
+                    "sending.recipient_required",
+                    $"Message at index {index} is missing a recipient.");
+
+            if (string.IsNullOrWhiteSpace(message.Text))
+                return Error.Validation(
+                    "sending.text_required",
+                    $"Message at index {index} is missing text.");
+        }
 
         return Result.Success();
     }

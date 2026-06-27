@@ -18,7 +18,7 @@ public sealed class SendMessagesHandler
         if (validation.IsFailure)
             return validation.Error!;
 
-        var response = new SendMessagesResponse(Guid.NewGuid(), request.Recipients.Count);
+        var response = new SendMessagesResponse(Guid.NewGuid(), request.Messages.Count);
         return response;
     }
 }
