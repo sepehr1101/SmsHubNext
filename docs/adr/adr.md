@@ -354,6 +354,37 @@ Not expected.
 
 ---
 
+# ADR-014
+## Minimal composition root (Program.cs + Extensions/)
+
+### Decision
+
+`Program.cs` is a minimal composition root: create the builder, call extension methods, build and run — nothing else.
+
+All wiring lives in `Extensions/`:
+
+- `ServiceCollectionExtensions.AddApplicationServices` — DI (controllers, OpenAPI, `Db`, feature handlers, health checks).
+- `ApplicationBuilderExtensions.ConfigurePipeline` — HTTP pipeline (Serilog request logging, OpenAPI + Scalar, root endpoint, controller and health-check mapping).
+- `DatabaseExtensions.MigrateDatabase` — startup database migration.
+
+New feature handlers are registered in `AddFeatureHandlers`, not in `Program.cs`.
+
+### Why
+
+- **Separation of concerns.** Registration, pipeline configuration, and database bootstrap are distinct responsibilities and read better apart.
+- **Maintainability at volume.** A single growing `Program.cs` becomes a merge-conflict magnet as features accrue; one obvious place per concern scales better.
+- **Feature-first consistency.** Adding a feature touches its own folder and one registration line, rather than padding the host file.
+
+### Consequences
+
+Wiring is slightly more indirect (one hop into `Extensions/`), traded for a host file that stays readable.
+
+### Revisit
+
+Not expected. If the app ever needs environment-specific composition, add focused extension methods rather than branching inside `Program.cs`.
+
+---
+
 # Future Reconsideration
 
 These decisions are intentionally conservative.
