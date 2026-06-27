@@ -19,6 +19,6 @@ public sealed class ListMessageTypesHandler
             new CommandDefinition(MessageTypesSql.List, cancellationToken: cancellationToken));
 
         IReadOnlyList<MessageType> messageTypes = rows.AsList();
-        return messageTypes;
+        return Result.Success(messageTypes);
     }
 }

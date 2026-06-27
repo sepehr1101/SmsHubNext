@@ -36,6 +36,17 @@ public class ResultTests
     }
 
     [Fact]
+    public void Success_supports_interface_typed_values()
+    {
+        IReadOnlyList<int> values = new[] { 1, 2, 3 };
+
+        var result = Result.Success(values);
+
+        Assert.True(result.IsSuccess);
+        Assert.Same(values, result.Value);
+    }
+
+    [Fact]
     public void Reading_the_value_of_a_failure_throws()
     {
         Result<int> result = Error.NotFound("missing", "not found");
