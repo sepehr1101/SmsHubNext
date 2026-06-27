@@ -2,4 +2,8 @@
   <Folder Name="/src/">
     <Project Path="src/SmsHubNext/SmsHubNext.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SmsHubNext.UnitTests/SmsHubNext.UnitTests.csproj" />
+    <Project Path="tests/SmsHubNext.IntegrationTests/SmsHubNext.IntegrationTests.csproj" />
+  </Folder>
 </Solution>

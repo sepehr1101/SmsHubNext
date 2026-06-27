@@ -1,0 +1,31 @@
+<Project>
+
+  <!--
+    Central Package Management: every NuGet version lives here, once.
+    Project .csproj files reference packages WITHOUT a Version attribute.
+    Versions below are current stable as of scaffolding; run `dotnet restore`
+    to confirm/bump (this environment cannot reach the SDK feed to verify).
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- Runtime: data access, migrations, logging -->
+  <ItemGroup>
+    <PackageVersion Include="Dapper" Version="2.1.66" />
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.0.1" />
+    <PackageVersion Include="dbup-sqlserver" Version="5.0.40" />
+    <PackageVersion Include="Serilog.AspNetCore" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- Test stack -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+    <PackageVersion Include="Testcontainers.MsSql" Version="4.1.0" />
+    <PackageVersion Include="WireMock.Net" Version="1.6.7" />
+  </ItemGroup>
+
+</Project>
