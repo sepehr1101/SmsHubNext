@@ -28,6 +28,8 @@ builder.Services.AddSingleton(new Db(connectionString));
 // Feature handlers (plain classes, resolved per request).
 builder.Services.AddScoped<SendMessagesHandler>();
 builder.Services.AddScoped<ListMessageTypesHandler>();
+builder.Services.AddScoped<ListProvidersHandler>();
+builder.Services.AddScoped<ListSenderLinesHandler>();
 
 // Health checks: a database readiness probe (more added as dependencies arrive).
 builder.Services.AddHealthChecks()
@@ -60,6 +62,8 @@ app.MapGet("/", () => new
         openApi = "/openapi/v1.json",
         scalar = "/scalar/v1",
         messageTypes = "/reference-data/message-types",
+        providers = "/reference-data/providers",
+        senderLines = "/reference-data/sender-lines",
     },
 });
 
