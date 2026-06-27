@@ -8,6 +8,8 @@
   -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Allow floating versions (e.g. Scalar.AspNetCore 2.*) under CPM. -->
+    <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
   </PropertyGroup>
 
   <!-- Runtime: data access, migrations, logging -->
