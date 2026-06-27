@@ -17,6 +17,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- OpenAPI document generation (served in Development) -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <!-- Data access: hand-written SQL (ADR-002, ADR-003) -->
     <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.Data.SqlClient" />

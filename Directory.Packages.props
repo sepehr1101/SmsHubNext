@@ -12,6 +12,7 @@
 
   <!-- Runtime: data access, migrations, logging -->
   <ItemGroup>
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
     <PackageVersion Include="Dapper" Version="2.1.66" />
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.0.1" />
     <PackageVersion Include="dbup-sqlserver" Version="5.0.40" />

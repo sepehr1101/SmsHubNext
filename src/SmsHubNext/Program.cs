@@ -14,6 +14,9 @@ builder.Host.UseSerilog((context, configuration) => configuration
 // MVC controllers (feature controllers live under Features/*; see ADR-004).
 builder.Services.AddControllers();
 
+// OpenAPI document (exposed at /openapi/v1.json in Development).
+builder.Services.AddOpenApi();
+
 // Database access (concrete, no interface — see ARCHITECTURE.md §5).
 // Read the connection string here so misconfiguration fails fast at startup.
 var connectionString = builder.Configuration.GetConnectionString(Db.ConnectionStringName)
@@ -37,6 +40,24 @@ if (!migration.Successful)
     throw new InvalidOperationException("Database migration failed.", migration.Error);
 
 app.UseSerilogRequestLogging();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
+// Root: a quick liveness/landing response listing the useful endpoints.
+app.MapGet("/", () => new
+{
+    service = "SmsHubNext",
+    status = "ok",
+    endpoints = new
+    {
+        health = "/health",
+        openApi = "/openapi/v1.json",
+        messageTypes = "/api/reference-data/message-types",
+    },
+});
 
 app.MapControllers();
 app.MapHealthChecks("/health");
