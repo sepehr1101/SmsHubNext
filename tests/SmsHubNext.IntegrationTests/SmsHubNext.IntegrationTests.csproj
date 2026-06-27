@@ -21,6 +21,11 @@
     <PackageReference Include="WireMock.Net" />
   </ItemGroup>
 
+  <!-- Compile against ASP.NET Core types (health checks, hosting) exposed by the app. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="../../src/SmsHubNext/SmsHubNext.csproj" />
   </ItemGroup>

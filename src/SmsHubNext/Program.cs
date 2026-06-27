@@ -23,8 +23,9 @@ builder.Services.AddSingleton(new Db(
 // Feature handlers (plain classes, resolved per request).
 builder.Services.AddScoped<SendMessagesHandler>();
 
-// Liveness probe — fleshed out as real dependencies (SQL Server, providers) arrive.
-builder.Services.AddHealthChecks();
+// Health checks: a database readiness probe (more added as dependencies arrive).
+builder.Services.AddHealthChecks()
+    .AddCheck<SqlServerHealthCheck>("sql-server");
 
 var app = builder.Build();
 
