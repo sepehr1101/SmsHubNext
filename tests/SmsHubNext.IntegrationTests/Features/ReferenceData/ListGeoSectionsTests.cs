@@ -1,0 +1,39 @@
+using SmsHubNext.Features.ReferenceData;
+using SmsHubNext.Shared.Database;
+using SmsHubNext.Shared.Enums;
+using Testcontainers.MsSql;
+using Xunit;
+
+namespace SmsHubNext.IntegrationTests.Features.ReferenceData;
+
+public sealed class ListGeoSectionsTests : IAsyncLifetime
+{
+    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder().Build();
+    private Db _db = null!;
+
+    public async Task InitializeAsync()
+    {
+        await _sqlServer.StartAsync();
+        var connectionString = _sqlServer.GetConnectionString();
+
+        var migration = new DatabaseMigrator(connectionString).Migrate();
+        Assert.True(migration.Successful, migration.Error?.Message);
+
+        _db = new Db(connectionString);
+    }
+
+    public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
+
+    [Fact]
+    public async Task Returns_the_seeded_sections()
+    {
+        var result = await new ListGeoSectionsHandler(_db).Handle(CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(4, result.Value.Count);
+        Assert.Contains(result.Value, s =>
+            s.Code == "THR" && s.SectionType == GeoSectionType.Province && s.ParentGeoSectionId == null);
+        Assert.Contains(result.Value, s =>
+            s.Code == "THR-01" && s.SectionType == GeoSectionType.City && s.ParentGeoSectionId == 1);
+    }
+}

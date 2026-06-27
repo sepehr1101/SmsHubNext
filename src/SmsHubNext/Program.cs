@@ -1,5 +1,6 @@
 using Scalar.AspNetCore;
 using Serilog;
+using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Shared.Database;
@@ -30,6 +31,11 @@ builder.Services.AddScoped<SendMessagesHandler>();
 builder.Services.AddScoped<ListMessageTypesHandler>();
 builder.Services.AddScoped<ListProvidersHandler>();
 builder.Services.AddScoped<ListSenderLinesHandler>();
+builder.Services.AddScoped<ListGeoSectionsHandler>();
+builder.Services.AddScoped<CreateCustomerHandler>();
+builder.Services.AddScoped<ListCustomersHandler>();
+builder.Services.AddScoped<IssueApiKeyHandler>();
+builder.Services.AddScoped<ListApiKeysHandler>();
 
 // Health checks: a database readiness probe (more added as dependencies arrive).
 builder.Services.AddHealthChecks()
@@ -64,6 +70,9 @@ app.MapGet("/", () => new
         messageTypes = "/reference-data/message-types",
         providers = "/reference-data/providers",
         senderLines = "/reference-data/sender-lines",
+        geoSections = "/reference-data/geo-sections",
+        customers = "/customers",
+        apiKeys = "/api-keys?customerId=1",
     },
 });
 

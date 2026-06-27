@@ -11,14 +11,16 @@ namespace SmsHubNext.Shared.Security;
 /// </summary>
 public static class ApiKeyHasher
 {
-    /// <summary>Lowercase hex SHA-256 of the key — the value to store and to look up by.</summary>
-    public static string Hash(string apiKey)
+    /// <summary>Raw 32-byte SHA-256 of the key — the value stored in the <c>BINARY(32)</c> column.</summary>
+    public static byte[] HashBytes(string apiKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(apiKey);
 
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(apiKey));
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        return SHA256.HashData(Encoding.UTF8.GetBytes(apiKey));
     }
+
+    /// <summary>Lowercase hex SHA-256 of the key.</summary>
+    public static string Hash(string apiKey) => Convert.ToHexString(HashBytes(apiKey)).ToLowerInvariant();
 
     /// <summary>
     /// True when <paramref name="apiKey"/> hashes to <paramref name="expectedHash"/>.
