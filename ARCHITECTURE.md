@@ -44,7 +44,7 @@ This is a small-to-medium **monolithic backend service** that should **stay simp
 
 ```
 SmsHubNext/
-├─ SmsHubNext.sln
+├─ SmsHubNext.slnx
 ├─ src/
 │  └─ SmsHubNext/                      # THE single deployable (ASP.NET Core, .NET 10)
 │     ├─ Program.cs                    # host, DI, middleware, controller registration, hosted workers

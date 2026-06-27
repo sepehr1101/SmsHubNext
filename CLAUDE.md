@@ -15,22 +15,21 @@ Guidance for Claude when working in the **SmsHubNext** repository. Keep this fil
 
 ## 2. CURRENT PHASE — scope guardrails ⚠️
 
-The **database & storage architecture design** is **validated and locked** (the 6 review questions are resolved — see §8 / README §10). We remain **pre-implementation**: do not start app code until the user explicitly moves to Phase 0. Schema changes from here should be **additive** (README §9) unless a locked decision is explicitly reopened.
+The **database & storage architecture design** is **validated and locked** (the 6 review questions are resolved — see §8 / README §10). Schema changes from here should be **additive** (README §9) unless a locked decision is explicitly reopened.
 
-**Do NOT, in this phase:**
-
-* ❌ Implement the application or write ASP.NET Core code
-* ❌ Write RabbitMQ / messaging implementation
-* ❌ Write provider integrations (Magfa HTTP client, etc.)
-* ❌ Write ASP.NET Core Controllers
+**Phase 0 has started** (user moved us off the design-only guardrail on 2026-06-27). The solution is scaffolded (`SmsHubNext.slnx` + `src/SmsHubNext`). We now build the app **incrementally in small, reviewable steps** — each increment small enough to be criticized (spiral SDLC). Follow the roadmap (§6) and `ARCHITECTURE.md`.
 
 **Do:**
 
-* ✅ Work on the data model / storage architecture (`README.md` is the live design doc)
-* ✅ Refine schema, indexing, partitioning, tariff/cost, reporting, concurrency analysis
-* ✅ Ask before expanding scope beyond data modeling
+* ✅ Build the app in small increments along the roadmap; keep each step reviewable
+* ✅ Respect the locked architecture (`ARCHITECTURE.md`, `docs/adr/adr.md`) and data model (`README.md`)
+* ✅ Keep schema changes additive (README §9)
 
-> If a request implies writing app code, confirm the phase has formally moved on before generating it.
+**Still hold off on (until their roadmap phase):**
+
+* ⏳ Provider integrations (Magfa HTTP client) — Phase 1+
+* ⏳ Messaging/outbox reliability layer — Phase 3
+* ⏳ Anything that contradicts a locked decision without an explicit ask
 
 ## 3. Tech decisions (locked unless changed here)
 
@@ -71,7 +70,7 @@ Full table-by-table detail lives in **`README.md`** — read it before changing 
 
 ## 6. Roadmap (phases)
 
-0. Foundation (solution scaffold) — *not started; blocked by current design phase*
+0. Foundation (solution scaffold) — *in progress: `.slnx` + `src/SmsHubNext` host created*
 1. Walking skeleton: send one SMS via Magfa
 2. Persistence & delivery status
 3. Reliability: async outbox + retries
@@ -80,11 +79,11 @@ Full table-by-table detail lives in **`README.md`** — read it before changing 
 6. Second provider (proves the abstraction)
 7. Finish line: tests, Docker, deploy
 
-> We are **pre-Phase 0**, validating the data model.
+> We are in **Phase 0** (foundation/scaffold), building forward in small increments.
 
 ## 7. Working conventions
 
-* **Branch:** develop on the designated feature branch (currently `claude/modest-knuth-29zw1v`). Never push elsewhere without explicit permission.
+* **Branch:** develop on the designated feature branch (currently `claude/continue-previous-work-c6qqvn`). Never push elsewhere without explicit permission.
 * **Commits:** clear, descriptive messages. Commit author/email must be `Claude <noreply@anthropic.com>` so GitHub shows commits as verified.
 * **PRs:** do **not** open a pull request unless explicitly asked.
 * **Match surrounding code/docs style.** This repo's design docs are detailed and justify tradeoffs — keep that bar.

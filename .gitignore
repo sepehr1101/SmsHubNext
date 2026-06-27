@@ -1,5 +1,32 @@
-﻿################################################################################
-# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+# .NET / Visual Studio
 ################################################################################
 
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# IDE / editor
 /.vs
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Test / coverage
+[Tt]est[Rr]esults/
+*.trx
+*.coverage
+coverage/
+
+# Local secrets / environment
+*.env
+appsettings.*.local.json
+
+# OS noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    THE single deployable: the SmsHubNext ASP.NET Core service (.NET 10).
+    Shared build settings live in /Directory.Build.props.
+    Code is organized by business feature under Features/ (see ARCHITECTURE.md §3).
+  -->
+  <PropertyGroup>
+    <RootNamespace>SmsHubNext</RootNamespace>
+    <AssemblyName>SmsHubNext</AssemblyName>
+  </PropertyGroup>
+
+</Project>

@@ -1,4 +1,4 @@
-# SmsHubNext — Architecture Decision Record (ADR)
+# SmsHubNext â€” Architecture Decision Record (ADR)
 
 > This document records the reasoning behind the architectural decisions made for SmsHubNext.
 > It complements `ARCHITECTURE.md` by explaining **why** each decision was made, the alternatives considered, and under what conditions the decision may be revisited.
@@ -38,7 +38,7 @@ Organize code by business capability rather than technical layers.
 
 ### Why
 
-Developers work on features—not repositories, validators, DTOs and services separately.
+Developers work on features â€” not repositories, validators, DTOs and services separately.
 
 Keeping everything for one feature together dramatically reduces navigation and cognitive load.
 
@@ -305,4 +305,4 @@ These decisions are intentionally conservative.
 
 Every decision may be revisited only if measurable evidence demonstrates that the current solution no longer satisfies the project's requirements.
 
-Complexity should always be introduced as a response to an actual problem—not in anticipation of one.
+Complexity should always be introduced as a response to an actual problem â€” not in anticipation of one.
