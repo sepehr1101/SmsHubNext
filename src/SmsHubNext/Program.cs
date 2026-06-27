@@ -1,3 +1,4 @@
+using Scalar.AspNetCore;
 using Serilog;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
@@ -44,6 +45,8 @@ app.UseSerilogRequestLogging();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    // Scalar API reference UI, rendering the OpenAPI document above.
+    app.MapScalarApiReference();
 }
 
 // Root: a quick liveness/landing response listing the useful endpoints.
@@ -55,6 +58,7 @@ app.MapGet("/", () => new
     {
         health = "/health",
         openApi = "/openapi/v1.json",
+        scalar = "/scalar/v1",
         messageTypes = "/reference-data/message-types",
     },
 });
