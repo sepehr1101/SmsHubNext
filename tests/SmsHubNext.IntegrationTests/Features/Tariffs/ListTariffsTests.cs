@@ -1,0 +1,40 @@
+using SmsHubNext.Features.Tariffs;
+using SmsHubNext.Shared.Database;
+using SmsHubNext.Shared.Sms;
+using Testcontainers.MsSql;
+using Xunit;
+
+namespace SmsHubNext.IntegrationTests.Features.Tariffs;
+
+public sealed class ListTariffsTests : IAsyncLifetime
+{
+    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder().Build();
+    private Db _db = null!;
+
+    public async Task InitializeAsync()
+    {
+        await _sqlServer.StartAsync();
+        var connectionString = _sqlServer.GetConnectionString();
+
+        var migration = new DatabaseMigrator(connectionString).Migrate();
+        Assert.True(migration.Successful, migration.Error?.Message);
+
+        _db = new Db(connectionString);
+    }
+
+    public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
+
+    [Fact]
+    public async Task Returns_the_seeded_tariff_with_its_rates()
+    {
+        var result = await new ListTariffsHandler(_db).Handle(CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var tariff = Assert.Single(result.Value);
+        Assert.Equal(SmsEncoding.Gsm7, tariff.Encoding);
+        Assert.Equal("IRR", tariff.Currency);
+
+        var rate = Assert.Single(tariff.Rates);
+        Assert.Equal(1000.0000m, rate.PricePerSegment);
+    }
+}

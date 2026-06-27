@@ -1,8 +1,10 @@
 using Scalar.AspNetCore;
 using Serilog;
 using SmsHubNext.Features.ApiKeys;
+using SmsHubNext.Features.Billing;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
+using SmsHubNext.Features.Tariffs;
 using SmsHubNext.Shared.Database;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,12 +32,18 @@ builder.Services.AddSingleton(new Db(connectionString));
 builder.Services.AddScoped<SendMessagesHandler>();
 builder.Services.AddScoped<ListMessageTypesHandler>();
 builder.Services.AddScoped<ListProvidersHandler>();
+builder.Services.AddScoped<CreateProviderHandler>();
 builder.Services.AddScoped<ListSenderLinesHandler>();
 builder.Services.AddScoped<ListGeoSectionsHandler>();
 builder.Services.AddScoped<CreateCustomerHandler>();
 builder.Services.AddScoped<ListCustomersHandler>();
 builder.Services.AddScoped<IssueApiKeyHandler>();
 builder.Services.AddScoped<ListApiKeysHandler>();
+builder.Services.AddScoped<AddIpRestrictionHandler>();
+builder.Services.AddScoped<ListIpRestrictionsHandler>();
+builder.Services.AddScoped<ListTariffsHandler>();
+builder.Services.AddScoped<GetBalanceHandler>();
+builder.Services.AddScoped<TopUpHandler>();
 
 // Health checks: a database readiness probe (more added as dependencies arrive).
 builder.Services.AddHealthChecks()
@@ -73,6 +81,8 @@ app.MapGet("/", () => new
         geoSections = "/reference-data/geo-sections",
         customers = "/customers",
         apiKeys = "/api-keys?customerId=1",
+        tariffs = "/tariffs",
+        balances = "/balances?customerId=1",
     },
 });
 
