@@ -36,7 +36,7 @@ public sealed class ListTariffsHandler
                 tariff.EffectiveToUtc,
                 tariff.Currency,
                 tariff.IsActive,
-                ratesByTariff.TryGetValue(tariff.Id, out IReadOnlyList<TariffRate> tariffRates) ? tariffRates : Array.Empty<TariffRate>()))
+                ratesByTariff.TryGetValue(tariff.Id, out IReadOnlyList<TariffRate>? tariffRates) ? tariffRates : Array.Empty<TariffRate>()))
             .ToList();
 
         return Result.Success(response);
