@@ -1,5 +1,5 @@
-using DbUp;
 using DbUp.Engine;
+using DbUp;
 
 namespace SmsHubNext.Shared.Database;
 
@@ -25,7 +25,7 @@ public sealed class DatabaseMigrator
     {
         EnsureDatabase.For.SqlDatabase(_connectionString);
 
-        var upgrader = DeployChanges.To
+        UpgradeEngine upgrader = DeployChanges.To
             .SqlDatabase(_connectionString)
             .WithScriptsEmbeddedInAssembly(typeof(DatabaseMigrator).Assembly)
             .WithTransactionPerScript()

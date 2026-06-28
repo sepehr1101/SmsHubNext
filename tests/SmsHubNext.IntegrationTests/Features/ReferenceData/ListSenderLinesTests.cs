@@ -1,3 +1,4 @@
+using DbUp.Engine;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Shared.Database;
 using Testcontainers.MsSql;
@@ -14,9 +15,9 @@ public sealed class ListSenderLinesTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _sqlServer.StartAsync();
-        var connectionString = _sqlServer.GetConnectionString();
+        string connectionString = _sqlServer.GetConnectionString();
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
@@ -27,9 +28,9 @@ public sealed class ListSenderLinesTests : IAsyncLifetime
     [Fact]
     public async Task Returns_the_seeded_sender_lines()
     {
-        var handler = new ListSenderLinesHandler(_db);
+        ListSenderLinesHandler handler = new ListSenderLinesHandler(_db);
 
-        var result = await handler.Handle(CancellationToken.None);
+        Result<IReadOnlyList<SenderLine>> result = await handler.Handle(CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(3, result.Value.Count);

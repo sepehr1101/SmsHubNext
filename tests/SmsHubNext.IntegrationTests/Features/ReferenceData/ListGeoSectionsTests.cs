@@ -1,3 +1,4 @@
+using DbUp.Engine;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Enums;
@@ -14,9 +15,9 @@ public sealed class ListGeoSectionsTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _sqlServer.StartAsync();
-        var connectionString = _sqlServer.GetConnectionString();
+        string connectionString = _sqlServer.GetConnectionString();
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
@@ -27,7 +28,7 @@ public sealed class ListGeoSectionsTests : IAsyncLifetime
     [Fact]
     public async Task Returns_the_seeded_sections()
     {
-        var result = await new ListGeoSectionsHandler(_db).Handle(CancellationToken.None);
+        Result<IReadOnlyList<GeoSection>> result = await new ListGeoSectionsHandler(_db).Handle(CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(4, result.Value.Count);

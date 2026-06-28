@@ -1,4 +1,6 @@
 using Dapper;
+using DbUp.Engine;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.Billing;
 using SmsHubNext.Features.ReferenceData;
@@ -18,9 +20,9 @@ public sealed class SendMessagesTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _sqlServer.StartAsync();
-        var connectionString = _sqlServer.GetConnectionString();
+        string connectionString = _sqlServer.GetConnectionString();
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
@@ -31,12 +33,12 @@ public sealed class SendMessagesTests : IAsyncLifetime
     [Fact]
     public async Task Persists_the_batch_debits_the_balance_and_queues_each_message()
     {
-        var customerId = await CreateCustomerAsync("sender");
+        short customerId = await CreateCustomerAsync("sender");
         await TopUpAsync(customerId, 10000m);
-        var apiKeyId = await IssueApiKeyAsync(customerId);
+        int apiKeyId = await IssueApiKeyAsync(customerId);
 
         // Two GSM-7 single-segment messages against the seeded 1000 IRR/segment tariff.
-        var result = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,
@@ -56,10 +58,10 @@ public sealed class SendMessagesTests : IAsyncLifetime
         Assert.Equal(2, result.Value.AcceptedCount);
         Assert.True(result.Value.BatchId > 0);
 
-        await using var connection = await _db.OpenConnectionAsync();
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
 
         // The header rolls up count/segments/cost and starts at Received (1).
-        var batch = await connection.QuerySingleAsync<(int MessageCount, int SegmentCount, decimal TotalCost, byte Status)>(
+        (int MessageCount, int SegmentCount, decimal TotalCost, byte Status) batch = await connection.QuerySingleAsync<(int MessageCount, int SegmentCount, decimal TotalCost, byte Status)>(
             "SELECT MessageCount, SegmentCount, TotalCost, Status FROM dbo.MessageBatch WHERE Id = @Id;",
             new { Id = result.Value.BatchId });
         Assert.Equal(2, batch.MessageCount);
@@ -68,7 +70,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         Assert.Equal((byte)1, batch.Status); // BatchStatus.Received
 
         // Two messages, each Queued (1) / Pending (1), with the frozen cost snapshot.
-        var messages = (await connection.QueryAsync<(string MobileNumber, byte Status, byte DeliveryStatus, decimal TotalCost, string SubmitDateJalali)>(
+        List<(string MobileNumber, byte Status, byte DeliveryStatus, decimal TotalCost, string SubmitDateJalali)> messages = (await connection.QueryAsync<(string MobileNumber, byte Status, byte DeliveryStatus, decimal TotalCost, string SubmitDateJalali)>(
             "SELECT MobileNumber, Status, DeliveryStatus, TotalCost, SubmitDateJalali FROM dbo.Message WHERE MessageBatchId = @Id ORDER BY Id;",
             new { Id = result.Value.BatchId })).ToList();
         Assert.Equal(2, messages.Count);
@@ -81,16 +83,16 @@ public sealed class SendMessagesTests : IAsyncLifetime
         });
 
         // The bodies are stored in the satellite, keyed by message id.
-        var bodyCount = await connection.ExecuteScalarAsync<int>(
+        int bodyCount = await connection.ExecuteScalarAsync<int>(
             "SELECT COUNT(*) FROM dbo.MessageBody b JOIN dbo.Message m ON m.Id = b.Id WHERE m.MessageBatchId = @Id;",
             new { Id = result.Value.BatchId });
         Assert.Equal(2, bodyCount);
 
         // The balance is debited and the ledger records the matching signed entry.
-        var balance = await new GetBalanceHandler(_db).Handle(customerId, CancellationToken.None);
+        Result<CustomerBalance> balance = await new GetBalanceHandler(_db).Handle(customerId, CancellationToken.None);
         Assert.Equal(8000m, balance.Value.Balance);
 
-        var debit = await connection.QuerySingleAsync<(byte Type, decimal Amount, long? MessageBatchId)>(
+        (byte Type, decimal Amount, long? MessageBatchId) debit = await connection.QuerySingleAsync<(byte Type, decimal Amount, long? MessageBatchId)>(
             "SELECT Type, Amount, MessageBatchId FROM dbo.BalanceTransaction WHERE CustomerId = @CustomerId AND Type = 2;",
             new { CustomerId = customerId });
         Assert.Equal(-2000m, debit.Amount);
@@ -100,11 +102,11 @@ public sealed class SendMessagesTests : IAsyncLifetime
     [Fact]
     public async Task Rejects_the_batch_when_the_balance_is_insufficient()
     {
-        var customerId = await CreateCustomerAsync("broke");
+        short customerId = await CreateCustomerAsync("broke");
         await TopUpAsync(customerId, 500m); // less than the 1000 IRR a single segment costs
-        var apiKeyId = await IssueApiKeyAsync(customerId);
+        int apiKeyId = await IssueApiKeyAsync(customerId);
 
-        var result = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,
@@ -120,23 +122,23 @@ public sealed class SendMessagesTests : IAsyncLifetime
         Assert.Equal("sending.insufficient_balance", result.Error.Code);
 
         // Nothing was persisted and the balance is untouched (the transaction rolled back).
-        await using var connection = await _db.OpenConnectionAsync();
-        var messageCount = await connection.ExecuteScalarAsync<int>(
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        int messageCount = await connection.ExecuteScalarAsync<int>(
             "SELECT COUNT(*) FROM dbo.Message WHERE CustomerId = @CustomerId;", new { CustomerId = customerId });
         Assert.Equal(0, messageCount);
 
-        var balance = await new GetBalanceHandler(_db).Handle(customerId, CancellationToken.None);
+        Result<CustomerBalance> balance = await new GetBalanceHandler(_db).Handle(customerId, CancellationToken.None);
         Assert.Equal(500m, balance.Value.Balance);
     }
 
     [Fact]
     public async Task Rejects_an_unknown_sender_line()
     {
-        var customerId = await CreateCustomerAsync("liner");
+        short customerId = await CreateCustomerAsync("liner");
         await TopUpAsync(customerId, 10000m);
-        var apiKeyId = await IssueApiKeyAsync(customerId);
+        int apiKeyId = await IssueApiKeyAsync(customerId);
 
-        var result = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,
@@ -153,7 +155,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
 
     private async Task<short> CreateCustomerAsync(string code)
     {
-        var customer = await new CreateCustomerHandler(_db)
+        Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(new CreateCustomerRequest { Name = code, Code = code }, CancellationToken.None);
         Assert.True(customer.IsSuccess);
         return customer.Value.Id;
@@ -161,14 +163,14 @@ public sealed class SendMessagesTests : IAsyncLifetime
 
     private async Task TopUpAsync(short customerId, decimal amount)
     {
-        var topUp = await new TopUpHandler(_db)
+        Result<TopUpResponse> topUp = await new TopUpHandler(_db)
             .Handle(new TopUpRequest { CustomerId = customerId, Amount = amount }, CancellationToken.None);
         Assert.True(topUp.IsSuccess);
     }
 
     private async Task<int> IssueApiKeyAsync(short customerId)
     {
-        var key = await new IssueApiKeyHandler(_db)
+        Result<IssueApiKeyResponse> key = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = customerId, Name = "test-key" }, CancellationToken.None);
         Assert.True(key.IsSuccess);
         return key.Value.Id;

@@ -17,7 +17,7 @@ public sealed class LoopbackSmsProvider : ISmsProvider
         CancellationToken cancellationToken)
     {
         // A unique, provider-shaped id so DLR matching has something to key on later.
-        var providerMessageId = Guid.NewGuid().ToString("N");
+        string providerMessageId = Guid.NewGuid().ToString("N");
         return Task.FromResult(Result.Success(ProviderDispatchResult.Accepted(providerMessageId)));
     }
 }

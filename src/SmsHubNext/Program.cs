@@ -1,7 +1,7 @@
 using Serilog;
 using SmsHubNext.Extensions;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 // Structured logging via Serilog; levels/sinks overridable from configuration.
 builder.Host.UseSerilog((context, configuration) => configuration
@@ -11,7 +11,7 @@ builder.Host.UseSerilog((context, configuration) => configuration
 
 builder.Services.AddApplicationServices(builder.Configuration);
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
 app.MigrateDatabase();
 app.ConfigurePipeline();

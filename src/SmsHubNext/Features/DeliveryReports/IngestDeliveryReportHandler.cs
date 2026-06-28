@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Enums;
 using SmsHubNext.Shared.Results;
@@ -21,14 +22,14 @@ public sealed class IngestDeliveryReportHandler
         IngestDeliveryReportRequest request,
         CancellationToken cancellationToken)
     {
-        var validation = request.Validate();
+        Result validation = request.Validate();
         if (validation.IsFailure)
             return validation.Error!;
 
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
         // The report copies the message's partition key, so it must exist first.
-        var submitDateJalali = await connection.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+        string? submitDateJalali = await connection.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
             DeliveryReportsSql.GetMessagePartition,
             new { request.MessageId },
             cancellationToken: cancellationToken));
@@ -36,12 +37,12 @@ public sealed class IngestDeliveryReportHandler
         if (submitDateJalali is null)
             return Error.NotFound("delivery_reports.unknown_message", "The message does not exist.");
 
-        var readModel = ToReadModel(request.Status);
-        var receivedAtUtc = DateTime.UtcNow;
+        DeliveryStatus readModel = ToReadModel(request.Status);
+        DateTime receivedAtUtc = DateTime.UtcNow;
 
-        using var transaction = connection.BeginTransaction();
+        using SqlTransaction transaction = connection.BeginTransaction();
 
-        var reportId = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+        long reportId = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
             DeliveryReportsSql.InsertReport,
             new
             {

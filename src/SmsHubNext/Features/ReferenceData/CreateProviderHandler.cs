@@ -15,15 +15,15 @@ public sealed class CreateProviderHandler
         CreateProviderRequest request,
         CancellationToken cancellationToken)
     {
-        var validation = request.Validate();
+        Result validation = request.Validate();
         if (validation.IsFailure)
             return validation.Error!;
 
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
         try
         {
-            var id = await connection.ExecuteScalarAsync<byte>(new CommandDefinition(
+            byte id = await connection.ExecuteScalarAsync<byte>(new CommandDefinition(
                 ProvidersSql.Insert,
                 new { request.Name, request.Code, request.BaseUrl, request.FallbackBaseUrl },
                 cancellationToken: cancellationToken));

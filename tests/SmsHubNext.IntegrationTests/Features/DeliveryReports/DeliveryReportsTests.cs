@@ -1,4 +1,6 @@
 using Dapper;
+using DbUp.Engine;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.Batches;
 using SmsHubNext.Features.Billing;
@@ -21,9 +23,9 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _sqlServer.StartAsync();
-        var connectionString = _sqlServer.GetConnectionString();
+        string connectionString = _sqlServer.GetConnectionString();
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
@@ -34,9 +36,9 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     [Fact]
     public async Task Ingesting_a_delivered_report_updates_the_read_model_and_appends_history()
     {
-        var messageId = await SendOneAndGetMessageIdAsync();
+        long messageId = await SendOneAndGetMessageIdAsync();
 
-        var ingest = await new IngestDeliveryReportHandler(_db).Handle(
+        Result<IngestDeliveryReportResponse> ingest = await new IngestDeliveryReportHandler(_db).Handle(
             new IngestDeliveryReportRequest
             {
                 MessageId = messageId,
@@ -50,11 +52,11 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
         Assert.Equal(DeliveryStatus.Delivered, ingest.Value.DeliveryStatus);
 
         // The message read model now reflects Delivered.
-        var message = await SingleMessageAsync(messageId);
+        BatchMessage message = await SingleMessageAsync(messageId);
         Assert.Equal(DeliveryStatus.Delivered, message.DeliveryStatus);
 
         // The report is recorded in the append-only history.
-        var history = await new ListDeliveryReportsHandler(_db).Handle(messageId, CancellationToken.None);
+        Result<IReadOnlyList<DeliveryReport>> history = await new ListDeliveryReportsHandler(_db).Handle(messageId, CancellationToken.None);
         Assert.True(history.IsSuccess);
         Assert.Single(history.Value);
         Assert.Equal(DeliveryReportStatus.Delivered, history.Value[0].NormalizedStatus);
@@ -63,9 +65,9 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     [Fact]
     public async Task A_rejected_report_maps_the_read_model_to_undelivered()
     {
-        var messageId = await SendOneAndGetMessageIdAsync();
+        long messageId = await SendOneAndGetMessageIdAsync();
 
-        var ingest = await new IngestDeliveryReportHandler(_db).Handle(
+        Result<IngestDeliveryReportResponse> ingest = await new IngestDeliveryReportHandler(_db).Handle(
             new IngestDeliveryReportRequest
             {
                 MessageId = messageId,
@@ -81,29 +83,29 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     [Fact]
     public async Task The_latest_report_wins_in_the_read_model_and_history_keeps_both()
     {
-        var messageId = await SendOneAndGetMessageIdAsync();
-        var handler = new IngestDeliveryReportHandler(_db);
+        long messageId = await SendOneAndGetMessageIdAsync();
+        IngestDeliveryReportHandler handler = new IngestDeliveryReportHandler(_db);
 
         await handler.Handle(
             new IngestDeliveryReportRequest { MessageId = messageId, Status = DeliveryReportStatus.Undelivered, RawStatusCode = 10 },
             CancellationToken.None);
-        var second = await handler.Handle(
+        Result<IngestDeliveryReportResponse> second = await handler.Handle(
             new IngestDeliveryReportRequest { MessageId = messageId, Status = DeliveryReportStatus.Delivered, RawStatusCode = 1 },
             CancellationToken.None);
 
         Assert.Equal(DeliveryStatus.Delivered, second.Value.DeliveryStatus);
 
-        var message = await SingleMessageAsync(messageId);
+        BatchMessage message = await SingleMessageAsync(messageId);
         Assert.Equal(DeliveryStatus.Delivered, message.DeliveryStatus);
 
-        var history = await new ListDeliveryReportsHandler(_db).Handle(messageId, CancellationToken.None);
+        Result<IReadOnlyList<DeliveryReport>> history = await new ListDeliveryReportsHandler(_db).Handle(messageId, CancellationToken.None);
         Assert.Equal(2, history.Value.Count);
     }
 
     [Fact]
     public async Task Ingesting_for_an_unknown_message_is_not_found()
     {
-        var result = await new IngestDeliveryReportHandler(_db).Handle(
+        Result<IngestDeliveryReportResponse> result = await new IngestDeliveryReportHandler(_db).Handle(
             new IngestDeliveryReportRequest { MessageId = 999999, Status = DeliveryReportStatus.Delivered, RawStatusCode = 1 },
             CancellationToken.None);
 
@@ -114,31 +116,31 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     private async Task<BatchMessage> SingleMessageAsync(long messageId)
     {
         // Read the message back through the batch projection (it carries DeliveryStatus).
-        var batchId = await BatchIdForMessageAsync(messageId);
-        var messages = await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
+        long batchId = await BatchIdForMessageAsync(messageId);
+        Result<IReadOnlyList<BatchMessage>> messages = await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
         return messages.Value.Single(m => m.Id == messageId);
     }
 
     private async Task<long> BatchIdForMessageAsync(long messageId)
     {
-        await using var connection = await _db.OpenConnectionAsync();
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
         return await connection.ExecuteScalarAsync<long>(
             "SELECT MessageBatchId FROM dbo.Message WHERE Id = @Id;", new { Id = messageId });
     }
 
     private async Task<long> SendOneAndGetMessageIdAsync()
     {
-        var customer = await new CreateCustomerHandler(_db)
+        Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(new CreateCustomerRequest { Name = "dlr", Code = $"dlr-{Guid.NewGuid():N}" }, CancellationToken.None);
-        var customerId = customer.Value.Id;
+        short customerId = customer.Value.Id;
 
         await new TopUpHandler(_db)
             .Handle(new TopUpRequest { CustomerId = customerId, Amount = 10000m }, CancellationToken.None);
 
-        var key = await new IssueApiKeyHandler(_db)
+        Result<IssueApiKeyResponse> key = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = customerId, Name = "k" }, CancellationToken.None);
 
-        var send = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> send = await new SendMessagesHandler(_db).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,
@@ -151,7 +153,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
 
         Assert.True(send.IsSuccess, send.Error?.Message);
 
-        var messages = await new ListBatchMessagesHandler(_db).Handle(send.Value.BatchId, CancellationToken.None);
+        Result<IReadOnlyList<BatchMessage>> messages = await new ListBatchMessagesHandler(_db).Handle(send.Value.BatchId, CancellationToken.None);
         return messages.Value.Single().Id;
     }
 }

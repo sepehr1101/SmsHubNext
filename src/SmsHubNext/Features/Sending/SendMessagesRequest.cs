@@ -62,9 +62,9 @@ public sealed class SendMessagesRequest
                 "sending.too_many_messages",
                 $"A request may contain at most {MaxMessages} messages.");
 
-        for (var index = 0; index < Messages.Count; index++)
+        for (int index = 0; index < Messages.Count; index++)
         {
-            var message = Messages[index];
+            SendMessageItem message = Messages[index];
 
             if (string.IsNullOrWhiteSpace(message.Recipient))
                 return Error.Validation(

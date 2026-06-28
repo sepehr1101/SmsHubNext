@@ -16,15 +16,15 @@ public sealed class AddIpRestrictionHandler
         AddIpRestrictionRequest request,
         CancellationToken cancellationToken)
     {
-        var validation = request.Validate();
+        Result validation = request.Validate();
         if (validation.IsFailure)
             return validation.Error!;
 
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
         try
         {
-            var id = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            int id = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
                 ApiKeyIpRestrictionsSql.Insert,
                 new { ApiKeyId = apiKeyId, request.Cidr, request.Description },
                 cancellationToken: cancellationToken));

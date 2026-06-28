@@ -32,7 +32,7 @@ public static class ApiKeyHasher
         if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(expectedHash))
             return false;
 
-        var actualHash = Hash(apiKey);
+        string actualHash = Hash(apiKey);
         return CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(actualHash),
             Encoding.UTF8.GetBytes(expectedHash));

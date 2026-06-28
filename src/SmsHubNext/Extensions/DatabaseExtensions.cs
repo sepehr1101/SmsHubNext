@@ -1,3 +1,4 @@
+using DbUp.Engine;
 using SmsHubNext.Shared.Database;
 
 namespace SmsHubNext.Extensions;
@@ -10,11 +11,11 @@ public static class DatabaseExtensions
 {
     public static void MigrateDatabase(this WebApplication app)
     {
-        var connectionString = app.Configuration.GetConnectionString(Db.ConnectionStringName)
+        string connectionString = app.Configuration.GetConnectionString(Db.ConnectionStringName)
             ?? throw new InvalidOperationException(
                 $"Connection string '{Db.ConnectionStringName}' is not configured.");
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         if (!migration.Successful)
             throw new InvalidOperationException("Database migration failed.", migration.Error);
     }

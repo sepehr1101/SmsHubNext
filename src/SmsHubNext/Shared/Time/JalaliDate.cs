@@ -21,10 +21,10 @@ public static class JalaliDate
     /// <summary>The Jalali date (Iran local) for a UTC instant, as <c>yyyy/MM/dd</c>.</summary>
     public static string FromUtc(DateTime utc)
     {
-        var iranLocal = DateTime.SpecifyKind(utc, DateTimeKind.Unspecified) + IranOffset;
-        var year = Calendar.GetYear(iranLocal);
-        var month = Calendar.GetMonth(iranLocal);
-        var day = Calendar.GetDayOfMonth(iranLocal);
+        DateTime iranLocal = DateTime.SpecifyKind(utc, DateTimeKind.Unspecified) + IranOffset;
+        int year = Calendar.GetYear(iranLocal);
+        int month = Calendar.GetMonth(iranLocal);
+        int day = Calendar.GetDayOfMonth(iranLocal);
         return string.Create(CultureInfo.InvariantCulture, $"{year:D4}/{month:D2}/{day:D2}");
     }
 }

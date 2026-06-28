@@ -19,9 +19,9 @@ public sealed class AuthController : ControllerBase
     [HttpGet("whoami")]
     public async Task<IActionResult> WhoAmI(CancellationToken cancellationToken)
     {
-        var rawKey = Request.Headers[ApiKeyConstants.HeaderName].ToString();
+        string rawKey = Request.Headers[ApiKeyConstants.HeaderName].ToString();
 
-        var result = await _authenticator.Authenticate(
+        Result<ApiKeyIdentity> result = await _authenticator.Authenticate(
             rawKey,
             HttpContext.Connection.RemoteIpAddress,
             cancellationToken);

@@ -1,3 +1,4 @@
+using DbUp.Engine;
 using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.Batches;
 using SmsHubNext.Features.Billing;
@@ -19,9 +20,9 @@ public sealed class BatchesTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _sqlServer.StartAsync();
-        var connectionString = _sqlServer.GetConnectionString();
+        string connectionString = _sqlServer.GetConnectionString();
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
@@ -32,9 +33,9 @@ public sealed class BatchesTests : IAsyncLifetime
     [Fact]
     public async Task Returns_the_batch_header_and_its_messages()
     {
-        var batchId = await SendBatchAsync();
+        long batchId = await SendBatchAsync();
 
-        var batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Result<Batch> batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.True(batch.IsSuccess, batch.Error?.Message);
         Assert.Equal(batchId, batch.Value.Id);
         Assert.Equal(BatchStatus.Received, batch.Value.Status);
@@ -43,7 +44,7 @@ public sealed class BatchesTests : IAsyncLifetime
         Assert.Null(batch.Value.StatusReason);
         Assert.Null(batch.Value.FinishedAtUtc);
 
-        var messages = await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
+        Result<IReadOnlyList<BatchMessage>> messages = await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.True(messages.IsSuccess);
         Assert.Equal(2, messages.Value.Count);
         Assert.All(messages.Value, m =>
@@ -56,28 +57,28 @@ public sealed class BatchesTests : IAsyncLifetime
     [Fact]
     public async Task Getting_an_unknown_batch_is_not_found()
     {
-        var batch = await new GetBatchHandler(_db).Handle(999999, CancellationToken.None);
+        Result<Batch> batch = await new GetBatchHandler(_db).Handle(999999, CancellationToken.None);
         Assert.True(batch.IsFailure);
         Assert.Equal(ErrorType.NotFound, batch.Error!.Type);
 
-        var messages = await new ListBatchMessagesHandler(_db).Handle(999999, CancellationToken.None);
+        Result<IReadOnlyList<BatchMessage>> messages = await new ListBatchMessagesHandler(_db).Handle(999999, CancellationToken.None);
         Assert.True(messages.IsFailure);
         Assert.Equal(ErrorType.NotFound, messages.Error!.Type);
     }
 
     private async Task<long> SendBatchAsync()
     {
-        var customer = await new CreateCustomerHandler(_db)
+        Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(new CreateCustomerRequest { Name = "batch-reader", Code = "batch-reader" }, CancellationToken.None);
-        var customerId = customer.Value.Id;
+        short customerId = customer.Value.Id;
 
         await new TopUpHandler(_db)
             .Handle(new TopUpRequest { CustomerId = customerId, Amount = 10000m }, CancellationToken.None);
 
-        var key = await new IssueApiKeyHandler(_db)
+        Result<IssueApiKeyResponse> key = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = customerId, Name = "k" }, CancellationToken.None);
 
-        var send = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> send = await new SendMessagesHandler(_db).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,

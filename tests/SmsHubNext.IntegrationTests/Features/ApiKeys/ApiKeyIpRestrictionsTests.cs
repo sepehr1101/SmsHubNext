@@ -1,3 +1,4 @@
+using DbUp.Engine;
 using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Shared.Database;
@@ -14,9 +15,9 @@ public sealed class ApiKeyIpRestrictionsTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _sqlServer.StartAsync();
-        var connectionString = _sqlServer.GetConnectionString();
+        string connectionString = _sqlServer.GetConnectionString();
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
@@ -27,21 +28,21 @@ public sealed class ApiKeyIpRestrictionsTests : IAsyncLifetime
     [Fact]
     public async Task Adds_then_lists_a_restriction()
     {
-        var customer = await new CreateCustomerHandler(_db)
+        Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(new CreateCustomerRequest { Name = "Tenant", Code = "tenant" }, CancellationToken.None);
-        var apiKey = await new IssueApiKeyHandler(_db)
+        Result<IssueApiKeyResponse> apiKey = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = customer.Value.Id, Name = "Key" }, CancellationToken.None);
         Assert.True(apiKey.IsSuccess);
 
-        var added = await new AddIpRestrictionHandler(_db).Handle(
+        Result<ApiKeyIpRestriction> added = await new AddIpRestrictionHandler(_db).Handle(
             apiKey.Value.Id,
             new AddIpRestrictionRequest { Cidr = "10.0.0.0/24", Description = "intranet" },
             CancellationToken.None);
         Assert.True(added.IsSuccess);
 
-        var listed = await new ListIpRestrictionsHandler(_db).Handle(apiKey.Value.Id, CancellationToken.None);
+        Result<IReadOnlyList<ApiKeyIpRestriction>> listed = await new ListIpRestrictionsHandler(_db).Handle(apiKey.Value.Id, CancellationToken.None);
         Assert.True(listed.IsSuccess);
-        var restriction = Assert.Single(listed.Value);
+        ApiKeyIpRestriction restriction = Assert.Single(listed.Value);
         Assert.Equal("10.0.0.0/24", restriction.Cidr);
         Assert.Equal("intranet", restriction.Description);
     }

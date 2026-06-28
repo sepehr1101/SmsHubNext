@@ -30,7 +30,7 @@ public class ApiKeyHasherTests
     [Fact]
     public void Hash_is_64_lowercase_hex_chars()
     {
-        var hash = ApiKeyHasher.Hash("anything");
+        string hash = ApiKeyHasher.Hash("anything");
 
         Assert.Equal(64, hash.Length);
         Assert.Matches("^[0-9a-f]{64}$", hash);
@@ -47,7 +47,7 @@ public class ApiKeyHasherTests
     [Fact]
     public void Matches_is_true_for_the_correct_key()
     {
-        var hash = ApiKeyHasher.Hash("correct-horse");
+        string hash = ApiKeyHasher.Hash("correct-horse");
 
         Assert.True(ApiKeyHasher.Matches("correct-horse", hash));
     }
@@ -55,7 +55,7 @@ public class ApiKeyHasherTests
     [Fact]
     public void Matches_is_false_for_a_wrong_key()
     {
-        var hash = ApiKeyHasher.Hash("correct-horse");
+        string hash = ApiKeyHasher.Hash("correct-horse");
 
         Assert.False(ApiKeyHasher.Matches("wrong-key", hash));
     }

@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 
@@ -13,9 +14,9 @@ public sealed class ListGeoSectionsHandler
 
     public async Task<Result<IReadOnlyList<GeoSection>>> Handle(CancellationToken cancellationToken)
     {
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        var rows = await connection.QueryAsync<GeoSection>(
+        IEnumerable<GeoSection> rows = await connection.QueryAsync<GeoSection>(
             new CommandDefinition(GeoSectionsSql.List, cancellationToken: cancellationToken));
 
         IReadOnlyList<GeoSection> sections = rows.AsList();

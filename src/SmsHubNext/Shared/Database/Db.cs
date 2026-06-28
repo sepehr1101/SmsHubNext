@@ -35,7 +35,7 @@ public sealed class Db
     /// </summary>
     public async Task<SqlConnection> OpenConnectionAsync(CancellationToken cancellationToken = default)
     {
-        var connection = new SqlConnection(_connectionString);
+        SqlConnection connection = new(_connectionString);
         try
         {
             await connection.OpenAsync(cancellationToken);

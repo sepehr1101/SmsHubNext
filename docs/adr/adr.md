@@ -414,6 +414,42 @@ When the project is ready to enforce tenancy at the edge (roadmap Phase 5). If p
 
 ---
 
+# ADR-016
+## Explicit types over `var`
+
+### Decision
+
+Local variables are declared with their **explicit concrete type**, never `var`.
+
+```csharp
+// no
+var connection = await _db.OpenConnectionAsync(ct);
+var messages = rows.AsList();
+
+// yes
+SqlConnection connection = await _db.OpenConnectionAsync(ct);
+List<BatchMessage> messages = rows.AsList();
+```
+
+The single exception is an anonymous type (`new { … }`), which has no nameable type; such values are passed inline as arguments rather than bound to a `var` local wherever possible.
+
+### Why
+
+- **Readability at a glance.** The type is visible at the declaration, without inferring it from the right-hand side or a hover — which matters most in data-access code where the right-hand side is a Dapper/`Result<T>` generic call.
+- **One house style.** A single rule removes per-author `var`/explicit drift and keeps diffs about behavior, not formatting.
+
+This is a stylistic preference, not a correctness claim; both compile identically.
+
+### How
+
+`.editorconfig` sets `csharp_style_var_*` to prefer explicit types and raises `IDE0008` to `warning`. With `TreatWarningsAsErrors` (ADR-012/Directory.Build.props) and `EnforceCodeStyleInBuild`, a `var` fails the build.
+
+### Revisit
+
+Not expected. If a future type name becomes genuinely unhelpful (e.g. long generic tuples), prefer a named type over relaxing the rule.
+
+---
+
 # Future Reconsideration
 
 These decisions are intentionally conservative.

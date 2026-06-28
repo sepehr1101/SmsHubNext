@@ -1,3 +1,4 @@
+using DbUp.Engine;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Shared.Database;
 using Testcontainers.MsSql;
@@ -17,9 +18,9 @@ public sealed class ListMessageTypesTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _sqlServer.StartAsync();
-        var connectionString = _sqlServer.GetConnectionString();
+        string connectionString = _sqlServer.GetConnectionString();
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
@@ -30,9 +31,9 @@ public sealed class ListMessageTypesTests : IAsyncLifetime
     [Fact]
     public async Task Returns_the_seeded_message_types()
     {
-        var handler = new ListMessageTypesHandler(_db);
+        ListMessageTypesHandler handler = new ListMessageTypesHandler(_db);
 
-        var result = await handler.Handle(CancellationToken.None);
+        Result<IReadOnlyList<MessageType>> result = await handler.Handle(CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(4, result.Value.Count);
@@ -42,7 +43,7 @@ public sealed class ListMessageTypesTests : IAsyncLifetime
     [Fact]
     public async Task Migration_is_idempotent_when_run_again()
     {
-        var second = new DatabaseMigrator(_sqlServer.GetConnectionString()).Migrate();
+        DatabaseUpgradeResult second = new DatabaseMigrator(_sqlServer.GetConnectionString()).Migrate();
 
         Assert.True(second.Successful);
     }

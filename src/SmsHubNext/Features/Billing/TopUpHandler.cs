@@ -18,16 +18,16 @@ public sealed class TopUpHandler
 
     public async Task<Result<TopUpResponse>> Handle(TopUpRequest request, CancellationToken cancellationToken)
     {
-        var validation = request.Validate();
+        Result validation = request.Validate();
         if (validation.IsFailure)
             return validation.Error!;
 
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
-        using var transaction = connection.BeginTransaction();
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
+        using SqlTransaction transaction = connection.BeginTransaction();
 
         try
         {
-            var updatedBalance = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
+            decimal? updatedBalance = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
                 BalancesSql.CreditBalance,
                 new { request.CustomerId, request.Amount },
                 transaction,

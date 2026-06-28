@@ -22,18 +22,18 @@ public sealed class ApiKeyAuthenticationMiddleware
 
     public async Task InvokeAsync(HttpContext context, ApiKeyAuthenticator authenticator)
     {
-        var rawKey = context.Request.Headers[ApiKeyConstants.HeaderName].ToString();
+        string rawKey = context.Request.Headers[ApiKeyConstants.HeaderName].ToString();
 
-        var result = await authenticator.Authenticate(
+        Result<ApiKeyIdentity> result = await authenticator.Authenticate(
             rawKey,
             context.Connection.RemoteIpAddress,
             context.RequestAborted);
 
         if (result.IsFailure)
         {
-            var error = result.Error!;
+            Error error = result.Error!;
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            var problem = new ProblemDetails
+            ProblemDetails problem = new ProblemDetails
             {
                 Status = StatusCodes.Status401Unauthorized,
                 Title = error.Type.ToString(),

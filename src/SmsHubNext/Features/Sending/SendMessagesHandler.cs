@@ -30,14 +30,14 @@ public sealed class SendMessagesHandler
         SendMessagesRequest request,
         CancellationToken cancellationToken)
     {
-        var validation = request.Validate();
+        Result validation = request.Validate();
         if (validation.IsFailure)
             return validation.Error!;
 
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
         // 1. Resolve the sender line (and the provider it belongs to).
-        var senderLine = await connection.QuerySingleOrDefaultAsync<SenderLineRow>(new CommandDefinition(
+        SenderLineRow? senderLine = await connection.QuerySingleOrDefaultAsync<SenderLineRow>(new CommandDefinition(
             SendingSql.ResolveSenderLine,
             new { LineNumber = request.SenderLine },
             cancellationToken: cancellationToken));
@@ -48,12 +48,12 @@ public sealed class SendMessagesHandler
             return Error.Validation("sending.inactive_sender_line", "The sender line is not active.");
 
         // 2. Price every message up front (no transaction yet — tariff rates are stable reads).
-        var priced = new List<PricedMessage>(request.Messages.Count);
-        foreach (var item in request.Messages)
+        List<PricedMessage> priced = new List<PricedMessage>(request.Messages.Count);
+        foreach (SendMessageItem item in request.Messages)
         {
-            var segments = SmsPartCalculator.Calculate(item.Text);
+            SmsSegmentInfo segments = SmsPartCalculator.Calculate(item.Text);
 
-            var rate = await connection.QuerySingleOrDefaultAsync<RateRow>(new CommandDefinition(
+            RateRow? rate = await connection.QuerySingleOrDefaultAsync<RateRow>(new CommandDefinition(
                 TariffsSql.ResolveRate,
                 new
                 {
@@ -70,16 +70,16 @@ public sealed class SendMessagesHandler
             priced.Add(new PricedMessage(item, segments, rate.TariffId, rate.PricePerSegment));
         }
 
-        var totalCost = priced.Sum(p => p.TotalCost);
-        var totalSegments = priced.Sum(p => p.Segments.SegmentCount);
-        var nowUtc = DateTime.UtcNow;
-        var submitDateJalali = JalaliDate.FromUtc(nowUtc);
+        decimal totalCost = priced.Sum(p => p.TotalCost);
+        int totalSegments = priced.Sum(p => p.Segments.SegmentCount);
+        DateTime nowUtc = DateTime.UtcNow;
+        string submitDateJalali = JalaliDate.FromUtc(nowUtc);
 
         // 3. Persist atomically: debit, then header, ledger, and the messages/bodies.
-        using var transaction = connection.BeginTransaction();
+        using SqlTransaction transaction = connection.BeginTransaction();
         try
         {
-            var balanceAfter = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
+            decimal? balanceAfter = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
                 SendingSql.DebitBalance,
                 new { request.CustomerId, Amount = totalCost },
                 transaction,
@@ -96,7 +96,7 @@ public sealed class SendMessagesHandler
                     "The customer's prepaid balance is insufficient for this batch.");
             }
 
-            var batchId = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            long batchId = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
                 SendingSql.InsertBatch,
                 new
                 {
@@ -129,9 +129,9 @@ public sealed class SendMessagesHandler
                 transaction,
                 cancellationToken: cancellationToken));
 
-            foreach (var message in priced)
+            foreach (PricedMessage message in priced)
             {
-                var messageId = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+                long messageId = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
                     SendingSql.InsertMessage,
                     new
                     {

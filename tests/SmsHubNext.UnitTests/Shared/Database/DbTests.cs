@@ -1,5 +1,6 @@
-using System.Data;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
+using System.Data;
 using Xunit;
 
 namespace SmsHubNext.UnitTests.Shared.Database;
@@ -20,9 +21,9 @@ public class DbTests
     [Fact]
     public void CreateConnection_returns_a_new_unopened_connection()
     {
-        var db = new Db(AnyConnectionString);
+        Db db = new Db(AnyConnectionString);
 
-        using var connection = db.CreateConnection();
+        using SqlConnection connection = db.CreateConnection();
 
         Assert.Equal(ConnectionState.Closed, connection.State);
     }

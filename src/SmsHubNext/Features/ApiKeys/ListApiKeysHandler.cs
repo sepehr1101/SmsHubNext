@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 
@@ -12,9 +13,9 @@ public sealed class ListApiKeysHandler
 
     public async Task<Result<IReadOnlyList<ApiKey>>> Handle(short customerId, CancellationToken cancellationToken)
     {
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        var rows = await connection.QueryAsync<ApiKey>(new CommandDefinition(
+        IEnumerable<ApiKey> rows = await connection.QueryAsync<ApiKey>(new CommandDefinition(
             ApiKeysSql.ListByCustomer,
             new { CustomerId = customerId },
             cancellationToken: cancellationToken));

@@ -88,6 +88,7 @@ Full table-by-table detail lives in **`README.md`** — read it before changing 
 * **PRs:** do **not** open a pull request unless explicitly asked.
 * **Dependencies:** pin **exact** NuGet versions in `Directory.Packages.props` (Central Package Management). **No floating versions** (`2.*`, ranges) — see ADR-013.
 * **Composition root:** keep `Program.cs` **minimal** — builder creation, calling extension methods, `Build()`/`Run()` only. All service registration and HTTP-pipeline wiring go through `Extensions/` (`ServiceCollectionExtensions.AddApplicationServices`, `ApplicationBuilderExtensions.ConfigurePipeline`, `DatabaseExtensions.MigrateDatabase`). New feature handlers are registered in `AddFeatureHandlers`, not in `Program.cs`.
+* **No `var` — declare the explicit concrete type.** Write `Result validation = …`, `SqlConnection connection = …`, `List<BatchMessage> messages = …`, never `var`. The only exception is anonymous types, which have no nameable type (avoid binding those to a local where possible). Enforced by `.editorconfig` (IDE0008 = warning → error via `TreatWarningsAsErrors`). See ADR-016.
 * **Match surrounding code/docs style.** This repo's design docs are detailed and justify tradeoffs — keep that bar.
 * **When a tradeoff exists, explain the reasoning** rather than just picking one.
 

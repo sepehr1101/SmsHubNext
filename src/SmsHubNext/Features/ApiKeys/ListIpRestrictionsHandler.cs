@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 
@@ -12,9 +13,9 @@ public sealed class ListIpRestrictionsHandler
 
     public async Task<Result<IReadOnlyList<ApiKeyIpRestriction>>> Handle(int apiKeyId, CancellationToken cancellationToken)
     {
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        var rows = await connection.QueryAsync<ApiKeyIpRestriction>(new CommandDefinition(
+        IEnumerable<ApiKeyIpRestriction> rows = await connection.QueryAsync<ApiKeyIpRestriction>(new CommandDefinition(
             ApiKeyIpRestrictionsSql.ListByApiKey,
             new { ApiKeyId = apiKeyId },
             cancellationToken: cancellationToken));

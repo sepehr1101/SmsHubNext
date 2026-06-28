@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace SmsHubNext.Shared.Database;
@@ -19,7 +20,7 @@ public sealed class SqlServerHealthCheck : IHealthCheck
     {
         try
         {
-            await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+            await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
             await connection.ExecuteScalarAsync<int>(
                 new CommandDefinition("SELECT 1", cancellationToken: cancellationToken));
 

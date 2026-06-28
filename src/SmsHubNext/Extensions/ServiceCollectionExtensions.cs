@@ -30,7 +30,7 @@ public static class ServiceCollectionExtensions
 
         // Database access (concrete, no interface — see ARCHITECTURE.md §5).
         // Read the connection string here so misconfiguration fails fast at startup.
-        var connectionString = configuration.GetConnectionString(Db.ConnectionStringName)
+        string connectionString = configuration.GetConnectionString(Db.ConnectionStringName)
             ?? throw new InvalidOperationException(
                 $"Connection string '{Db.ConnectionStringName}' is not configured.");
         services.AddSingleton(new Db(connectionString));
@@ -56,7 +56,7 @@ public static class ServiceCollectionExtensions
         // The one real seam — a loopback stand-in until the Magfa client lands (Phase 1).
         services.AddSingleton<ISmsProvider, LoopbackSmsProvider>();
 
-        var dispatchOptions = configuration.GetSection(DispatchOptions.SectionName).Get<DispatchOptions>()
+        DispatchOptions dispatchOptions = configuration.GetSection(DispatchOptions.SectionName).Get<DispatchOptions>()
             ?? new DispatchOptions();
         services.AddSingleton(dispatchOptions);
 

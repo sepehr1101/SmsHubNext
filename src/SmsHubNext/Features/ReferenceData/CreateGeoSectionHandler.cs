@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 
@@ -19,17 +20,17 @@ public sealed class CreateGeoSectionHandler
         CreateGeoSectionRequest request,
         CancellationToken cancellationToken)
     {
-        var validation = request.Validate();
+        Result validation = request.Validate();
         if (validation.IsFailure)
             return validation.Error!;
 
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
-        using var transaction = connection.BeginTransaction();
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
+        using SqlTransaction transaction = connection.BeginTransaction();
 
-        var parentPath = "/";
+        string parentPath = "/";
         if (request.ParentGeoSectionId is int parentId)
         {
-            var path = await connection.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            string? path = await connection.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
                 GeoSectionsSql.GetPath, new { Id = parentId }, transaction, cancellationToken: cancellationToken));
 
             // Early return disposes the transaction, which rolls it back.
@@ -39,13 +40,13 @@ public sealed class CreateGeoSectionHandler
             parentPath = path;
         }
 
-        var id = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+        int id = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
             GeoSectionsSql.Insert,
             new { request.ParentGeoSectionId, SectionType = (byte)request.SectionType, request.Name, request.Code },
             transaction,
             cancellationToken: cancellationToken));
 
-        var newPath = $"{parentPath}{id}/";
+        string newPath = $"{parentPath}{id}/";
         await connection.ExecuteAsync(new CommandDefinition(
             GeoSectionsSql.UpdatePath, new { Id = id, Path = newPath }, transaction, cancellationToken: cancellationToken));
 

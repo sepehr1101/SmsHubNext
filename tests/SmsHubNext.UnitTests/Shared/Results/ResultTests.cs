@@ -8,7 +8,7 @@ public class ResultTests
     [Fact]
     public void Success_is_successful_and_has_no_error()
     {
-        var result = Result.Success();
+        Result result = Result.Success();
 
         Assert.True(result.IsSuccess);
         Assert.False(result.IsFailure);
@@ -18,9 +18,9 @@ public class ResultTests
     [Fact]
     public void Failure_carries_the_error()
     {
-        var error = Error.Validation("code", "message");
+        Error error = Error.Validation("code", "message");
 
-        var result = Result.Failure(error);
+        Result result = Result.Failure(error);
 
         Assert.True(result.IsFailure);
         Assert.Same(error, result.Error);
@@ -40,7 +40,7 @@ public class ResultTests
     {
         IReadOnlyList<int> values = new[] { 1, 2, 3 };
 
-        var result = Result.Success(values);
+        Result<IReadOnlyList<int>> result = Result.Success(values);
 
         Assert.True(result.IsSuccess);
         Assert.Same(values, result.Value);
@@ -64,7 +64,7 @@ public class ResultTests
     [InlineData(ErrorType.Unexpected)]
     public void Error_factories_set_the_matching_type(ErrorType type)
     {
-        var error = type switch
+        Error error = type switch
         {
             ErrorType.Validation => Error.Validation("c", "m"),
             ErrorType.NotFound => Error.NotFound("c", "m"),

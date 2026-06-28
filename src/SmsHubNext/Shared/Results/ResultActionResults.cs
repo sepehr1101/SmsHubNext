@@ -25,8 +25,8 @@ public static class ResultActionResults
 
     private static IActionResult Problem(Error error)
     {
-        var status = StatusCodeFor(error.Type);
-        var problem = new ProblemDetails
+        int status = StatusCodeFor(error.Type);
+        ProblemDetails problem = new ProblemDetails
         {
             Status = status,
             Title = error.Type.ToString(),

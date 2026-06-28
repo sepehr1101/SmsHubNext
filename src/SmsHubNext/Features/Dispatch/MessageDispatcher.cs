@@ -45,13 +45,13 @@ public sealed class MessageDispatcher
     /// </summary>
     public async Task<bool> DispatchNextBatchAsync(CancellationToken cancellationToken)
     {
-        var now = _clock.GetUtcNow().UtcDateTime;
-        var heldRetryBefore = now - _options.HoldRetryDelay;
-        var dispatchStaleBefore = now - _options.DispatchLeaseTimeout;
+        DateTime now = _clock.GetUtcNow().UtcDateTime;
+        DateTime heldRetryBefore = now - _options.HoldRetryDelay;
+        DateTime dispatchStaleBefore = now - _options.DispatchLeaseTimeout;
 
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        var batch = await connection.QuerySingleOrDefaultAsync<ClaimedBatch>(new CommandDefinition(
+        ClaimedBatch? batch = await connection.QuerySingleOrDefaultAsync<ClaimedBatch>(new CommandDefinition(
             DispatchSql.ClaimNextBatch,
             new { Now = now, HeldRetryBefore = heldRetryBefore, DispatchStaleBefore = dispatchStaleBefore },
             cancellationToken: cancellationToken));
@@ -59,24 +59,24 @@ public sealed class MessageDispatcher
         if (batch is null)
             return false;
 
-        var senderLine = await connection.QuerySingleAsync<string>(new CommandDefinition(
+        string senderLine = await connection.QuerySingleAsync<string>(new CommandDefinition(
             DispatchSql.GetSenderLineNumber,
             new { batch.SenderLineId },
             cancellationToken: cancellationToken));
 
-        var messages = (await connection.QueryAsync<QueuedMessage>(new CommandDefinition(
+        List<QueuedMessage> messages = (await connection.QueryAsync<QueuedMessage>(new CommandDefinition(
             DispatchSql.LoadQueuedMessages,
             new { BatchId = batch.Id },
             cancellationToken: cancellationToken))).AsList();
 
         _logger.LogDebug("Dispatching batch {BatchId}: {Count} queued message(s)", batch.Id, messages.Count);
 
-        var held = false;
-        foreach (var message in messages)
+        bool held = false;
+        foreach (QueuedMessage message in messages)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var send = await SafeSendAsync(senderLine, message, cancellationToken);
+            Result<ProviderDispatchResult> send = await SafeSendAsync(senderLine, message, cancellationToken);
 
             if (send.IsFailure)
             {
@@ -89,7 +89,7 @@ public sealed class MessageDispatcher
                 return true;
             }
 
-            var outcome = send.Value;
+            ProviderDispatchResult outcome = send.Value;
             switch (outcome.Status)
             {
                 case ProviderDispatchStatus.Accepted:
@@ -150,9 +150,9 @@ public sealed class MessageDispatcher
         DateTime now,
         CancellationToken cancellationToken)
     {
-        using var transaction = connection.BeginTransaction();
+        using SqlTransaction transaction = connection.BeginTransaction();
 
-        var changed = await connection.ExecuteAsync(new CommandDefinition(
+        int changed = await connection.ExecuteAsync(new CommandDefinition(
             DispatchSql.MarkRejected,
             new { message.Id, outcome.ProviderMessageId },
             transaction,
@@ -161,7 +161,7 @@ public sealed class MessageDispatcher
         // Refund only if this call actually transitioned the message (idempotent under retry).
         if (changed == 1)
         {
-            var balanceAfter = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
+            decimal? balanceAfter = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
                 DispatchSql.CreditBalance,
                 new { message.CustomerId, Amount = message.TotalCost, Now = now },
                 transaction,
@@ -191,15 +191,15 @@ public sealed class MessageDispatcher
         DateTime now,
         CancellationToken cancellationToken)
     {
-        var counts = await connection.QuerySingleAsync<StatusCounts>(new CommandDefinition(
+        StatusCounts counts = await connection.QuerySingleAsync<StatusCounts>(new CommandDefinition(
             DispatchSql.CountMessageStatuses,
             new { BatchId = batchId },
             cancellationToken: cancellationToken));
 
-        var rejected = counts.Rejected ?? 0;
-        var submitted = counts.Submitted ?? 0;
+        int rejected = counts.Rejected ?? 0;
+        int submitted = counts.Submitted ?? 0;
 
-        var status = rejected == 0
+        BatchStatus status = rejected == 0
             ? BatchStatus.Completed
             : submitted == 0
                 ? BatchStatus.Failed

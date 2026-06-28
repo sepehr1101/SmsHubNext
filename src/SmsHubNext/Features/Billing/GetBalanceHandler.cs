@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 
@@ -12,9 +13,9 @@ public sealed class GetBalanceHandler
 
     public async Task<Result<CustomerBalance>> Handle(short customerId, CancellationToken cancellationToken)
     {
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        var balance = await connection.QuerySingleOrDefaultAsync<CustomerBalance>(new CommandDefinition(
+        CustomerBalance? balance = await connection.QuerySingleOrDefaultAsync<CustomerBalance>(new CommandDefinition(
             BalancesSql.GetByCustomer,
             new { CustomerId = customerId },
             cancellationToken: cancellationToken));

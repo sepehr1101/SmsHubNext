@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 
@@ -13,9 +14,9 @@ public sealed class ListMessageTypesHandler
 
     public async Task<Result<IReadOnlyList<MessageType>>> Handle(CancellationToken cancellationToken)
     {
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        var rows = await connection.QueryAsync<MessageType>(
+        IEnumerable<MessageType> rows = await connection.QueryAsync<MessageType>(
             new CommandDefinition(MessageTypesSql.List, cancellationToken: cancellationToken));
 
         IReadOnlyList<MessageType> messageTypes = rows.AsList();

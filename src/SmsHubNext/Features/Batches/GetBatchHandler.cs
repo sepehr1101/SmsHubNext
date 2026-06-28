@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 
@@ -13,9 +14,9 @@ public sealed class GetBatchHandler
 
     public async Task<Result<Batch>> Handle(long batchId, CancellationToken cancellationToken)
     {
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        var batch = await connection.QuerySingleOrDefaultAsync<Batch>(new CommandDefinition(
+        Batch? batch = await connection.QuerySingleOrDefaultAsync<Batch>(new CommandDefinition(
             BatchesSql.GetById,
             new { Id = batchId },
             cancellationToken: cancellationToken));

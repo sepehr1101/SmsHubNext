@@ -1,8 +1,9 @@
-using System.Net;
 using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 using SmsHubNext.Shared.Security;
+using System.Net;
 
 namespace SmsHubNext.Features.Authentication;
 
@@ -31,11 +32,11 @@ public sealed class ApiKeyAuthenticator
         if (string.IsNullOrWhiteSpace(rawKey))
             return Error.Unauthorized("auth.missing_key", "An API key is required.");
 
-        var keyHash = ApiKeyHasher.HashBytes(rawKey.Trim());
+        byte[] keyHash = ApiKeyHasher.HashBytes(rawKey.Trim());
 
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        var key = await connection.QuerySingleOrDefaultAsync<KeyRow>(new CommandDefinition(
+        KeyRow? key = await connection.QuerySingleOrDefaultAsync<KeyRow>(new CommandDefinition(
             AuthenticationSql.ResolveByHash,
             new { KeyHash = keyHash },
             cancellationToken: cancellationToken));
@@ -49,7 +50,7 @@ public sealed class ApiKeyAuthenticator
         if (key.ExpiresAtUtc is not null && key.ExpiresAtUtc.Value <= DateTime.UtcNow)
             return Error.Unauthorized("auth.expired_key", "The API key has expired.");
 
-        var cidrs = (await connection.QueryAsync<string>(new CommandDefinition(
+        List<string> cidrs = (await connection.QueryAsync<string>(new CommandDefinition(
             AuthenticationSql.ListRestrictions,
             new { key.ApiKeyId },
             cancellationToken: cancellationToken))).AsList();
@@ -66,9 +67,9 @@ public sealed class ApiKeyAuthenticator
         if (remoteIp is null)
             return false;
 
-        foreach (var cidr in cidrs)
+        foreach (string cidr in cidrs)
         {
-            if (IPNetwork.TryParse(cidr, out var network) && network.Contains(remoteIp))
+            if (IPNetwork.TryParse(cidr, out IPNetwork network) && network.Contains(remoteIp))
                 return true;
         }
 

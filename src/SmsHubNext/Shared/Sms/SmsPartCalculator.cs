@@ -30,7 +30,7 @@ public static class SmsPartCalculator
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        if (TryGetGsm7Length(text, out var gsm7Length))
+        if (TryGetGsm7Length(text, out int gsm7Length))
         {
             return new SmsSegmentInfo(
                 SmsEncoding.Gsm7,
@@ -38,7 +38,7 @@ public static class SmsPartCalculator
                 SegmentCount(gsm7Length, Gsm7SingleSegment, Gsm7MultiSegment));
         }
 
-        var ucs2Length = text.Length; // UTF-16 code units (surrogate pairs count as 2)
+        int ucs2Length = text.Length; // UTF-16 code units (surrogate pairs count as 2)
         return new SmsSegmentInfo(
             SmsEncoding.Ucs2,
             ucs2Length,
@@ -48,7 +48,7 @@ public static class SmsPartCalculator
     private static bool TryGetGsm7Length(string text, out int length)
     {
         length = 0;
-        foreach (var c in text)
+        foreach (char c in text)
         {
             if (Gsm7Basic.Contains(c))
             {

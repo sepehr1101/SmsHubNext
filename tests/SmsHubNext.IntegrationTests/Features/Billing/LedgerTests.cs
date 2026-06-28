@@ -1,3 +1,4 @@
+using DbUp.Engine;
 using SmsHubNext.Features.Billing;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Shared.Database;
@@ -15,9 +16,9 @@ public sealed class LedgerTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _sqlServer.StartAsync();
-        var connectionString = _sqlServer.GetConnectionString();
+        string connectionString = _sqlServer.GetConnectionString();
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
@@ -28,15 +29,15 @@ public sealed class LedgerTests : IAsyncLifetime
     [Fact]
     public async Task Records_a_ledger_entry_per_top_up()
     {
-        var customer = await new CreateCustomerHandler(_db)
+        Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(new CreateCustomerRequest { Name = "Ledger", Code = "ledger" }, CancellationToken.None);
-        var id = customer.Value.Id;
+        short id = customer.Value.Id;
 
-        var topUp = new TopUpHandler(_db);
+        TopUpHandler topUp = new TopUpHandler(_db);
         await topUp.Handle(new TopUpRequest { CustomerId = id, Amount = 1000m }, CancellationToken.None);
         await topUp.Handle(new TopUpRequest { CustomerId = id, Amount = 500m, Reference = "pay-2" }, CancellationToken.None);
 
-        var ledger = await new ListTransactionsHandler(_db).Handle(id, CancellationToken.None);
+        Result<IReadOnlyList<BalanceTransaction>> ledger = await new ListTransactionsHandler(_db).Handle(id, CancellationToken.None);
 
         Assert.True(ledger.IsSuccess);
         Assert.Equal(2, ledger.Value.Count);

@@ -15,15 +15,15 @@ public sealed class CreateCustomerHandler
         CreateCustomerRequest request,
         CancellationToken cancellationToken)
     {
-        var validation = request.Validate();
+        Result validation = request.Validate();
         if (validation.IsFailure)
             return validation.Error!;
 
-        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
         try
         {
-            var id = await connection.ExecuteScalarAsync<short>(new CommandDefinition(
+            short id = await connection.ExecuteScalarAsync<short>(new CommandDefinition(
                 CustomersSql.Insert,
                 new { request.Name, request.Code },
                 cancellationToken: cancellationToken));

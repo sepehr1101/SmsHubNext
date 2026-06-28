@@ -31,10 +31,10 @@ public sealed class DispatchWorker : BackgroundService
         {
             try
             {
-                using var scope = _scopeFactory.CreateScope();
-                var dispatcher = scope.ServiceProvider.GetRequiredService<MessageDispatcher>();
+                using IServiceScope scope = _scopeFactory.CreateScope();
+                MessageDispatcher dispatcher = scope.ServiceProvider.GetRequiredService<MessageDispatcher>();
 
-                var didWork = await dispatcher.DispatchNextBatchAsync(stoppingToken);
+                bool didWork = await dispatcher.DispatchNextBatchAsync(stoppingToken);
 
                 if (!didWork)
                     await Task.Delay(_options.PollInterval, stoppingToken);

@@ -1,3 +1,4 @@
+using DbUp.Engine;
 using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Shared.Database;
@@ -15,9 +16,9 @@ public sealed class ApiKeysTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _sqlServer.StartAsync();
-        var connectionString = _sqlServer.GetConnectionString();
+        string connectionString = _sqlServer.GetConnectionString();
 
-        var migration = new DatabaseMigrator(connectionString).Migrate();
+        DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
@@ -28,19 +29,19 @@ public sealed class ApiKeysTests : IAsyncLifetime
     [Fact]
     public async Task Issues_a_key_then_lists_it_without_the_secret()
     {
-        var customer = await new CreateCustomerHandler(_db)
+        Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(new CreateCustomerRequest { Name = "Tenant", Code = "tenant" }, CancellationToken.None);
         Assert.True(customer.IsSuccess);
 
-        var issued = await new IssueApiKeyHandler(_db)
+        Result<IssueApiKeyResponse> issued = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = customer.Value.Id, Name = "Prod" }, CancellationToken.None);
         Assert.True(issued.IsSuccess);
         Assert.StartsWith("shn_", issued.Value.Key);
         Assert.Equal(issued.Value.Key[..12], issued.Value.KeyPrefix);
 
-        var keys = await new ListApiKeysHandler(_db).Handle(customer.Value.Id, CancellationToken.None);
+        Result<IReadOnlyList<ApiKey>> keys = await new ListApiKeysHandler(_db).Handle(customer.Value.Id, CancellationToken.None);
         Assert.True(keys.IsSuccess);
-        var key = Assert.Single(keys.Value);
+        ApiKey key = Assert.Single(keys.Value);
         Assert.Equal(issued.Value.Id, key.Id);
         Assert.Equal("Prod", key.Name);
         Assert.Equal(issued.Value.KeyPrefix, key.KeyPrefix);
@@ -49,7 +50,7 @@ public sealed class ApiKeysTests : IAsyncLifetime
     [Fact]
     public async Task Rejects_an_unknown_customer()
     {
-        var result = await new IssueApiKeyHandler(_db)
+        Result<IssueApiKeyResponse> result = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = 32000, Name = "Nope" }, CancellationToken.None);
 
         Assert.True(result.IsFailure);
