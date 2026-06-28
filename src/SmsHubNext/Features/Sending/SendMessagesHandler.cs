@@ -1,3 +1,4 @@
+using System.Data;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.Tariffs;
@@ -15,10 +16,11 @@ namespace SmsHubNext.Features.Sending;
 /// prepaid balance (overspend-safe), writes the <c>MessageBatch</c> header, the money
 /// ledger entry, and one <c>Message</c> (Queued) + <c>MessageBody</c> per recipient.
 ///
-/// Dispatch to a provider is a later increment (Phase 1+, Magfa): the messages land as
-/// <c>Queued</c>/<c>Pending</c> for a background worker to pick up. Pricing reuses the
-/// canonical tariff resolution (<see cref="TariffsSql.ResolveRate"/>) so quote and send
-/// never drift.
+/// The per-recipient rows are the heavy part of an accept (up to <c>MaxMessages</c>), so the
+/// <c>Message</c> and <c>MessageBody</c> rows are written with <c>SqlBulkCopy</c> enlisted in the
+/// same transaction rather than row-by-row. The messages land as <c>Queued</c>/<c>Pending</c> for
+/// the background dispatcher to pick up. Pricing reuses the canonical tariff resolution
+/// (<see cref="TariffsSql.ResolveRate"/>) so quote and send never drift.
 /// </summary>
 public sealed class SendMessagesHandler
 {
@@ -129,42 +131,24 @@ public sealed class SendMessagesHandler
                 transaction,
                 cancellationToken: cancellationToken));
 
-            foreach (PricedMessage message in priced)
-            {
-                long messageId = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
-                    SendingSql.InsertMessage,
-                    new
-                    {
-                        SubmitDateJalali = submitDateJalali,
-                        MessageBatchId = batchId,
-                        NowUtc = nowUtc,
-                        request.CustomerId,
-                        senderLine.ProviderId,
-                        SenderLineId = senderLine.Id,
-                        request.MessageTypeId,
-                        message.Item.GeoSectionId,
-                        MobileNumber = message.Item.Recipient,
-                        message.Item.ClientCorrelatedId,
-                        message.Item.BillId,
-                        message.Item.PayId,
-                        Encoding = (byte)message.Segments.Encoding,
-                        message.Segments.CharacterCount,
-                        SegmentCount = (byte)message.Segments.SegmentCount,
-                        message.TariffId,
-                        message.UnitPrice,
-                        message.TotalCost,
-                        Status = (byte)SendStatus.Queued,
-                        DeliveryStatus = (byte)DeliveryStatus.Pending,
-                    },
-                    transaction,
-                    cancellationToken: cancellationToken));
+            // Bulk-insert the heavy rows. First the messages, then read the server-assigned ids back
+            // in insertion order to key the 1:1 bodies, then the bodies. Both bulk copies enlist in
+            // this transaction (and check FK constraints), so the whole accept stays atomic.
+            using DataTable messageRows = BuildMessageRows(priced, batchId, senderLine, request, submitDateJalali, nowUtc);
+            await connection.BulkInsertAsync(transaction, "dbo.Message", messageRows, cancellationToken);
 
-                await connection.ExecuteAsync(new CommandDefinition(
-                    SendingSql.InsertBody,
-                    new { Id = messageId, Body = message.Item.Text },
-                    transaction,
-                    cancellationToken: cancellationToken));
-            }
+            List<long> messageIds = (await connection.QueryAsync<long>(new CommandDefinition(
+                SendingSql.SelectBatchMessageIds,
+                new { MessageBatchId = batchId },
+                transaction,
+                cancellationToken: cancellationToken))).AsList();
+
+            if (messageIds.Count != priced.Count)
+                throw new InvalidOperationException(
+                    $"Bulk insert wrote {messageIds.Count} message(s) but {priced.Count} were expected.");
+
+            using DataTable bodyRows = BuildBodyRows(messageIds, priced);
+            await connection.BulkInsertAsync(transaction, "dbo.MessageBody", bodyRows, cancellationToken);
 
             transaction.Commit();
             return new SendMessagesResponse(batchId, priced.Count);
@@ -176,6 +160,84 @@ public sealed class SendMessagesHandler
                 "sending.unknown_reference",
                 "The customer, API key, message type, or geo section does not exist.");
         }
+    }
+
+    /// <summary>
+    /// Builds the <c>Message</c> rows for bulk copy. Column order is independent of the destination
+    /// (the helper maps by name and lets the server assign the identity <c>Id</c>); nullable columns
+    /// carry <see cref="DBNull"/>. Column CLR types match the SQL types (TINYINT→byte, SMALLINT→short,
+    /// INT→int, BIGINT→long, DECIMAL→decimal, CHAR/VARCHAR/NVARCHAR→string, DATETIME2→DateTime).
+    /// </summary>
+    private static DataTable BuildMessageRows(
+        IReadOnlyList<PricedMessage> priced,
+        long batchId,
+        SenderLineRow senderLine,
+        SendMessagesRequest request,
+        string submitDateJalali,
+        DateTime nowUtc)
+    {
+        DataTable table = new DataTable();
+        table.Columns.Add("SubmitDateJalali", typeof(string));
+        table.Columns.Add("MessageBatchId", typeof(long));
+        table.Columns.Add("SubmittedAtUtc", typeof(DateTime));
+        table.Columns.Add("CustomerId", typeof(short));
+        table.Columns.Add("ProviderId", typeof(byte));
+        table.Columns.Add("SenderLineId", typeof(short));
+        table.Columns.Add("MessageTypeId", typeof(byte));
+        table.Columns.Add("GeoSectionId", typeof(int));
+        table.Columns.Add("MobileNumber", typeof(string));
+        table.Columns.Add("ClientCorrelatedId", typeof(string));
+        table.Columns.Add("BillId", typeof(string));
+        table.Columns.Add("PayId", typeof(string));
+        table.Columns.Add("Encoding", typeof(byte));
+        table.Columns.Add("CharacterCount", typeof(short));
+        table.Columns.Add("SegmentCount", typeof(byte));
+        table.Columns.Add("TariffId", typeof(int));
+        table.Columns.Add("UnitPrice", typeof(decimal));
+        table.Columns.Add("TotalCost", typeof(decimal));
+        table.Columns.Add("Status", typeof(byte));
+        table.Columns.Add("DeliveryStatus", typeof(byte));
+
+        foreach (PricedMessage message in priced)
+        {
+            table.Rows.Add(
+                submitDateJalali,
+                batchId,
+                nowUtc,
+                request.CustomerId,
+                senderLine.ProviderId,
+                senderLine.Id,
+                request.MessageTypeId,
+                (object?)message.Item.GeoSectionId ?? DBNull.Value,
+                message.Item.Recipient,
+                (object?)message.Item.ClientCorrelatedId ?? DBNull.Value,
+                (object?)message.Item.BillId ?? DBNull.Value,
+                (object?)message.Item.PayId ?? DBNull.Value,
+                (byte)message.Segments.Encoding,
+                (short)message.Segments.CharacterCount,
+                (byte)message.Segments.SegmentCount,
+                message.TariffId,
+                message.UnitPrice,
+                message.TotalCost,
+                (byte)SendStatus.Queued,
+                (byte)DeliveryStatus.Pending);
+        }
+
+        return table;
+    }
+
+    /// <summary>Builds the 1:1 <c>MessageBody</c> rows, pairing each read-back id with its body
+    /// (both in insertion order — see <see cref="SendingSql.SelectBatchMessageIds"/>).</summary>
+    private static DataTable BuildBodyRows(IReadOnlyList<long> messageIds, IReadOnlyList<PricedMessage> priced)
+    {
+        DataTable table = new DataTable();
+        table.Columns.Add("Id", typeof(long));
+        table.Columns.Add("Body", typeof(string));
+
+        for (int i = 0; i < messageIds.Count; i++)
+            table.Rows.Add(messageIds[i], priced[i].Item.Text);
+
+        return table;
     }
 
     /// <summary>A message paired with its resolved cost snapshot, ready to persist.</summary>

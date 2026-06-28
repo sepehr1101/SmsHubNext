@@ -40,19 +40,11 @@ internal static class SendingSql
             (@CustomerId, @Type, @Amount, @BalanceAfter, @MessageBatchId, @Reference);
         """;
 
-    public const string InsertMessage =
-        """
-        INSERT INTO dbo.Message
-            (SubmitDateJalali, MessageBatchId, SubmittedAtUtc, CustomerId, ProviderId, SenderLineId,
-             MessageTypeId, GeoSectionId, MobileNumber, ClientCorrelatedId, BillId, PayId,
-             Encoding, CharacterCount, SegmentCount, TariffId, UnitPrice, TotalCost, Status, DeliveryStatus)
-        OUTPUT INSERTED.Id
-        VALUES
-            (@SubmitDateJalali, @MessageBatchId, @NowUtc, @CustomerId, @ProviderId, @SenderLineId,
-             @MessageTypeId, @GeoSectionId, @MobileNumber, @ClientCorrelatedId, @BillId, @PayId,
-             @Encoding, @CharacterCount, @SegmentCount, @TariffId, @UnitPrice, @TotalCost, @Status, @DeliveryStatus);
-        """;
-
-    public const string InsertBody =
-        "INSERT INTO dbo.MessageBody (Id, Body) VALUES (@Id, @Body);";
+    // The Message and MessageBody rows are bulk-inserted (SqlBulkCopy) rather than looped, so the
+    // column lists live in SendMessagesHandler's DataTable builders. After the message bulk insert
+    // we read the server-assigned ids back in insertion order to key the 1:1 bodies: all rows share
+    // this batch's fresh MessageBatchId, and a single bulk-copy stream assigns identity in row order,
+    // so ORDER BY Id reproduces that order.
+    public const string SelectBatchMessageIds =
+        "SELECT Id FROM dbo.Message WHERE MessageBatchId = @MessageBatchId ORDER BY Id;";
 }

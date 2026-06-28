@@ -1,3 +1,4 @@
+using System.Data;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.Providers;
@@ -9,14 +10,16 @@ namespace SmsHubNext.Features.DeliveryReports;
 
 /// <summary>
 /// One unit of delivery-report polling work: claim the due poll rows, ask the provider for their
-/// delivery status, and for each terminal outcome project it onto <c>Message.DeliveryStatus</c>,
+/// delivery status, and apply each terminal outcome — project it onto <c>Message.DeliveryStatus</c>,
 /// append the immutable <c>DeliveryReport</c>, and dequeue. Rows whose provider status window has
 /// lapsed are expired without a provider call; rows still in flight stay queued for a later cycle.
 ///
-/// Like the dispatcher, all reliability lives in SQL (ARCHITECTURE.md §9): claims are atomic and
-/// leased, transitions are guarded (idempotent), and a restart resumes from the queue. Provider
-/// selection by <c>ProviderId</c> is a later concern; with one provider registered, every claimed
-/// row goes through it.
+/// A cycle's terminal outcomes are applied together: bulk-loaded (<c>SqlBulkCopy</c>) into a temp
+/// table and merged set-based in a single transaction, so the whole apply is atomic (ACID) and the
+/// hot path is one round trip instead of one per message. Like the dispatcher, all reliability lives
+/// in SQL (ARCHITECTURE.md §9): claims are atomic and leased, transitions are guarded (idempotent),
+/// and a restart resumes from the queue. Provider selection by <c>ProviderId</c> is a later concern;
+/// with one provider registered, every claimed row goes through it.
 /// </summary>
 public sealed class DeliveryReportPoller
 {
@@ -62,70 +65,110 @@ public sealed class DeliveryReportPoller
 
         _logger.LogDebug("Polling delivery reports for {Count} message(s).", rows.Count);
 
-        // Messages past the provider's status window will never resolve: expire them (terminal)
-        // without a provider call. The rest are live and queried below.
+        // Accumulate this cycle's terminal outcomes; they are applied together in one bulk
+        // transaction below. A HashSet guards against the same message appearing twice (a
+        // misbehaving provider could repeat a mid) so the temp table's PK can't be violated.
+        List<TerminalApply> applies = new List<TerminalApply>(rows.Count);
+        HashSet<long> seen = new HashSet<long>(rows.Count);
         List<PollRow> live = new List<PollRow>(rows.Count);
+
         foreach (PollRow row in rows)
         {
+            // Past the provider's status window it will never resolve: expire it (terminal) with no call.
             if (row.DispatchedAtUtc <= windowStart)
-                await ApplyTerminalAsync(connection, row, DeliveryReportStatus.Expired, rawStatusCode: 0, now, cancellationToken);
+            {
+                if (seen.Add(row.MessageId))
+                    applies.Add(TerminalApply.For(row, DeliveryReportStatus.Expired, rawStatusCode: 0, now));
+            }
             else
+            {
                 live.Add(row);
+            }
         }
 
-        if (live.Count == 0)
-            return true;
-
-        List<string> providerMessageIds = live.Select(r => r.ProviderMessageId).ToList();
-        Result<IReadOnlyList<ProviderDeliveryReport>> query = await SafeQueryAsync(providerMessageIds, cancellationToken);
-
-        if (query.IsFailure)
+        if (live.Count > 0)
         {
-            // Transient: the rows are already leased forward, so a later cycle retries them.
-            _logger.LogWarning("Delivery-report query failed: {Error}. Retrying next cycle.", query.Error!.Message);
-            return true;
+            List<string> providerMessageIds = live.Select(r => r.ProviderMessageId).ToList();
+            Result<IReadOnlyList<ProviderDeliveryReport>> query = await SafeQueryAsync(providerMessageIds, cancellationToken);
+
+            if (query.IsFailure)
+            {
+                // Transient: the live rows are leased forward and retried next cycle. Any expiries
+                // gathered above are independent of the provider and are still applied below.
+                _logger.LogWarning("Delivery-report query failed: {Error}. Retrying next cycle.", query.Error!.Message);
+            }
+            else
+            {
+                Dictionary<string, PollRow> byProviderMessageId = live.ToDictionary(r => r.ProviderMessageId);
+                foreach (ProviderDeliveryReport report in query.Value)
+                {
+                    if (report.Status is null)
+                        continue; // still in flight; remains queued for the next cycle
+
+                    if (byProviderMessageId.TryGetValue(report.ProviderMessageId, out PollRow? row) && seen.Add(row.MessageId))
+                        applies.Add(TerminalApply.For(row, report.Status.Value, report.RawStatusCode, now));
+                }
+            }
         }
 
-        Dictionary<string, PollRow> byProviderMessageId = live.ToDictionary(r => r.ProviderMessageId);
-        foreach (ProviderDeliveryReport report in query.Value)
-        {
-            if (report.Status is null)
-                continue; // still in flight; remains queued for the next cycle
-
-            if (byProviderMessageId.TryGetValue(report.ProviderMessageId, out PollRow? row))
-                await ApplyTerminalAsync(connection, row, report.Status.Value, report.RawStatusCode, now, cancellationToken);
-        }
+        if (applies.Count > 0)
+            await ApplyTerminalsAsync(connection, applies, cancellationToken);
 
         return true;
     }
 
-    private static async Task ApplyTerminalAsync(
+    // Apply a whole cycle's terminal outcomes atomically: bulk-load them into a temp table, then run
+    // the guarded set-based projection/append/dequeue in one transaction.
+    private static async Task ApplyTerminalsAsync(
         SqlConnection connection,
-        PollRow row,
-        DeliveryReportStatus status,
-        int rawStatusCode,
-        DateTime now,
+        IReadOnlyList<TerminalApply> applies,
         CancellationToken cancellationToken)
     {
-        DeliveryStatus readModel = status.ToDeliveryStatus();
-
         using SqlTransaction transaction = connection.BeginTransaction();
+
         await connection.ExecuteAsync(new CommandDefinition(
-            DeliveryReportsSql.ApplyTerminalReport,
+            DeliveryReportsSql.CreateTerminalApplyTemp,
+            transaction: transaction,
+            cancellationToken: cancellationToken));
+
+        using DataTable rows = BuildTerminalApplyRows(applies);
+        await connection.BulkInsertAsync(transaction, "#TerminalApply", rows, cancellationToken);
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            DeliveryReportsSql.ApplyTerminalReports,
             new
             {
-                row.MessageId,
-                row.SubmitDateJalali,
-                DeliveryStatus = (byte)readModel,
                 DeliveredValue = (byte)DeliveryStatus.Delivered,
                 PendingValue = (byte)DeliveryStatus.Pending,
-                NormalizedStatus = (byte)status,
-                RawStatusCode = rawStatusCode,
-                ReceivedAtUtc = now,
             },
             transaction,
             cancellationToken: cancellationToken));
+
         transaction.Commit();
+    }
+
+    private static DataTable BuildTerminalApplyRows(IReadOnlyList<TerminalApply> applies)
+    {
+        DataTable table = new DataTable();
+        table.Columns.Add("MessageId", typeof(long));
+        table.Columns.Add("SubmitDateJalali", typeof(string));
+        table.Columns.Add("DeliveryStatus", typeof(byte));
+        table.Columns.Add("NormalizedStatus", typeof(byte));
+        table.Columns.Add("RawStatusCode", typeof(int));
+        table.Columns.Add("ReceivedAtUtc", typeof(DateTime));
+
+        foreach (TerminalApply apply in applies)
+        {
+            table.Rows.Add(
+                apply.MessageId,
+                apply.SubmitDateJalali,
+                apply.DeliveryStatus,
+                apply.NormalizedStatus,
+                apply.RawStatusCode,
+                apply.ReceivedAtUtc);
+        }
+
+        return table;
     }
 
     private async Task<Result<IReadOnlyList<ProviderDeliveryReport>>> SafeQueryAsync(
@@ -150,4 +193,18 @@ public sealed class DeliveryReportPoller
         string ProviderMessageId,
         DateTime DispatchedAtUtc,
         int Attempts);
+
+    /// <summary>A resolved terminal outcome ready to stage: the read-model projection and the
+    /// normalized history status, derived once from the provider's <see cref="DeliveryReportStatus"/>.</summary>
+    private sealed record TerminalApply(
+        long MessageId,
+        string SubmitDateJalali,
+        byte DeliveryStatus,
+        byte NormalizedStatus,
+        int RawStatusCode,
+        DateTime ReceivedAtUtc)
+    {
+        public static TerminalApply For(PollRow row, DeliveryReportStatus status, int rawStatusCode, DateTime receivedAtUtc) =>
+            new(row.MessageId, row.SubmitDateJalali, (byte)status.ToDeliveryStatus(), (byte)status, rawStatusCode, receivedAtUtc);
+    }
 }

@@ -52,20 +52,45 @@ internal static class DeliveryReportsSql
         INNER JOIN due ON due.MessageId = p.MessageId;
         """;
 
-    // Apply a terminal delivery outcome, idempotently: project it onto the Message read model
-    // (guarded on Pending so only the first terminal wins and stamps DeliveredAtUtc), append the
-    // immutable DeliveryReport for that first transition only, then dequeue. Run in one transaction.
-    public const string ApplyTerminalReport =
+    // Staging table for a cycle's terminal outcomes, bulk-loaded (SqlBulkCopy) before ApplyTerminalReports.
+    // Session-scoped #temp on the poller's connection; dropped when that connection closes.
+    public const string CreateTerminalApplyTemp =
         """
-        UPDATE dbo.Message
-        SET DeliveryStatus = @DeliveryStatus,
-            DeliveredAtUtc = CASE WHEN @DeliveryStatus = @DeliveredValue THEN @ReceivedAtUtc ELSE DeliveredAtUtc END
-        WHERE Id = @MessageId AND DeliveryStatus = @PendingValue;
+        CREATE TABLE #TerminalApply
+        (
+            MessageId        BIGINT       NOT NULL PRIMARY KEY,
+            SubmitDateJalali CHAR(10)     NOT NULL,
+            DeliveryStatus   TINYINT      NOT NULL,   -- read-model projection (Message.DeliveryStatus)
+            NormalizedStatus TINYINT      NOT NULL,   -- DeliveryReportStatus for the history row
+            RawStatusCode    INT          NOT NULL,
+            ReceivedAtUtc    DATETIME2(3) NOT NULL
+        );
+        """;
 
-        IF @@ROWCOUNT = 1
-            INSERT INTO dbo.DeliveryReport (SubmitDateJalali, MessageId, NormalizedStatus, RawStatusCode, ReceivedAtUtc)
-            VALUES (@SubmitDateJalali, @MessageId, @NormalizedStatus, @RawStatusCode, @ReceivedAtUtc);
+    // Apply a whole batch of terminal outcomes set-based and idempotently, in one transaction:
+    // project onto the Message read model (guarded on Pending so only the first terminal per message
+    // wins and stamps DeliveredAtUtc), append a DeliveryReport for exactly those just-transitioned
+    // messages, then dequeue every applied message. A duplicate (already-terminal) row updates nothing,
+    // inserts no history, and is still dequeued.
+    public const string ApplyTerminalReports =
+        """
+        DECLARE @Transitioned TABLE (Id BIGINT NOT NULL PRIMARY KEY);
 
-        DELETE FROM dbo.DeliveryReportPoll WHERE MessageId = @MessageId;
+        UPDATE m
+        SET DeliveryStatus = a.DeliveryStatus,
+            DeliveredAtUtc = CASE WHEN a.DeliveryStatus = @DeliveredValue THEN a.ReceivedAtUtc ELSE m.DeliveredAtUtc END
+        OUTPUT INSERTED.Id INTO @Transitioned (Id)
+        FROM dbo.Message m
+        INNER JOIN #TerminalApply a ON a.MessageId = m.Id
+        WHERE m.DeliveryStatus = @PendingValue;
+
+        INSERT INTO dbo.DeliveryReport (SubmitDateJalali, MessageId, NormalizedStatus, RawStatusCode, ReceivedAtUtc)
+        SELECT a.SubmitDateJalali, a.MessageId, a.NormalizedStatus, a.RawStatusCode, a.ReceivedAtUtc
+        FROM #TerminalApply a
+        INNER JOIN @Transitioned t ON t.Id = a.MessageId;
+
+        DELETE p
+        FROM dbo.DeliveryReportPoll p
+        INNER JOIN #TerminalApply a ON a.MessageId = p.MessageId;
         """;
 }
