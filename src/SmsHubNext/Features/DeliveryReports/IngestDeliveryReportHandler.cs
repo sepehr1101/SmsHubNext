@@ -1,0 +1,86 @@
+using Dapper;
+using SmsHubNext.Shared.Database;
+using SmsHubNext.Shared.Enums;
+using SmsHubNext.Shared.Results;
+
+namespace SmsHubNext.Features.DeliveryReports;
+
+/// <summary>
+/// Ingests a delivery report: appends it to the immutable <c>DeliveryReport</c> history
+/// and updates the denormalized <c>Message.DeliveryStatus</c> read model, atomically
+/// (README §4.10/§4.12/§7.4). The append-only history is the source of truth; the read
+/// model is what makes the join-free success rate possible.
+/// </summary>
+public sealed class IngestDeliveryReportHandler
+{
+    private readonly Db _db;
+
+    public IngestDeliveryReportHandler(Db db) => _db = db;
+
+    public async Task<Result<IngestDeliveryReportResponse>> Handle(
+        IngestDeliveryReportRequest request,
+        CancellationToken cancellationToken)
+    {
+        var validation = request.Validate();
+        if (validation.IsFailure)
+            return validation.Error!;
+
+        await using var connection = await _db.OpenConnectionAsync(cancellationToken);
+
+        // The report copies the message's partition key, so it must exist first.
+        var submitDateJalali = await connection.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            DeliveryReportsSql.GetMessagePartition,
+            new { request.MessageId },
+            cancellationToken: cancellationToken));
+
+        if (submitDateJalali is null)
+            return Error.NotFound("delivery_reports.unknown_message", "The message does not exist.");
+
+        var readModel = ToReadModel(request.Status);
+        var receivedAtUtc = DateTime.UtcNow;
+
+        using var transaction = connection.BeginTransaction();
+
+        var reportId = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            DeliveryReportsSql.InsertReport,
+            new
+            {
+                SubmitDateJalali = submitDateJalali,
+                request.MessageId,
+                NormalizedStatus = (byte)request.Status,
+                request.RawStatusCode,
+                ReceivedAtUtc = receivedAtUtc,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            DeliveryReportsSql.UpdateMessageStatus,
+            new
+            {
+                DeliveryStatus = (byte)readModel,
+                DeliveredValue = (byte)DeliveryStatus.Delivered,
+                ReceivedAtUtc = receivedAtUtc,
+                request.MessageId,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        transaction.Commit();
+        return new IngestDeliveryReportResponse(reportId, readModel);
+    }
+
+    /// <summary>
+    /// Project a normalized report status onto the message read model. A <c>Rejected</c>
+    /// network report means the message was not delivered; the read model has no Rejected
+    /// state of its own (send-side rejection lives on <c>Message.Status</c>).
+    /// </summary>
+    private static DeliveryStatus ToReadModel(DeliveryReportStatus status) => status switch
+    {
+        DeliveryReportStatus.Delivered => DeliveryStatus.Delivered,
+        DeliveryReportStatus.Undelivered => DeliveryStatus.Undelivered,
+        DeliveryReportStatus.Expired => DeliveryStatus.Expired,
+        DeliveryReportStatus.Rejected => DeliveryStatus.Undelivered,
+        _ => DeliveryStatus.Unknown,
+    };
+}

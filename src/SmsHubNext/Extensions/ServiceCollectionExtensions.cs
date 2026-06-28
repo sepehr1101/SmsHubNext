@@ -1,5 +1,7 @@
 using SmsHubNext.Features.ApiKeys;
+using SmsHubNext.Features.Batches;
 using SmsHubNext.Features.Billing;
+using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Features.Tariffs;
@@ -43,6 +45,12 @@ public static class ServiceCollectionExtensions
     private static IServiceCollection AddFeatureHandlers(this IServiceCollection services)
     {
         services.AddScoped<SendMessagesHandler>();
+
+        services.AddScoped<GetBatchHandler>();
+        services.AddScoped<ListBatchMessagesHandler>();
+
+        services.AddScoped<IngestDeliveryReportHandler>();
+        services.AddScoped<ListDeliveryReportsHandler>();
 
         services.AddScoped<ListMessageTypesHandler>();
         services.AddScoped<ListProvidersHandler>();
