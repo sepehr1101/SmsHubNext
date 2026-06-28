@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.Magfa;
+using SmsHubNext.Shared.Enums;
 using SmsHubNext.Shared.Results;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -139,6 +140,79 @@ public sealed class MagfaSmsProviderTests : IDisposable
         Assert.Contains("9876", body);
         Assert.Contains("989120000000", body);
     }
+
+    [Fact]
+    public async Task Statuses_map_magfa_dlr_codes_to_normalized_outcomes()
+    {
+        // 1 delivered, 2 not-to-handset, 16 not-to-operator, 8 at-operator (in-flight), -1 gone.
+        StubStatuses(200, """
+            {
+              "status": 0,
+              "dlrs": [
+                { "mid": 1, "status": 1,  "date": "2026-06-28 10:00:00" },
+                { "mid": 2, "status": 2,  "date": "2026-06-28 10:00:00" },
+                { "mid": 3, "status": 16, "date": "2026-06-28 10:00:00" },
+                { "mid": 4, "status": 8,  "date": "2026-06-28 10:00:00" },
+                { "mid": 5, "status": -1, "date": "2026-06-28 10:00:00" }
+              ]
+            }
+            """);
+
+        Result<IReadOnlyList<ProviderDeliveryReport>> result =
+            await NewProvider().GetDeliveryReportsAsync(["1", "2", "3", "4", "5"], CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Dictionary<string, ProviderDeliveryReport> byId = result.Value.ToDictionary(r => r.ProviderMessageId);
+
+        Assert.Equal(DeliveryReportStatus.Delivered, byId["1"].Status);
+        Assert.Equal(DeliveryReportStatus.Undelivered, byId["2"].Status);
+        Assert.Equal(DeliveryReportStatus.Undelivered, byId["3"].Status);
+        Assert.Null(byId["4"].Status);                          // in-flight: keep polling
+        Assert.Equal(DeliveryReportStatus.Expired, byId["5"].Status);
+        Assert.Equal(16, byId["3"].RawStatusCode);              // native code kept verbatim
+    }
+
+    [Fact]
+    public async Task Statuses_request_level_error_is_a_transport_failure()
+    {
+        StubStatuses(200, """{ "status": 19, "dlrs": [] }""");
+
+        Result<IReadOnlyList<ProviderDeliveryReport>> result =
+            await NewProvider().GetDeliveryReportsAsync(["1"], CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Provider, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task Statuses_with_no_ids_skips_the_call_and_returns_empty()
+    {
+        Result<IReadOnlyList<ProviderDeliveryReport>> result =
+            await NewProvider().GetDeliveryReportsAsync([], CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Empty(result.Value);
+        Assert.Empty(_magfa.LogEntries); // no HTTP call made
+    }
+
+    [Fact]
+    public async Task Statuses_request_targets_the_comma_joined_mids_path()
+    {
+        StubStatuses(200, """{ "status": 0, "dlrs": [] }""");
+
+        await NewProvider().GetDeliveryReportsAsync(["111", "222"], CancellationToken.None);
+
+        WireMock.Logging.ILogEntry entry = Assert.Single(_magfa.LogEntries);
+        Assert.EndsWith("/api/http/sms/v2/statuses/111,222", entry.RequestMessage.Path);
+    }
+
+    private void StubStatuses(int statusCode, string body) =>
+        _magfa
+            .Given(Request.Create().WithPath(p => p.StartsWith("/api/http/sms/v2/statuses/")).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode((HttpStatusCode)statusCode)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody(body));
 
     private void StubSend(int statusCode, string body) =>
         _magfa

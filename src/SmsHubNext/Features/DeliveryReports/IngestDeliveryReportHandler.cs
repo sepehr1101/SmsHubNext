@@ -37,7 +37,7 @@ public sealed class IngestDeliveryReportHandler
         if (submitDateJalali is null)
             return Error.NotFound("delivery_reports.unknown_message", "The message does not exist.");
 
-        DeliveryStatus readModel = ToReadModel(request.Status);
+        DeliveryStatus readModel = request.Status.ToDeliveryStatus();
         DateTime receivedAtUtc = DateTime.UtcNow;
 
         using SqlTransaction transaction = connection.BeginTransaction();
@@ -70,18 +70,4 @@ public sealed class IngestDeliveryReportHandler
         transaction.Commit();
         return new IngestDeliveryReportResponse(reportId, readModel);
     }
-
-    /// <summary>
-    /// Project a normalized report status onto the message read model. A <c>Rejected</c>
-    /// network report means the message was not delivered; the read model has no Rejected
-    /// state of its own (send-side rejection lives on <c>Message.Status</c>).
-    /// </summary>
-    private static DeliveryStatus ToReadModel(DeliveryReportStatus status) => status switch
-    {
-        DeliveryReportStatus.Delivered => DeliveryStatus.Delivered,
-        DeliveryReportStatus.Undelivered => DeliveryStatus.Undelivered,
-        DeliveryReportStatus.Expired => DeliveryStatus.Expired,
-        DeliveryReportStatus.Rejected => DeliveryStatus.Undelivered,
-        _ => DeliveryStatus.Unknown,
-    };
 }

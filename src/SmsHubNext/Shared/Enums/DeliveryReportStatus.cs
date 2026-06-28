@@ -14,3 +14,21 @@ public enum DeliveryReportStatus : byte
     Rejected = 4,
     Unknown = 5,
 }
+
+public static class DeliveryReportStatusExtensions
+{
+    /// <summary>
+    /// Project a normalized report status onto the <see cref="DeliveryStatus"/> read model
+    /// (README §4.10/§4.12). A <see cref="DeliveryReportStatus.Rejected"/> network report means
+    /// the message was not delivered; the read model has no Rejected state of its own (send-side
+    /// rejection lives on <c>Message.Status</c>).
+    /// </summary>
+    public static DeliveryStatus ToDeliveryStatus(this DeliveryReportStatus status) => status switch
+    {
+        DeliveryReportStatus.Delivered => DeliveryStatus.Delivered,
+        DeliveryReportStatus.Undelivered => DeliveryStatus.Undelivered,
+        DeliveryReportStatus.Expired => DeliveryStatus.Expired,
+        DeliveryReportStatus.Rejected => DeliveryStatus.Undelivered,
+        _ => DeliveryStatus.Unknown,
+    };
+}

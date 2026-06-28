@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
 
         services.AddFeatureHandlers();
         services.AddBackgroundDispatch(configuration);
+        services.AddDeliveryReportPolling(configuration);
 
         // Health checks: a database readiness probe (more added as dependencies arrive).
         services.AddHealthChecks()
@@ -66,6 +67,23 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<MessageDispatcher>();
         services.AddHostedService<DispatchWorker>();
+
+        return services;
+    }
+
+    // Delivery-report polling: the SQL-backed queue poller and its hosting worker (Phase 2).
+    // Shares the ISmsProvider seam and TimeProvider registered by AddBackgroundDispatch.
+    private static IServiceCollection AddDeliveryReportPolling(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        DeliveryReportPollOptions options =
+            configuration.GetSection(DeliveryReportPollOptions.SectionName).Get<DeliveryReportPollOptions>()
+            ?? new DeliveryReportPollOptions();
+        services.AddSingleton(options);
+
+        services.AddScoped<DeliveryReportPoller>();
+        services.AddHostedService<DeliveryReportPollWorker>();
 
         return services;
     }

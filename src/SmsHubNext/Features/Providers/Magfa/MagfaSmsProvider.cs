@@ -21,6 +21,7 @@ namespace SmsHubNext.Features.Providers.Magfa;
 public sealed class MagfaSmsProvider : ISmsProvider
 {
     private const string SendPath = "/api/http/sms/v2/send";
+    private const string StatusesPath = "/api/http/sms/v2/statuses/";
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<MagfaSmsProvider> _logger;
@@ -79,6 +80,63 @@ public sealed class MagfaSmsProvider : ISmsProvider
             return Transient("magfa.empty_body", "Magfa returned an empty response body.");
 
         return Map(body, request);
+    }
+
+    public async Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
+        IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken)
+    {
+        if (providerMessageIds.Count == 0)
+            return Result.Success<IReadOnlyList<ProviderDeliveryReport>>([]);
+
+        // GET /statuses/{mid1,mid2,...} — up to 100 ids (the poller batches to that limit).
+        string path = StatusesPath + string.Join(',', providerMessageIds);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient.GetAsync(path, cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            return Error.Provider("magfa.transport", $"HTTP transport error: {ex.Message}");
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Error.Provider("magfa.timeout", $"Request timed out: {ex.Message}");
+        }
+
+        if (!response.IsSuccessStatusCode)
+            return Error.Provider("magfa.http_status", $"Magfa returned HTTP {(int)response.StatusCode}.");
+
+        MagfaStatusesResponse? body;
+        try
+        {
+            body = await response.Content.ReadFromJsonAsync<MagfaStatusesResponse>(cancellationToken);
+        }
+        catch (JsonException ex)
+        {
+            return Error.Provider("magfa.bad_json", $"Could not parse Magfa statuses response: {ex.Message}");
+        }
+
+        if (body is null)
+            return Error.Provider("magfa.empty_body", "Magfa returned an empty statuses body.");
+
+        if (body.Status != MagfaStatusCodes.Success)
+        {
+            _logger.LogError("Magfa /statuses returned request-level status {Status}.", body.Status);
+            return Error.Provider("magfa.statuses_request_status", $"Magfa request-level status {body.Status}.");
+        }
+
+        List<ProviderDeliveryReport> reports = new(body.Dlrs.Count);
+        foreach (MagfaDlr dlr in body.Dlrs)
+        {
+            reports.Add(new ProviderDeliveryReport(
+                dlr.Mid.ToString(),
+                MagfaDeliveryStatusCodes.Classify(dlr.Status),
+                dlr.Status));
+        }
+
+        return Result.Success<IReadOnlyList<ProviderDeliveryReport>>(reports);
     }
 
     private Result<ProviderDispatchResult> Map(MagfaSendResponse body, ProviderSendRequest request)

@@ -41,11 +41,21 @@ internal static class DispatchSql
         """;
 
     // Guarded transitions (WHERE Status = 1) make every update idempotent under retry/restart.
+    // On the same transition, enqueue the message for delivery-report polling (Phase 2). The
+    // enqueue is guarded (message now Submitted with this provider id, and not already queued),
+    // so a retried submit never double-enqueues. DispatchedAtUtc/@Now anchors the status window.
     public const string MarkSubmitted =
         """
         UPDATE dbo.Message
         SET Status = 2, ProviderMessageId = @ProviderMessageId   -- Submitted
         WHERE Id = @Id AND Status = 1;
+
+        INSERT INTO dbo.DeliveryReportPoll
+            (MessageId, SubmitDateJalali, ProviderId, ProviderMessageId, DispatchedAtUtc, NextPollAtUtc, Attempts)
+        SELECT m.Id, m.SubmitDateJalali, m.ProviderId, m.ProviderMessageId, @Now, @Now, 0
+        FROM dbo.Message m
+        WHERE m.Id = @Id AND m.Status = 2 AND m.ProviderMessageId = @ProviderMessageId
+          AND NOT EXISTS (SELECT 1 FROM dbo.DeliveryReportPoll p WHERE p.MessageId = m.Id);
         """;
 
     public const string MarkRejected =

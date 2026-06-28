@@ -95,7 +95,7 @@ public sealed class MessageDispatcher
                 case ProviderDispatchStatus.Accepted:
                     await connection.ExecuteAsync(new CommandDefinition(
                         DispatchSql.MarkSubmitted,
-                        new { message.Id, outcome.ProviderMessageId },
+                        new { message.Id, outcome.ProviderMessageId, Now = now },
                         cancellationToken: cancellationToken));
                     break;
 
