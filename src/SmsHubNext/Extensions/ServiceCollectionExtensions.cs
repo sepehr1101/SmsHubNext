@@ -3,6 +3,8 @@ using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Batches;
 using SmsHubNext.Features.Billing;
 using SmsHubNext.Features.DeliveryReports;
+using SmsHubNext.Features.Dispatch;
+using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Features.Tariffs;
@@ -34,10 +36,32 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(new Db(connectionString));
 
         services.AddFeatureHandlers();
+        services.AddBackgroundDispatch(configuration);
 
         // Health checks: a database readiness probe (more added as dependencies arrive).
         services.AddHealthChecks()
             .AddCheck<SqlServerHealthCheck>("sql-server");
+
+        return services;
+    }
+
+    // Background dispatch: the SMS provider seam, the dispatch logic, and the hosting worker
+    // (ARCHITECTURE.md §9). TimeProvider is injected so dispatch timing is testable.
+    private static IServiceCollection AddBackgroundDispatch(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddSingleton(TimeProvider.System);
+
+        // The one real seam — a loopback stand-in until the Magfa client lands (Phase 1).
+        services.AddSingleton<ISmsProvider, LoopbackSmsProvider>();
+
+        var dispatchOptions = configuration.GetSection(DispatchOptions.SectionName).Get<DispatchOptions>()
+            ?? new DispatchOptions();
+        services.AddSingleton(dispatchOptions);
+
+        services.AddScoped<MessageDispatcher>();
+        services.AddHostedService<DispatchWorker>();
 
         return services;
     }
