@@ -1,4 +1,5 @@
 using SmsHubNext.Features.ApiKeys;
+using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Batches;
 using SmsHubNext.Features.Billing;
 using SmsHubNext.Features.DeliveryReports;
@@ -44,6 +45,11 @@ public static class ServiceCollectionExtensions
     // Feature handlers — plain classes, resolved per request.
     private static IServiceCollection AddFeatureHandlers(this IServiceCollection services)
     {
+        // API-key authentication — resolver service only. The enforcing middleware
+        // (ApiKeyAuthenticationMiddleware) is intentionally NOT added to the pipeline yet;
+        // the APIs stay open for testing. See ADR-015.
+        services.AddScoped<ApiKeyAuthenticator>();
+
         services.AddScoped<SendMessagesHandler>();
 
         services.AddScoped<GetBatchHandler>();

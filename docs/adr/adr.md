@@ -385,6 +385,35 @@ Not expected. If the app ever needs environment-specific composition, add focuse
 
 ---
 
+# ADR-015
+## API-key authentication: implemented, not yet enforced
+
+### Decision
+
+API-key authentication is fully implemented (`Features/Authentication/`) but deliberately **left out of the request pipeline**. Every endpoint stays anonymous for now.
+
+- `ApiKeyAuthenticator` (a plain service, registered in DI) is the whole of auth: it hashes the `X-Api-Key` header (SHA-256, `ApiKeyHasher`), seeks the active/non-revoked/non-expired `ApiKey` by hash, and enforces the optional per-key CIDR allow-list against the caller IP.
+- `ApiKeyAuthenticationMiddleware` enforces it (401 on failure, stashes `ApiKeyIdentity` on `HttpContext.Items`) — but is **not** added to the pipeline.
+- `GET /auth/whoami` exercises the resolver directly so a key can be tested without enforcing auth anywhere.
+
+### Why
+
+The caller asked to build auth ahead of activation so the APIs remain convenient to test (no key required on every call). Building the resolver, the enforcement middleware, and the identity accessor now means activation is a one-line change later, with the design already reviewed.
+
+Keeping it a plain middleware + service (not an ASP.NET `AuthenticationHandler`/`[Authorize]` scheme) matches the house style (ARCHITECTURE.md §3: controllers + plain services, no framework ceremony).
+
+### How to activate
+
+1. Add `app.UseApiKeyAuthentication();` in `ApplicationBuilderExtensions.ConfigurePipeline`, just before `MapControllers`.
+2. Replace the interim explicit `CustomerId`/`ApiKeyId` on `SendMessagesRequest` (and any other attributed call) with `HttpContext.GetApiKeyIdentity()`.
+3. Decide which endpoints are public (e.g. health, reference data) vs. keyed.
+
+### Revisit
+
+When the project is ready to enforce tenancy at the edge (roadmap Phase 5). If per-endpoint policies or scopes become necessary, reconsider an ASP.NET authentication scheme then — not before.
+
+---
+
 # Future Reconsideration
 
 These decisions are intentionally conservative.

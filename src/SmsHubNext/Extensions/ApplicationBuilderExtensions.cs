@@ -39,8 +39,14 @@ public static class ApplicationBuilderExtensions
                 tariffs = "/tariffs",
                 quote = "/tariffs/quote",
                 balances = "/balances?customerId=1",
+                whoami = "/auth/whoami",
             },
         });
+
+        // API-key enforcement is implemented but intentionally inactive (ADR-015): the
+        // APIs stay open for testing. To turn it on for every endpoint downstream, add
+        //     app.UseApiKeyAuthentication();
+        // here, just before MapControllers. The resolver is testable now via /auth/whoami.
 
         app.MapControllers();
         app.MapHealthChecks("/health");
