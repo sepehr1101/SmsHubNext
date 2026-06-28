@@ -9,7 +9,10 @@ namespace SmsHubNext.Features.Dispatch;
 
 /// <summary>
 /// One unit of dispatch work: claim the next batch, submit its still-<c>Queued</c> messages
-/// through the <see cref="ISmsProvider"/>, persist each transition, and finalize the batch.
+/// through the <see cref="ISmsProvider"/> in chunks of <see cref="ISmsProvider.MaxBatchSize"/>
+/// (one HTTP request per chunk), persist each message's transition individually, and finalize the
+/// batch. Batching is a transport optimization only — each message keeps its own outcome,
+/// <c>ProviderMessageId</c>, refund, retry, and idempotency exactly as a one-by-one dispatch would.
 /// All the reliability lives here in SQL (ARCHITECTURE.md §9) — the worker is just a host:
 /// claims are atomic, transitions are guarded (idempotent), and a restart resumes from the DB.
 ///
@@ -71,45 +74,83 @@ public sealed class MessageDispatcher
 
         _logger.LogDebug("Dispatching batch {BatchId}: {Count} queued message(s)", batch.Id, messages.Count);
 
+        // Hand the queued messages to the provider in chunks of at most MaxBatchSize — one HTTP
+        // request per chunk — but apply each message's outcome individually, exactly as a one-by-one
+        // dispatch would. Batching is a transport optimization only; the per-message state machine
+        // (Submitted / Rejected+refund / retried / held) is unchanged.
         bool held = false;
-        foreach (QueuedMessage message in messages)
+        bool requeue = false;
+
+        foreach (QueuedMessage[] chunk in messages.Chunk(Math.Max(1, _provider.MaxBatchSize)))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            Result<ProviderDispatchResult> send = await SafeSendAsync(senderLine, message, cancellationToken);
+            List<ProviderSendRequest> requests = chunk
+                .Select(m => new ProviderSendRequest(m.Id, senderLine, m.MobileNumber, m.Body))
+                .ToList();
 
-            if (send.IsFailure)
+            Result<IReadOnlyList<Result<ProviderDispatchResult>>> batchResult =
+                await SafeSendBatchAsync(requests, cancellationToken);
+
+            if (batchResult.IsFailure)
             {
-                // Transient/transport error: re-queue the batch and stop; a later cycle retries.
+                // Whole-chunk transport error: re-queue the batch and stop; a later cycle retries.
+                // Messages already Submitted in earlier chunks stay Submitted (not reloaded).
                 _logger.LogWarning("Transient dispatch failure on batch {BatchId}: {Error}. Re-queuing.",
-                    batch.Id, send.Error!.Message);
+                    batch.Id, batchResult.Error!.Message);
                 await connection.ExecuteAsync(new CommandDefinition(
                     DispatchSql.RevertBatchToReceived, new { batch.Id, Now = now },
                     cancellationToken: cancellationToken));
                 return true;
             }
 
-            ProviderDispatchResult outcome = send.Value;
-            switch (outcome.Status)
+            IReadOnlyList<Result<ProviderDispatchResult>> outcomes = batchResult.Value;
+            if (outcomes.Count != chunk.Length)
             {
-                case ProviderDispatchStatus.Accepted:
-                    await connection.ExecuteAsync(new CommandDefinition(
-                        DispatchSql.MarkSubmitted,
-                        new { message.Id, outcome.ProviderMessageId, Now = now },
-                        cancellationToken: cancellationToken));
-                    break;
+                // A provider must return one result per request; anything else is a contract breach.
+                // Treat it as transient and re-queue rather than guess at the alignment.
+                _logger.LogError("Provider returned {Got} result(s) for {Sent} message(s) on batch {BatchId}; re-queuing.",
+                    outcomes.Count, chunk.Length, batch.Id);
+                await connection.ExecuteAsync(new CommandDefinition(
+                    DispatchSql.RevertBatchToReceived, new { batch.Id, Now = now },
+                    cancellationToken: cancellationToken));
+                return true;
+            }
 
-                case ProviderDispatchStatus.Rejected:
-                    await RejectAndRefundAsync(connection, batch, message, outcome, now, cancellationToken);
-                    break;
+            for (int i = 0; i < chunk.Length; i++)
+            {
+                QueuedMessage message = chunk[i];
+                Result<ProviderDispatchResult> send = outcomes[i];
 
-                case ProviderDispatchStatus.InsufficientCredit:
-                    held = true;
-                    break;
+                if (send.IsFailure)
+                {
+                    // Per-message transient: leave this one Queued so a later cycle retries just it.
+                    requeue = true;
+                    continue;
+                }
+
+                ProviderDispatchResult outcome = send.Value;
+                switch (outcome.Status)
+                {
+                    case ProviderDispatchStatus.Accepted:
+                        await connection.ExecuteAsync(new CommandDefinition(
+                            DispatchSql.MarkSubmitted,
+                            new { message.Id, outcome.ProviderMessageId, Now = now },
+                            cancellationToken: cancellationToken));
+                        break;
+
+                    case ProviderDispatchStatus.Rejected:
+                        await RejectAndRefundAsync(connection, batch, message, outcome, now, cancellationToken);
+                        break;
+
+                    case ProviderDispatchStatus.InsufficientCredit:
+                        held = true; // leave this message Queued; stop after applying the rest of the chunk
+                        break;
+                }
             }
 
             if (held)
-                break;
+                break; // provider credit exhausted: don't send further chunks
         }
 
         if (held)
@@ -122,22 +163,30 @@ public sealed class MessageDispatcher
             return true;
         }
 
+        if (requeue)
+        {
+            // Some messages hit a per-message transient and stay Queued: re-queue so they are retried.
+            await connection.ExecuteAsync(new CommandDefinition(
+                DispatchSql.RevertBatchToReceived, new { batch.Id, Now = now },
+                cancellationToken: cancellationToken));
+            return true;
+        }
+
         await FinalizeAsync(connection, batch.Id, now, cancellationToken);
         return true;
     }
 
-    private async Task<Result<ProviderDispatchResult>> SafeSendAsync(
-        string senderLine, QueuedMessage message, CancellationToken cancellationToken)
+    private async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SafeSendBatchAsync(
+        IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
     {
         try
         {
-            return await _provider.SendAsync(
-                new ProviderSendRequest(message.Id, senderLine, message.MobileNumber, message.Body), cancellationToken);
+            return await _provider.SendBatchAsync(requests, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // A provider should not throw for expected failures; treat anything that escapes as transient.
-            _logger.LogError(ex, "Provider threw dispatching message {MessageId}", message.Id);
+            _logger.LogError(ex, "Provider threw dispatching {Count} message(s)", requests.Count);
             return Error.Provider("dispatch.provider_threw", ex.Message);
         }
     }

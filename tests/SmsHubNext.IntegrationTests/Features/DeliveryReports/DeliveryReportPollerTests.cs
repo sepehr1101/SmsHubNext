@@ -198,9 +198,15 @@ public sealed class DeliveryReportPollerTests : IAsyncLifetime
 
         public string Name => "stub";
 
-        public Task<Result<ProviderDispatchResult>> SendAsync(
-            ProviderSendRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult(Result.Success(_send()));
+        public int MaxBatchSize => 1000;
+
+        public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
+            IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
+        {
+            IReadOnlyList<Result<ProviderDispatchResult>> results =
+                requests.Select(_ => Result.Success(_send())).ToList();
+            return Task.FromResult(Result.Success(results));
+        }
 
         public Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
             IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken) =>

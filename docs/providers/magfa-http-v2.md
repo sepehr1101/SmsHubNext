@@ -28,6 +28,11 @@
 
 ## 2. Base URL & endpoints
 
+> **Batch send is implemented:** the dispatcher hands the provider up to `Providers:Magfa:BatchSize`
+> (≤100) queued messages per `POST /send` — one HTTP request per chunk — and applies each
+> message's result individually (its own `ProviderMessageId`, refund, retry, hold). Batching changes
+> the transport only, never the per-message state machine.
+
 Base: `https://sms.magfa.com/api/http/sms/v2`
 
 | Method | HTTP | Path | Purpose |
@@ -79,8 +84,9 @@ unlisted IPs are rejected with status `29`.
 ## 5. `send`
 
 `POST /send` — JSON (or form). Parameters are **parallel arrays**, indexed by recipient.
-We send **one message per call** (single-element arrays), so the response `messages` array
-has exactly one element.
+We send **up to `BatchSize` (≤100) messages per call**; the response `messages` array has one
+entry per recipient, which we correlate back to each message by the `uids`/`userId` echo (falling
+back to position only when Magfa doesn't echo uids).
 
 ### Request (JSON)
 
@@ -274,8 +280,9 @@ Documented here for completeness; inbound handling is a later roadmap phase (the
 
 Send-only walking skeleton. The dispatcher already submits **one message per call**, so:
 
-* **`POST /send`** with single-element `senders`/`recipients`/`messages` (+ `uids` for
-  idempotency), parse the single `messages[0]` element, map to `ProviderDispatchResult`.
+* **`POST /send`** in chunks of `BatchSize` (≤100): parallel `senders`/`recipients`/`messages`
+  arrays (+ `uids` = `Message.Id` for correlation/idempotency), then map each `messages[]` entry to
+  its `ProviderDispatchResult`.
 * **`GET /balance`** — handy for an ops/health surface (optional this phase).
 * **`GET /mid/{uid}`** — only needed once we add timeout-safe resend; we pass `uids` now so it's
   available later.

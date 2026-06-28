@@ -6,17 +6,19 @@ namespace SmsHubNext.Features.Providers.Magfa;
 
 /// <summary>
 /// The Magfa HTTP v2 implementation of <see cref="ISmsProvider"/> (API reference under
-/// <c>docs/providers/magfa-http-v2.md</c>). Submits one message per call to <c>POST /send</c>
-/// and maps the single per-recipient result onto a <see cref="ProviderDispatchResult"/>.
+/// <c>docs/providers/magfa-http-v2.md</c>). Submits up to <see cref="MaxBatchSize"/> messages per
+/// <c>POST /send</c> as parallel arrays and maps each per-recipient result back to its request,
+/// and queries <c>GET /statuses</c> for delivery reports.
 ///
-/// Lane discipline (ARCHITECTURE.md §6): a <b>failed <see cref="Result"/></b> means a
-/// transport/transient condition and the dispatcher re-queues the batch; a <b>successful
-/// Result</b> carries the provider's domain outcome (accepted / rejected / out-of-credit).
-/// This method never throws for an expected failure.
+/// Lane discipline (ARCHITECTURE.md §6): a failed <b>outer</b> <see cref="Result"/> is a
+/// transport/transient condition for the whole request (the dispatcher re-queues the chunk); a
+/// successful outer result carries one <b>inner</b> result per message — a failed inner result is
+/// that message's transient failure, a successful inner result its domain outcome. This method
+/// never throws for an expected failure.
 ///
 /// The typed <see cref="HttpClient"/> is configured at registration with the base address,
-/// Basic-auth header, and timeout (see <c>ServiceCollectionExtensions</c>); a timeout surfaces
-/// here as a <see cref="TaskCanceledException"/> and is reported as transient.
+/// Basic-auth header, and timeout; a timeout surfaces here as a <see cref="TaskCanceledException"/>
+/// and is reported as transient.
 /// </summary>
 public sealed class MagfaSmsProvider : ISmsProvider
 {
@@ -24,47 +26,54 @@ public sealed class MagfaSmsProvider : ISmsProvider
     private const string StatusesPath = "/api/http/sms/v2/statuses/";
 
     private readonly HttpClient _httpClient;
+    private readonly MagfaOptions _options;
     private readonly ILogger<MagfaSmsProvider> _logger;
 
-    public MagfaSmsProvider(HttpClient httpClient, ILogger<MagfaSmsProvider> logger)
+    public MagfaSmsProvider(HttpClient httpClient, MagfaOptions options, ILogger<MagfaSmsProvider> logger)
     {
         _httpClient = httpClient;
+        _options = options;
         _logger = logger;
     }
 
     public string Name => "magfa";
 
-    public async Task<Result<ProviderDispatchResult>> SendAsync(
-        ProviderSendRequest request, CancellationToken cancellationToken)
+    public int MaxBatchSize => _options.BatchSize;
+
+    public async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
+        IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
     {
+        if (requests.Count == 0)
+            return Result.Success<IReadOnlyList<Result<ProviderDispatchResult>>>([]);
+
         HttpResponseMessage response;
         try
         {
-            // Single-message dispatch: parallel single-element arrays. uids carries our message id
-            // so a later /mid lookup can recover from a send that timed out (reference §6). The
-            // payload is passed inline so System.Text.Json serializes the anonymous type directly.
+            // Parallel arrays, one element per message. uids carries each message id so the response
+            // can be correlated back per message (reference §5/§6); senders repeats per recipient to
+            // satisfy Magfa's equal-length rule even if a future batch mixes lines.
             response = await _httpClient.PostAsJsonAsync(
                 SendPath,
                 new
                 {
-                    senders = new[] { request.SenderLine },
-                    recipients = new[] { request.MobileNumber },
-                    messages = new[] { request.Body },
-                    uids = new[] { request.MessageId },
+                    senders = requests.Select(r => r.SenderLine).ToArray(),
+                    recipients = requests.Select(r => r.MobileNumber).ToArray(),
+                    messages = requests.Select(r => r.Body).ToArray(),
+                    uids = requests.Select(r => r.MessageId).ToArray(),
                 },
                 cancellationToken);
         }
         catch (HttpRequestException ex)
         {
-            return Transient("magfa.transport", $"HTTP transport error: {ex.Message}");
+            return Error.Provider("magfa.transport", $"HTTP transport error: {ex.Message}");
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            return Transient("magfa.timeout", $"Request timed out: {ex.Message}");
+            return Error.Provider("magfa.timeout", $"Request timed out: {ex.Message}");
         }
 
         if (!response.IsSuccessStatusCode)
-            return Transient("magfa.http_status", $"Magfa returned HTTP {(int)response.StatusCode}.");
+            return Error.Provider("magfa.http_status", $"Magfa returned HTTP {(int)response.StatusCode}.");
 
         MagfaSendResponse? body;
         try
@@ -73,13 +82,102 @@ public sealed class MagfaSmsProvider : ISmsProvider
         }
         catch (JsonException ex)
         {
-            return Transient("magfa.bad_json", $"Could not parse Magfa response: {ex.Message}");
+            return Error.Provider("magfa.bad_json", $"Could not parse Magfa response: {ex.Message}");
         }
 
         if (body is null)
-            return Transient("magfa.empty_body", "Magfa returned an empty response body.");
+            return Error.Provider("magfa.empty_body", "Magfa returned an empty response body.");
 
-        return Map(body, request);
+        return MapBatch(body, requests);
+    }
+
+    private Result<IReadOnlyList<Result<ProviderDispatchResult>>> MapBatch(
+        MagfaSendResponse body, IReadOnlyList<ProviderSendRequest> requests)
+    {
+        // A non-zero request-level status applies to the whole chunk, before any per-message result.
+        if (body.Status != MagfaStatusCodes.Success)
+        {
+            if (MagfaStatusCodes.Classify(body.Status) == MagfaDisposition.InsufficientCredit)
+            {
+                // The whole request was blocked on credit: every message is out-of-credit, so the
+                // dispatcher holds the batch and leaves them queued.
+                List<Result<ProviderDispatchResult>> credit = requests
+                    .Select(_ => Result.Success(ProviderDispatchResult.InsufficientCredit(body.Status)))
+                    .ToList();
+                return Result.Success<IReadOnlyList<Result<ProviderDispatchResult>>>(credit);
+            }
+
+            // Auth/IP/protocol faults and "server busy" are not per-message outcomes: re-queue the
+            // whole chunk and surface loudly so a misconfiguration is fixed rather than charged.
+            _logger.LogError(
+                "Magfa rejected the send request ({Count} message(s)) with request-level status {Status}.",
+                requests.Count, body.Status);
+            return Error.Provider("magfa.request_status", $"Magfa request-level status {body.Status}.");
+        }
+
+        // Correlate each per-message result back to its request by the uid we sent (Message.Id), so a
+        // reordered response still maps correctly. When Magfa does not echo uids but returned exactly
+        // one result per message, fall back to position; otherwise an unmatched message is retried.
+        Dictionary<long, MagfaSentMessage> byUid = new Dictionary<long, MagfaSentMessage>(body.Messages.Count);
+        foreach (MagfaSentMessage sent in body.Messages)
+        {
+            if (sent.UserId is long uid)
+                byUid[uid] = sent;
+        }
+
+        bool positionalFallback = body.Messages.Count == requests.Count;
+
+        List<Result<ProviderDispatchResult>> results = new List<Result<ProviderDispatchResult>>(requests.Count);
+        for (int i = 0; i < requests.Count; i++)
+        {
+            ProviderSendRequest request = requests[i];
+
+            MagfaSentMessage? sent = byUid.TryGetValue(request.MessageId, out MagfaSentMessage? matched)
+                ? matched
+                : positionalFallback ? body.Messages[i] : null;
+
+            if (sent is null)
+            {
+                _logger.LogWarning("Magfa returned no result for message {MessageId}; will retry.", request.MessageId);
+                results.Add(Error.Provider("magfa.missing_result", "Magfa returned no result for this message."));
+            }
+            else
+            {
+                results.Add(MapMessage(sent, request));
+            }
+        }
+
+        return Result.Success<IReadOnlyList<Result<ProviderDispatchResult>>>(results);
+    }
+
+    /// <summary>Maps one per-recipient result to a domain outcome (success) or a per-message transient
+    /// failure (failed result). Mirrors the single-message policy in the API reference §8.</summary>
+    private Result<ProviderDispatchResult> MapMessage(MagfaSentMessage message, ProviderSendRequest request)
+    {
+        switch (MagfaStatusCodes.Classify(message.Status))
+        {
+            case MagfaDisposition.Accepted:
+                if (message.Id is null)
+                    return Error.Provider("magfa.missing_id", "Magfa accepted the message but returned no id.");
+                return ProviderDispatchResult.Accepted(message.Id.Value.ToString(), message.Status);
+
+            case MagfaDisposition.InsufficientCredit:
+                return ProviderDispatchResult.InsufficientCredit(message.Status);
+
+            case MagfaDisposition.Rejected:
+                return ProviderDispatchResult.Rejected(message.Status, $"Magfa status {message.Status}.");
+
+            case MagfaDisposition.Transient:
+                return Error.Provider("magfa.message_status", $"Magfa message status {message.Status}.");
+
+            // A per-message configuration fault (e.g. invalid sender/encoding) will never succeed on
+            // retry, so it is treated as a rejection (unsendable ⇒ refund), logged as a likely config issue.
+            default:
+                _logger.LogWarning(
+                    "Magfa refused message {MessageId} with status {Status} (likely a configuration issue); rejecting.",
+                    request.MessageId, message.Status);
+                return ProviderDispatchResult.Rejected(message.Status, $"Magfa status {message.Status} (configuration).");
+        }
     }
 
     public async Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
@@ -138,57 +236,4 @@ public sealed class MagfaSmsProvider : ISmsProvider
 
         return Result.Success<IReadOnlyList<ProviderDeliveryReport>>(reports);
     }
-
-    private Result<ProviderDispatchResult> Map(MagfaSendResponse body, ProviderSendRequest request)
-    {
-        // A non-zero request-level status applies to the whole call, before any per-message result.
-        if (body.Status != MagfaStatusCodes.Success)
-        {
-            MagfaDisposition top = MagfaStatusCodes.Classify(body.Status);
-            if (top == MagfaDisposition.InsufficientCredit)
-                return ProviderDispatchResult.InsufficientCredit(body.Status);
-
-            // Auth/IP/protocol faults and "server busy" are not per-message outcomes: re-queue and
-            // surface loudly so a misconfiguration is fixed rather than charged/refunded per message.
-            _logger.LogError(
-                "Magfa rejected the request for message {MessageId} with request-level status {Status}.",
-                request.MessageId, body.Status);
-            return Transient("magfa.request_status", $"Magfa request-level status {body.Status}.");
-        }
-
-        if (body.Messages.Count == 0)
-            return Transient("magfa.no_message_result", "Magfa accepted the request but returned no message result.");
-
-        MagfaSentMessage message = body.Messages[0];
-        MagfaDisposition disposition = MagfaStatusCodes.Classify(message.Status);
-
-        switch (disposition)
-        {
-            case MagfaDisposition.Accepted:
-                if (message.Id is null)
-                    return Transient("magfa.missing_id", "Magfa accepted the message but returned no id.");
-                return ProviderDispatchResult.Accepted(message.Id.Value.ToString(), message.Status);
-
-            case MagfaDisposition.InsufficientCredit:
-                return ProviderDispatchResult.InsufficientCredit(message.Status);
-
-            case MagfaDisposition.Rejected:
-                return ProviderDispatchResult.Rejected(message.Status, $"Magfa status {message.Status}.");
-
-            case MagfaDisposition.Transient:
-                return Transient("magfa.message_status", $"Magfa message status {message.Status}.");
-
-            // A per-message configuration fault (e.g. invalid sender/encoding) will never succeed on
-            // retry, so it is treated as a rejection (the message is unsendable ⇒ refund), logged as a
-            // likely configuration issue rather than a recipient problem.
-            default:
-                _logger.LogWarning(
-                    "Magfa refused message {MessageId} with status {Status} (likely a configuration issue); rejecting.",
-                    request.MessageId, message.Status);
-                return ProviderDispatchResult.Rejected(message.Status, $"Magfa status {message.Status} (configuration).");
-        }
-    }
-
-    private static Result<ProviderDispatchResult> Transient(string code, string detail) =>
-        Error.Provider(code, detail);
 }

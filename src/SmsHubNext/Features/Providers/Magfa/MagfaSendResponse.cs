@@ -28,8 +28,10 @@ public sealed class MagfaSentMessage
     [JsonPropertyName("id")]
     public long? Id { get; init; }
 
-    /// <summary>Echo of the <c>uid</c> we supplied, if any.</summary>
+    /// <summary>Echo of the <c>uid</c> we supplied (our <c>Message.Id</c>), if any. Magfa returns it as
+    /// a number or a string across entries, so reading from a string is allowed.</summary>
     [JsonPropertyName("userId")]
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public long? UserId { get; init; }
 
     [JsonPropertyName("parts")]

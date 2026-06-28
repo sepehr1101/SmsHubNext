@@ -206,6 +206,77 @@ public sealed class MagfaSmsProviderTests : IDisposable
         Assert.EndsWith("/api/http/sms/v2/statuses/111,222", entry.RequestMessage.Path);
     }
 
+    [Fact]
+    public async Task Batch_send_issues_one_request_carrying_every_message()
+    {
+        StubSend(200, """
+            { "status": 0, "messages": [
+                { "status": 0, "id": 1, "userId": 111, "recipient": "989120000001" },
+                { "status": 0, "id": 2, "userId": 112, "recipient": "989120000002" }
+            ] }
+            """);
+
+        await NewProvider().SendBatchAsync(
+            [
+                new ProviderSendRequest(111, "30001234", "989120000001", "A"),
+                new ProviderSendRequest(112, "30001234", "989120000002", "B"),
+            ],
+            CancellationToken.None);
+
+        WireMock.Logging.ILogEntry entry = Assert.Single(_magfa.LogEntries); // exactly one HTTP call for both
+        string body = entry.RequestMessage.Body!;
+        Assert.Contains("989120000001", body);
+        Assert.Contains("989120000002", body);
+    }
+
+    [Fact]
+    public async Task Batch_send_correlates_each_result_to_its_message_by_uid()
+    {
+        // Two messages; Magfa returns them out of order — one accepted, one blacklisted (27).
+        StubSend(200, """
+            { "status": 0, "messages": [
+                { "status": 27, "userId": 222, "recipient": "989120000002" },
+                { "status": 0, "id": 555, "userId": 111, "recipient": "989120000001" }
+            ] }
+            """);
+
+        Result<IReadOnlyList<Result<ProviderDispatchResult>>> batch = await NewProvider().SendBatchAsync(
+            [
+                new ProviderSendRequest(111, "30001234", "989120000001", "A"),
+                new ProviderSendRequest(222, "30001234", "989120000002", "B"),
+            ],
+            CancellationToken.None);
+
+        Assert.True(batch.IsSuccess, batch.Error?.Message);
+        Assert.Equal(2, batch.Value.Count);
+
+        // Aligned to input order by uid, not by the response's order.
+        Assert.Equal(ProviderDispatchStatus.Accepted, batch.Value[0].Value.Status);
+        Assert.Equal("555", batch.Value[0].Value.ProviderMessageId);
+        Assert.Equal(ProviderDispatchStatus.Rejected, batch.Value[1].Value.Status);
+        Assert.Equal(27, batch.Value[1].Value.ProviderResultCode);
+    }
+
+    [Fact]
+    public async Task Batch_send_marks_a_message_absent_from_the_response_as_transient()
+    {
+        // The response omits uid 222 entirely; that message must stay retryable (inner failure).
+        StubSend(200, """
+            { "status": 0, "messages": [ { "status": 0, "id": 1, "userId": 111, "recipient": "989120000001" } ] }
+            """);
+
+        Result<IReadOnlyList<Result<ProviderDispatchResult>>> batch = await NewProvider().SendBatchAsync(
+            [
+                new ProviderSendRequest(111, "30001234", "989120000001", "A"),
+                new ProviderSendRequest(222, "30001234", "989120000002", "B"),
+            ],
+            CancellationToken.None);
+
+        Assert.True(batch.IsSuccess, batch.Error?.Message);
+        Assert.True(batch.Value[0].IsSuccess);  // 111 accepted
+        Assert.True(batch.Value[1].IsFailure);  // 222 missing -> transient, retried next cycle
+    }
+
     private void StubStatuses(int statusCode, string body) =>
         _magfa
             .Given(Request.Create().WithPath(p => p.StartsWith("/api/http/sms/v2/statuses/")).UsingGet())
@@ -222,17 +293,25 @@ public sealed class MagfaSmsProviderTests : IDisposable
                 .WithHeader("Content-Type", "application/json")
                 .WithBody(body));
 
-    private Task<Result<ProviderDispatchResult>> Send(
-        long messageId = 1, string recipient = "989120000000") =>
-        NewProvider().SendAsync(
-            new ProviderSendRequest(messageId, "30001234", recipient, "Hello"),
+    // Collapse a single-message batch back to one result: an outer transport failure or the single
+    // inner per-message result — so the per-message assertions read the same as a one-by-one send.
+    private async Task<Result<ProviderDispatchResult>> Send(
+        long messageId = 1, string recipient = "989120000000")
+    {
+        Result<IReadOnlyList<Result<ProviderDispatchResult>>> batch = await NewProvider().SendBatchAsync(
+            [new ProviderSendRequest(messageId, "30001234", recipient, "Hello")],
             CancellationToken.None);
+
+        if (batch.IsFailure)
+            return batch.Error!;
+        return batch.Value[0];
+    }
 
     private MagfaSmsProvider NewProvider()
     {
         HttpClient httpClient = new() { BaseAddress = new Uri(_magfa.Urls[0]) };
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", ExpectedBasicToken);
-        return new MagfaSmsProvider(httpClient, NullLogger<MagfaSmsProvider>.Instance);
+        return new MagfaSmsProvider(httpClient, new MagfaOptions { BatchSize = 100 }, NullLogger<MagfaSmsProvider>.Instance);
     }
 
     private static string ExpectedBasicToken =>

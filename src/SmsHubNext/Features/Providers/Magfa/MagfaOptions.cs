@@ -31,6 +31,12 @@ public sealed class MagfaOptions
     /// <summary>Per-request HTTP timeout. A timeout surfaces as a transient dispatch failure.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Maximum messages per <c>/send</c> request. Magfa hard-caps this at 100 (reference §1); the
+    /// dispatcher chunks a batch by this value, so one HTTP request carries up to this many messages.
+    /// </summary>
+    public int BatchSize { get; init; } = 100;
+
     /// <summary>The Basic-auth user field: <c>USERNAME/DOMAIN</c> (see the API reference, §3).</summary>
     public string BasicAuthUser => $"{Username}/{Domain}";
 
@@ -51,5 +57,8 @@ public sealed class MagfaOptions
             throw new InvalidOperationException($"{SectionName}:Domain is required when Magfa is enabled.");
         if (string.IsNullOrWhiteSpace(Password))
             throw new InvalidOperationException($"{SectionName}:Password is required when Magfa is enabled.");
+        if (BatchSize is < 1 or > 100)
+            throw new InvalidOperationException(
+                $"{SectionName}:BatchSize must be between 1 and 100 (Magfa's per-request limit).");
     }
 }

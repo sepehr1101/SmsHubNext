@@ -174,9 +174,15 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
 
         public string Name => "stub";
 
-        public Task<Result<ProviderDispatchResult>> SendAsync(
-            ProviderSendRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult(_behavior(request));
+        public int MaxBatchSize => 1000;
+
+        // Apply the per-message behavior to each request, aligned to input order.
+        public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
+            IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
+        {
+            IReadOnlyList<Result<ProviderDispatchResult>> results = requests.Select(_behavior).ToList();
+            return Task.FromResult(Result.Success(results));
+        }
 
         public Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
             IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken) =>

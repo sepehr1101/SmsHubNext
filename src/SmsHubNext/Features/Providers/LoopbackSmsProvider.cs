@@ -13,13 +13,18 @@ public sealed class LoopbackSmsProvider : ISmsProvider
 {
     public string Name => "loopback";
 
-    public Task<Result<ProviderDispatchResult>> SendAsync(
-        ProviderSendRequest request,
+    // No real transport limit; large enough to send a whole queued batch in one (no-op) call.
+    public int MaxBatchSize => 1000;
+
+    public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
+        IReadOnlyList<ProviderSendRequest> requests,
         CancellationToken cancellationToken)
     {
-        // A unique, provider-shaped id so DLR matching has something to key on later.
-        string providerMessageId = Guid.NewGuid().ToString("N");
-        return Task.FromResult(Result.Success(ProviderDispatchResult.Accepted(providerMessageId)));
+        // Accept every message with a unique, provider-shaped id so DLR matching has a key later.
+        IReadOnlyList<Result<ProviderDispatchResult>> results = requests
+            .Select(_ => Result.Success(ProviderDispatchResult.Accepted(Guid.NewGuid().ToString("N"))))
+            .ToList();
+        return Task.FromResult(Result.Success(results));
     }
 
     public Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
