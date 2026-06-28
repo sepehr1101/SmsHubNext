@@ -1,0 +1,166 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
+using Microsoft.Extensions.Logging.Abstractions;
+using SmsHubNext.Features.Providers;
+using SmsHubNext.Features.Providers.Magfa;
+using SmsHubNext.Shared.Results;
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using WireMock.Server;
+using Xunit;
+
+namespace SmsHubNext.IntegrationTests.Features.Providers;
+
+/// <summary>
+/// Exercises <see cref="MagfaSmsProvider"/> against a stubbed Magfa <c>/send</c> endpoint
+/// (WireMock), asserting the status-code → <see cref="ProviderDispatchResult"/> mapping and the
+/// transport-error lane. No database needed; this is the provider seam in isolation.
+/// </summary>
+public sealed class MagfaSmsProviderTests : IDisposable
+{
+    private const string SendPath = "/api/http/sms/v2/send";
+
+    private readonly WireMockServer _magfa = WireMockServer.Start();
+
+    public void Dispose() => _magfa.Stop();
+
+    [Fact]
+    public async Task Accepted_message_returns_provider_message_id()
+    {
+        StubSend(200, """
+            { "status": 0, "messages": [ { "status": 0, "id": 111111111, "recipient": "989120000000" } ] }
+            """);
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.Accepted, result.Value.Status);
+        Assert.Equal("111111111", result.Value.ProviderMessageId);
+    }
+
+    [Fact]
+    public async Task Per_message_reject_is_a_rejection_with_the_code_and_no_id()
+    {
+        // 27 = recipient on operator blacklist (reference §8).
+        StubSend(200, """
+            { "status": 0, "messages": [ { "status": 27, "recipient": "989120000000" } ] }
+            """);
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.Rejected, result.Value.Status);
+        Assert.Equal(27, result.Value.ProviderResultCode);
+        Assert.Null(result.Value.ProviderMessageId);
+    }
+
+    [Fact]
+    public async Task Request_level_insufficient_credit_holds_the_batch()
+    {
+        // 14 = insufficient IRR credit, returned at the request level.
+        StubSend(200, """{ "status": 14, "messages": [] }""");
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.InsufficientCredit, result.Value.Status);
+    }
+
+    [Fact]
+    public async Task Per_message_insufficient_credit_holds_the_batch()
+    {
+        StubSend(200, """
+            { "status": 0, "messages": [ { "status": 14, "recipient": "989120000000" } ] }
+            """);
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.InsufficientCredit, result.Value.Status);
+    }
+
+    [Fact]
+    public async Task Per_message_transient_status_is_a_transport_failure()
+    {
+        // 23 = no capacity to process the request right now → retry (failed Result).
+        StubSend(200, """
+            { "status": 0, "messages": [ { "status": 23, "recipient": "989120000000" } ] }
+            """);
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Provider, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task Configuration_fault_is_rejected_so_the_batch_can_finalize()
+    {
+        // 2 = invalid sender number: a config fault that will never succeed on retry, so the
+        // message is rejected (and refunded) rather than looping forever.
+        StubSend(200, """
+            { "status": 0, "messages": [ { "status": 2, "recipient": "989120000000" } ] }
+            """);
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.Rejected, result.Value.Status);
+        Assert.Equal(2, result.Value.ProviderResultCode);
+    }
+
+    [Fact]
+    public async Task Http_5xx_is_a_transport_failure()
+    {
+        StubSend(500, "upstream boom");
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Provider, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task Request_carries_basic_auth_and_our_uid()
+    {
+        StubSend(200, """
+            { "status": 0, "messages": [ { "status": 0, "id": 42, "recipient": "989120000000" } ] }
+            """);
+
+        await Send(messageId: 9876, recipient: "989120000000");
+
+        WireMock.Logging.ILogEntry entry = Assert.Single(_magfa.LogEntries);
+        string authorization = Assert.Single(entry.RequestMessage.Headers!["Authorization"]);
+        Assert.Equal("Basic " + ExpectedBasicToken, authorization);
+
+        string body = entry.RequestMessage.Body!;
+        Assert.Contains("\"uids\"", body);
+        Assert.Contains("9876", body);
+        Assert.Contains("989120000000", body);
+    }
+
+    private void StubSend(int statusCode, string body) =>
+        _magfa
+            .Given(Request.Create().WithPath(SendPath).UsingPost())
+            .RespondWith(Response.Create()
+                .WithStatusCode((HttpStatusCode)statusCode)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody(body));
+
+    private Task<Result<ProviderDispatchResult>> Send(
+        long messageId = 1, string recipient = "989120000000") =>
+        NewProvider().SendAsync(
+            new ProviderSendRequest(messageId, "30001234", recipient, "Hello"),
+            CancellationToken.None);
+
+    private MagfaSmsProvider NewProvider()
+    {
+        HttpClient httpClient = new() { BaseAddress = new Uri(_magfa.Urls[0]) };
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", ExpectedBasicToken);
+        return new MagfaSmsProvider(httpClient, NullLogger<MagfaSmsProvider>.Instance);
+    }
+
+    private static string ExpectedBasicToken =>
+        Convert.ToBase64String(Encoding.UTF8.GetBytes("user/domain:secret"));
+}

@@ -132,7 +132,7 @@ public sealed class MessageDispatcher
         try
         {
             return await _provider.SendAsync(
-                new ProviderSendRequest(senderLine, message.MobileNumber, message.Body), cancellationToken);
+                new ProviderSendRequest(message.Id, senderLine, message.MobileNumber, message.Body), cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

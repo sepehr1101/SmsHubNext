@@ -2,9 +2,12 @@ using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Batches;
 using SmsHubNext.Features.Billing;
+using System.Net.Http.Headers;
+using System.Text;
 using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.Dispatch;
 using SmsHubNext.Features.Providers;
+using SmsHubNext.Features.Providers.Magfa;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Features.Tariffs;
@@ -53,8 +56,9 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton(TimeProvider.System);
 
-        // The one real seam — a loopback stand-in until the Magfa client lands (Phase 1).
-        services.AddSingleton<ISmsProvider, LoopbackSmsProvider>();
+        // The one real seam: the active provider. Magfa is used when configured and enabled;
+        // otherwise the loopback stand-in keeps dev/local runs and tests working credential-free.
+        AddSmsProvider(services, configuration);
 
         DispatchOptions dispatchOptions = configuration.GetSection(DispatchOptions.SectionName).Get<DispatchOptions>()
             ?? new DispatchOptions();
@@ -64,6 +68,33 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<DispatchWorker>();
 
         return services;
+    }
+
+    // Selects and registers the active ISmsProvider. Magfa is a typed HttpClient (base address,
+    // Basic auth, timeout configured here); when disabled/unconfigured the loopback impl stands in.
+    private static void AddSmsProvider(IServiceCollection services, IConfiguration configuration)
+    {
+        MagfaOptions magfaOptions = configuration.GetSection(MagfaOptions.SectionName).Get<MagfaOptions>()
+            ?? new MagfaOptions();
+        magfaOptions.Validate();
+        services.AddSingleton(magfaOptions);
+
+        if (!magfaOptions.Enabled)
+        {
+            services.AddSingleton<ISmsProvider, LoopbackSmsProvider>();
+            return;
+        }
+
+        string basicAuth = Convert.ToBase64String(
+            Encoding.UTF8.GetBytes($"{magfaOptions.BasicAuthUser}:{magfaOptions.Password}"));
+
+        services.AddHttpClient<ISmsProvider, MagfaSmsProvider>(client =>
+        {
+            client.BaseAddress = new Uri(magfaOptions.BaseUrl);
+            client.Timeout = magfaOptions.Timeout;
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", basicAuth);
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        });
     }
 
     // Feature handlers — plain classes, resolved per request.
