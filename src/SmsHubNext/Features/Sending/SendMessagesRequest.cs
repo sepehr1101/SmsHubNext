@@ -4,16 +4,31 @@ namespace SmsHubNext.Features.Sending;
 
 /// <summary>
 /// One send request: a batch of independent recipient/message pairs sent on a
-/// single sender line. Each item carries its own text, so recipients can receive
-/// different messages (personalization, OTPs, invoices, …).
+/// single sender line, classified by one message type. Each item carries its own
+/// text, so recipients can receive different messages (personalization, OTPs, invoices, …).
 /// </summary>
 public sealed class SendMessagesRequest
 {
     /// <summary>Maximum messages accepted in a single request.</summary>
     public const int MaxMessages = 1000;
 
+    /// <summary>
+    /// The sending customer (tenant). INTERIM: carried explicitly until API-key
+    /// authentication lands (next increment), which will resolve it from the request.
+    /// </summary>
+    public short CustomerId { get; init; }
+
+    /// <summary>
+    /// The API key making the call (per-call attribution on <c>MessageBatch</c>).
+    /// INTERIM: carried explicitly until authentication resolves it from the key header.
+    /// </summary>
+    public int ApiKeyId { get; init; }
+
     /// <summary>The originating sender line for the whole batch (e.g. <c>3000...</c>).</summary>
     public string SenderLine { get; init; } = string.Empty;
+
+    /// <summary>The classification for every message in the batch (delivery class + business purpose).</summary>
+    public byte MessageTypeId { get; init; }
 
     /// <summary>Optional batch-level idempotency key.</summary>
     public string? ClientBatchId { get; init; }
@@ -27,8 +42,17 @@ public sealed class SendMessagesRequest
     /// </summary>
     public Result Validate()
     {
+        if (CustomerId <= 0)
+            return Error.Validation("sending.customer_required", "A customer id is required.");
+
+        if (ApiKeyId <= 0)
+            return Error.Validation("sending.api_key_required", "An API key id is required.");
+
         if (string.IsNullOrWhiteSpace(SenderLine))
             return Error.Validation("sending.sender_line_required", "A sender line is required.");
+
+        if (MessageTypeId == 0)
+            return Error.Validation("sending.message_type_required", "A message type id is required.");
 
         if (Messages.Count == 0)
             return Error.Validation("sending.messages_required", "At least one message is required.");

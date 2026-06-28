@@ -14,6 +14,8 @@ public sealed class SendMessagesController : ControllerBase
 
     /// <summary>Accept a batch of messages for asynchronous sending.</summary>
     [HttpPost]
-    public IActionResult Send([FromBody] SendMessagesRequest request) =>
-        _handler.Handle(request).ToActionResult(StatusCodes.Status202Accepted);
+    public async Task<IActionResult> Send(
+        [FromBody] SendMessagesRequest request,
+        CancellationToken cancellationToken) =>
+        (await _handler.Handle(request, cancellationToken)).ToActionResult(StatusCodes.Status202Accepted);
 }
