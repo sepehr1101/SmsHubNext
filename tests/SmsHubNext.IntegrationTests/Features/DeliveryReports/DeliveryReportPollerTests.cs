@@ -214,5 +214,9 @@ public sealed class DeliveryReportPollerTests : IAsyncLifetime
         public Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
             IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken) =>
             Task.FromResult(Result.Success(_dlr(providerMessageIds)));
+
+        public Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
+            int maxCount, CancellationToken cancellationToken) =>
+            Task.FromResult(Result.Success<IReadOnlyList<ProviderInboundMessage>>([]));
     }
 }

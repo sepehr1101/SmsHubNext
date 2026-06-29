@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.Dispatch;
+using SmsHubNext.Features.Inbound;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.Magfa;
 using SmsHubNext.Features.ReferenceData;
@@ -41,6 +42,7 @@ public static class ServiceCollectionExtensions
         services.AddFeatureHandlers();
         services.AddBackgroundDispatch(configuration);
         services.AddDeliveryReportPolling(configuration);
+        services.AddInboundPolling(configuration);
 
         // Health checks: a database readiness probe (more added as dependencies arrive).
         services.AddHealthChecks()
@@ -84,6 +86,25 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<DeliveryReportPoller>();
         services.AddHostedService<DeliveryReportPollWorker>();
+
+        return services;
+    }
+
+    // Inbound (MO) polling: opt-in, since pulling is destructive at the provider (Phase 4). Shares the
+    // ISmsProvider seam; the read API (ListInboundMessagesHandler) is always available regardless.
+    private static IServiceCollection AddInboundPolling(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        InboundPollOptions options = configuration.GetSection(InboundPollOptions.SectionName).Get<InboundPollOptions>()
+            ?? new InboundPollOptions();
+        services.AddSingleton(options);
+
+        if (options.Enabled)
+        {
+            services.AddScoped<InboundPoller>();
+            services.AddHostedService<InboundPollWorker>();
+        }
 
         return services;
     }
@@ -151,6 +172,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<GetBalanceHandler>();
         services.AddScoped<TopUpHandler>();
         services.AddScoped<ListTransactionsHandler>();
+
+        services.AddScoped<ListInboundMessagesHandler>();
 
         return services;
     }

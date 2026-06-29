@@ -25,6 +25,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
     private const string SendPath = "/api/http/sms/v2/send";
     private const string StatusesPath = "/api/http/sms/v2/statuses/";
     private const string MidPath = "/api/http/sms/v2/mid/";
+    private const string MessagesPath = "/api/http/sms/v2/messages/";
 
     private readonly HttpClient _httpClient;
     private readonly MagfaOptions _options;
@@ -115,6 +116,28 @@ public sealed class MagfaSmsProvider : ISmsProvider
         return Result.Success<IReadOnlyList<ProviderDeliveryReport>>(body.Dlrs
             .Select(dlr => new ProviderDeliveryReport(
                 dlr.Mid.ToString(), MagfaDeliveryStatusCodes.Classify(dlr.Status), dlr.Status))
+            .ToList());
+    }
+
+    public async Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
+        int maxCount, CancellationToken cancellationToken)
+    {
+        // GET /messages/{count} — Magfa caps count at MaxMessagesPerRequest and the pull is destructive.
+        Result<MagfaMessagesResponse> response = await ExecuteAsync<MagfaMessagesResponse>(
+            token => _httpClient.GetAsync(MessagesPath + maxCount, token), cancellationToken);
+
+        if (response.IsFailure)
+            return response.Error!;
+
+        MagfaMessagesResponse body = response.Value;
+        if (body.Status != MagfaStatusCodes.Success)
+        {
+            _logger.LogError("Magfa /messages returned request-level status {Status}.", body.Status);
+            return Error.Provider("magfa.messages_request_status", $"Magfa request-level status {body.Status}.");
+        }
+
+        return Result.Success<IReadOnlyList<ProviderInboundMessage>>(body.Messages
+            .Select(m => new ProviderInboundMessage(m.SenderNumber, m.RecipientNumber, m.Body, m.Date))
             .ToList());
     }
 

@@ -31,6 +31,11 @@ public sealed class LoopbackSmsProvider : ISmsProvider
         // Loopback accepts inline, so a send never has an unknown outcome to recover — nothing to resolve.
         Task.FromResult(Result.Success<string?>(null));
 
+    public Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
+        int maxCount, CancellationToken cancellationToken) =>
+        // No inbound source in loopback.
+        Task.FromResult(Result.Success<IReadOnlyList<ProviderInboundMessage>>([]));
+
     public Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
         IReadOnlyCollection<string> providerMessageIds,
         CancellationToken cancellationToken)

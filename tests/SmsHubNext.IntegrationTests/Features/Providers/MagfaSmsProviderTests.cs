@@ -322,6 +322,58 @@ public sealed class MagfaSmsProviderTests : IDisposable
         Assert.EndsWith("/api/http/sms/v2/mid/98765", entry.RequestMessage.Path);
     }
 
+    [Fact]
+    public async Task Fetch_inbound_maps_each_message()
+    {
+        StubMessages(200, """
+            { "status": 0, "messages": [
+                { "body": "سلام", "senderNumber": "989120000001", "recipientNumber": "983000711", "date": "2026-06-29 09:00:00" },
+                { "body": "hi", "senderNumber": "989120000002", "recipientNumber": "983000711", "date": "2026-06-29 09:05:00" }
+            ] }
+            """);
+
+        Result<IReadOnlyList<ProviderInboundMessage>> result =
+            await NewProvider().FetchInboundMessagesAsync(50, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(2, result.Value.Count);
+        Assert.Equal("989120000001", result.Value[0].SenderNumber);
+        Assert.Equal("983000711", result.Value[0].RecipientNumber);
+        Assert.Equal("سلام", result.Value[0].Body);
+        Assert.Equal("2026-06-29 09:00:00", result.Value[0].ProviderTimestamp);
+    }
+
+    [Fact]
+    public async Task Fetch_inbound_request_error_is_transient()
+    {
+        StubMessages(200, """{ "status": 18, "messages": [] }""");
+
+        Result<IReadOnlyList<ProviderInboundMessage>> result =
+            await NewProvider().FetchInboundMessagesAsync(50, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Provider, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task Fetch_inbound_targets_the_count_path()
+    {
+        StubMessages(200, """{ "status": 0, "messages": [] }""");
+
+        await NewProvider().FetchInboundMessagesAsync(25, CancellationToken.None);
+
+        WireMock.Logging.ILogEntry entry = Assert.Single(_magfa.LogEntries);
+        Assert.EndsWith("/api/http/sms/v2/messages/25", entry.RequestMessage.Path);
+    }
+
+    private void StubMessages(int statusCode, string body) =>
+        _magfa
+            .Given(Request.Create().WithPath(p => p.StartsWith("/api/http/sms/v2/messages/")).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode((HttpStatusCode)statusCode)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody(body));
+
     private void StubMid(int statusCode, string body) =>
         _magfa
             .Given(Request.Create().WithPath(p => p.StartsWith("/api/http/sms/v2/mid/")).UsingGet())

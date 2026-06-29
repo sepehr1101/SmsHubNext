@@ -52,4 +52,13 @@ public interface ISmsProvider
     /// </summary>
     Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
         IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Pulls up to <paramref name="maxCount"/> inbound (MO) messages from the provider's inbox
+    /// (Phase 4). The pull is destructive — returned messages are dequeued at the provider — so the
+    /// caller must persist them before treating them as consumed. A failed <c>Result</c> is a
+    /// transient/transport error (retry next cycle).
+    /// </summary>
+    Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
+        int maxCount, CancellationToken cancellationToken);
 }
