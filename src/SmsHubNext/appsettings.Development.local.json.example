@@ -1,0 +1,23 @@
+// Copy this file to `appsettings.Development.local.json` (same folder) and fill in real Magfa
+// credentials to test the integration locally. That target file is gitignored
+// (`appsettings.*.local.json`), so secrets never reach source control. It is layered last, so it
+// overrides `appsettings.json` and `appsettings.Development.json`.
+//
+// Each account carries its own credentials and the sender lines it owns; sending picks the account
+// from the message's sender line. Add more accounts to route different lines to different Magfa
+// accounts. (JSON with comments is fine for this template; the real .local.json must be plain JSON.)
+{
+  "Providers": {
+    "Magfa": {
+      "Enabled": true,
+      "Accounts": [
+        {
+          "Username": "your-username",
+          "Domain": "your-domain",
+          "Password": "your-service-password",
+          "SenderLines": [ "30001234567" ]
+        }
+      ]
+    }
+  }
+}

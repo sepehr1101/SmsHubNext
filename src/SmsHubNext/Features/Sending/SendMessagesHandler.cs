@@ -28,8 +28,14 @@ public sealed class SendMessagesHandler
 
     public SendMessagesHandler(Db db) => _db = db;
 
+    /// <param name="apiKeyId">
+    /// The authenticated API key making the call, resolved from the request (header / API-key
+    /// context) by the controller — never accepted in the request body. Used for per-call
+    /// attribution on <c>MessageBatch</c>.
+    /// </param>
     public async Task<Result<SendMessagesResponse>> Handle(
         SendMessagesRequest request,
+        int apiKeyId,
         CancellationToken cancellationToken)
     {
         Result validation = request.Validate();
@@ -105,7 +111,7 @@ public sealed class SendMessagesHandler
                     SubmitDateJalali = submitDateJalali,
                     NowUtc = nowUtc,
                     request.CustomerId,
-                    request.ApiKeyId,
+                    ApiKeyId = apiKeyId,
                     SenderLineId = senderLine.Id,
                     senderLine.ProviderId,
                     request.ClientBatchId,

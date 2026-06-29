@@ -223,11 +223,11 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
             new SendMessagesRequest
             {
                 CustomerId = customerId,
-                ApiKeyId = key.Value.Id,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
                 Messages = items,
             },
+            key.Value.Id,
             CancellationToken.None);
 
         Assert.True(send.IsSuccess, send.Error?.Message);

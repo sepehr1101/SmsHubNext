@@ -18,12 +18,6 @@ public sealed class SendMessagesRequest
     /// </summary>
     public short CustomerId { get; init; }
 
-    /// <summary>
-    /// The API key making the call (per-call attribution on <c>MessageBatch</c>).
-    /// INTERIM: carried explicitly until authentication resolves it from the key header.
-    /// </summary>
-    public int ApiKeyId { get; init; }
-
     /// <summary>The originating sender line for the whole batch (e.g. <c>3000...</c>).</summary>
     public string SenderLine { get; init; } = string.Empty;
 
@@ -44,9 +38,6 @@ public sealed class SendMessagesRequest
     {
         if (CustomerId <= 0)
             return Error.Validation("sending.customer_required", "A customer id is required.");
-
-        if (ApiKeyId <= 0)
-            return Error.Validation("sending.api_key_required", "An API key id is required.");
 
         if (string.IsNullOrWhiteSpace(SenderLine))
             return Error.Validation("sending.sender_line_required", "A sender line is required.");

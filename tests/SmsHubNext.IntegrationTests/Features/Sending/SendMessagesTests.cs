@@ -42,7 +42,6 @@ public sealed class SendMessagesTests : IAsyncLifetime
             new SendMessagesRequest
             {
                 CustomerId = customerId,
-                ApiKeyId = apiKeyId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
                 ClientBatchId = "batch-1",
@@ -52,6 +51,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
                     new SendMessageItem { Recipient = "989120000002", Text = "World" },
                 ],
             },
+            apiKeyId,
             CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error?.Message);
@@ -110,11 +110,11 @@ public sealed class SendMessagesTests : IAsyncLifetime
             new SendMessagesRequest
             {
                 CustomerId = customerId,
-                ApiKeyId = apiKeyId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
                 Messages = [new SendMessageItem { Recipient = "989120000003", Text = "Hello" }],
             },
+            apiKeyId,
             CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -142,11 +142,11 @@ public sealed class SendMessagesTests : IAsyncLifetime
             new SendMessagesRequest
             {
                 CustomerId = customerId,
-                ApiKeyId = apiKeyId,
                 SenderLine = "99999999",
                 MessageTypeId = 1,
                 Messages = [new SendMessageItem { Recipient = "989120000004", Text = "Hello" }],
             },
+            apiKeyId,
             CancellationToken.None);
 
         Assert.True(result.IsFailure);

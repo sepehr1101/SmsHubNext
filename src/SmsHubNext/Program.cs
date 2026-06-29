@@ -3,6 +3,9 @@ using SmsHubNext.Extensions;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+// Layer the optional gitignored appsettings.{Environment}.local.json (local secrets) over defaults.
+builder.AddLocalConfiguration();
+
 // Structured logging via Serilog; levels/sinks overridable from configuration.
 builder.Host.UseSerilog((context, configuration) => configuration
     .ReadFrom.Configuration(context.Configuration)

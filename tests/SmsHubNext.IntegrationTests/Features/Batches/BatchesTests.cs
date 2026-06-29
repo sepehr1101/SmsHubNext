@@ -82,7 +82,6 @@ public sealed class BatchesTests : IAsyncLifetime
             new SendMessagesRequest
             {
                 CustomerId = customerId,
-                ApiKeyId = key.Value.Id,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
                 Messages =
@@ -91,6 +90,7 @@ public sealed class BatchesTests : IAsyncLifetime
                     new SendMessageItem { Recipient = "989120000002", Text = "World" },
                 ],
             },
+            key.Value.Id,
             CancellationToken.None);
 
         Assert.True(send.IsSuccess, send.Error?.Message);

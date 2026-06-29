@@ -10,15 +10,21 @@ namespace SmsHubNext.Features.Providers.Magfa;
 /// <c>POST /send</c> as parallel arrays and maps each per-recipient result back to its request,
 /// and queries <c>GET /statuses</c> for delivery reports.
 ///
+/// Credentials are per <see cref="MagfaAccount"/>, not global: the account is selected per request
+/// (the <c>Authorization</c> header is set on each <see cref="HttpRequestMessage"/> rather than on
+/// the shared typed client). Send groups its messages by the account that owns each sender line and
+/// issues one request per account; the account-scoped reads (statuses/mid/inbox) fan out over every
+/// configured account and merge the results.
+///
 /// Lane discipline (ARCHITECTURE.md §6): a failed <b>outer</b> <see cref="Result"/> is a
 /// transport/transient condition for the whole request (the dispatcher re-queues the chunk); a
 /// successful outer result carries one <b>inner</b> result per message — a failed inner result is
 /// that message's transient failure, a successful inner result its domain outcome. This method
 /// never throws for an expected failure.
 ///
-/// The typed <see cref="HttpClient"/> is configured at registration with the base address,
-/// Basic-auth header, and timeout; a timeout surfaces here as a <see cref="TaskCanceledException"/>
-/// and is reported as transient.
+/// The typed <see cref="HttpClient"/> is configured at registration with the base address and
+/// timeout; a timeout surfaces here as a <see cref="TaskCanceledException"/> and is reported as
+/// transient.
 /// </summary>
 public sealed class MagfaSmsProvider : ISmsProvider
 {
@@ -28,12 +34,18 @@ public sealed class MagfaSmsProvider : ISmsProvider
     private const string MessagesPath = "/api/http/sms/v2/messages/";
 
     private readonly HttpClient _httpClient;
+    private readonly MagfaAccountResolver _accounts;
     private readonly MagfaOptions _options;
     private readonly ILogger<MagfaSmsProvider> _logger;
 
-    public MagfaSmsProvider(HttpClient httpClient, MagfaOptions options, ILogger<MagfaSmsProvider> logger)
+    public MagfaSmsProvider(
+        HttpClient httpClient,
+        MagfaAccountResolver accounts,
+        MagfaOptions options,
+        ILogger<MagfaSmsProvider> logger)
     {
         _httpClient = httpClient;
+        _accounts = accounts;
         _options = options;
         _logger = logger;
     }
@@ -48,48 +60,78 @@ public sealed class MagfaSmsProvider : ISmsProvider
         if (requests.Count == 0)
             return Result.Success<IReadOnlyList<Result<ProviderDispatchResult>>>([]);
 
-        // Parallel arrays, one element per message. uids carries each message id so the response can
-        // be correlated back per message (reference §5/§6); senders repeats per recipient to satisfy
-        // Magfa's equal-length rule even if a future batch mixes lines.
-        Result<MagfaSendResponse> response = await ExecuteAsync<MagfaSendResponse>(
-            token => _httpClient.PostAsJsonAsync(
-                SendPath,
-                new
-                {
-                    senders = requests.Select(r => r.SenderLine).ToArray(),
-                    recipients = requests.Select(r => r.MobileNumber).ToArray(),
-                    messages = requests.Select(r => r.Body).ToArray(),
-                    uids = requests.Select(r => r.MessageId).ToArray(),
-                },
-                token),
-            cancellationToken);
+        // One result slot per input request, filled in input order regardless of how the requests are
+        // grouped by account below. A request whose sender line maps to no account is a misconfiguration:
+        // mark it transient (left queued, retried) and log, so it surfaces rather than being charged.
+        Result<ProviderDispatchResult>[] results = new Result<ProviderDispatchResult>[requests.Count];
+        Dictionary<MagfaAccount, List<int>> byAccount = new Dictionary<MagfaAccount, List<int>>();
 
-        return response.IsFailure
-            ? response.Error!
-            : MapSendResponse(response.Value, requests);
+        for (int i = 0; i < requests.Count; i++)
+        {
+            MagfaAccount? account = _accounts.Resolve(requests[i].SenderLine);
+            if (account is null)
+            {
+                _logger.LogError("No Magfa account is configured for sender line {SenderLine} (message {MessageId}).",
+                    requests[i].SenderLine, requests[i].MessageId);
+                results[i] = Error.Provider("magfa.unknown_sender_line",
+                    $"No Magfa account is configured for sender line '{requests[i].SenderLine}'.");
+                continue;
+            }
+
+            if (!byAccount.TryGetValue(account, out List<int>? indices))
+                byAccount[account] = indices = new List<int>();
+            indices.Add(i);
+        }
+
+        // One /send per account group. A whole-group transport or request-level fault re-queues the
+        // entire chunk (the dispatcher reconciles via /mid, so a lost response never double-charges) —
+        // the common case is a single account (a batch sends on one line), so this matches one request.
+        foreach ((MagfaAccount account, List<int> indices) in byAccount)
+        {
+            List<ProviderSendRequest> group = indices.Select(i => requests[i]).ToList();
+
+            Result<MagfaSendResponse> response = await ExecuteAsync<MagfaSendResponse>(
+                () => CreateSendRequest(account, group), cancellationToken);
+            if (response.IsFailure)
+                return response.Error!;
+
+            Result<IReadOnlyList<Result<ProviderDispatchResult>>> mapped = MapSendResponse(response.Value, group);
+            if (mapped.IsFailure)
+                return mapped.Error!;
+
+            for (int j = 0; j < indices.Count; j++)
+                results[indices[j]] = mapped.Value[j];
+        }
+
+        return Result.Success<IReadOnlyList<Result<ProviderDispatchResult>>>(results);
     }
 
     public async Task<Result<string?>> ResolveSubmittedMessageIdAsync(
         long messageId, CancellationToken cancellationToken)
     {
-        // GET /mid/{uid} — the uid we sent is the message id (reference §6).
-        Result<MagfaMidResponse> response = await ExecuteAsync<MagfaMidResponse>(
-            token => _httpClient.GetAsync(MidPath + messageId, token), cancellationToken);
-
-        if (response.IsFailure)
-            return response.Error!;
-
-        MagfaMidResponse body = response.Value;
-        if (body.Status != MagfaStatusCodes.Success)
+        // GET /mid/{uid} — the uid we sent is the message id (reference §6). The uid is account-scoped
+        // and we have no sender line here, so ask each account until one has a record for it; an account
+        // that never sent it answers mid -1 (treated as "no record"), so a clean miss is "safe to re-send".
+        foreach (MagfaAccount account in _accounts.Accounts)
         {
-            _logger.LogError("Magfa /mid returned request-level status {Status}.", body.Status);
-            return Error.Provider("magfa.mid_request_status", $"Magfa request-level status {body.Status}.");
+            Result<MagfaMidResponse> response = await ExecuteAsync<MagfaMidResponse>(
+                () => CreateGetRequest(account, MidPath + messageId), cancellationToken);
+            if (response.IsFailure)
+                return response.Error!;
+
+            MagfaMidResponse body = response.Value;
+            if (body.Status != MagfaStatusCodes.Success)
+            {
+                _logger.LogError("Magfa /mid returned request-level status {Status}.", body.Status);
+                return Error.Provider("magfa.mid_request_status", $"Magfa request-level status {body.Status}.");
+            }
+
+            // mid >= 0 means this account has a record (already accepted); -1 means it doesn't.
+            if (body.Mid >= 0)
+                return Result.Success<string?>(body.Mid.ToString());
         }
 
-        // mid -1 means Magfa has no record for this uid (safe to re-send).
-        return body.Mid < 0
-            ? Result.Success<string?>(null)
-            : Result.Success<string?>(body.Mid.ToString());
+        return Result.Success<string?>(null);
     }
 
     public async Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
@@ -98,47 +140,86 @@ public sealed class MagfaSmsProvider : ISmsProvider
         if (providerMessageIds.Count == 0)
             return Result.Success<IReadOnlyList<ProviderDeliveryReport>>([]);
 
-        // GET /statuses/{mid1,mid2,...} — up to MaxBatchSize ids (the poller batches to that limit).
-        Result<MagfaStatusesResponse> response = await ExecuteAsync<MagfaStatusesResponse>(
-            token => _httpClient.GetAsync(StatusesPath + string.Join(',', providerMessageIds), token),
-            cancellationToken);
+        // GET /statuses/{mid1,mid2,...} — statuses are account-scoped, so ask each account and merge.
+        // An account returns DLRs only for the mids it owns; mids belonging to other accounts are simply
+        // absent and resolve when that account is queried, so the union covers every id.
+        string idsPath = StatusesPath + string.Join(',', providerMessageIds);
+        List<ProviderDeliveryReport> reports = new List<ProviderDeliveryReport>(providerMessageIds.Count);
 
-        if (response.IsFailure)
-            return response.Error!;
-
-        MagfaStatusesResponse body = response.Value;
-        if (body.Status != MagfaStatusCodes.Success)
+        foreach (MagfaAccount account in _accounts.Accounts)
         {
-            _logger.LogError("Magfa /statuses returned request-level status {Status}.", body.Status);
-            return Error.Provider("magfa.statuses_request_status", $"Magfa request-level status {body.Status}.");
+            Result<MagfaStatusesResponse> response = await ExecuteAsync<MagfaStatusesResponse>(
+                () => CreateGetRequest(account, idsPath), cancellationToken);
+            if (response.IsFailure)
+                return response.Error!;
+
+            MagfaStatusesResponse body = response.Value;
+            if (body.Status != MagfaStatusCodes.Success)
+            {
+                _logger.LogError("Magfa /statuses returned request-level status {Status}.", body.Status);
+                return Error.Provider("magfa.statuses_request_status", $"Magfa request-level status {body.Status}.");
+            }
+
+            reports.AddRange(body.Dlrs.Select(dlr => new ProviderDeliveryReport(
+                dlr.Mid.ToString(), MagfaDeliveryStatusCodes.Classify(dlr.Status), dlr.Status)));
         }
 
-        return Result.Success<IReadOnlyList<ProviderDeliveryReport>>(body.Dlrs
-            .Select(dlr => new ProviderDeliveryReport(
-                dlr.Mid.ToString(), MagfaDeliveryStatusCodes.Classify(dlr.Status), dlr.Status))
-            .ToList());
+        return Result.Success<IReadOnlyList<ProviderDeliveryReport>>(reports);
     }
 
     public async Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
         int maxCount, CancellationToken cancellationToken)
     {
-        // GET /messages/{count} — Magfa caps count at MaxMessagesPerRequest and the pull is destructive.
-        Result<MagfaMessagesResponse> response = await ExecuteAsync<MagfaMessagesResponse>(
-            token => _httpClient.GetAsync(MessagesPath + maxCount, token), cancellationToken);
+        // GET /messages/{count} — the inbox is per account and the pull is destructive, so drain each
+        // account (up to maxCount each) and merge. Magfa caps count at MaxMessagesPerRequest.
+        string path = MessagesPath + maxCount;
+        List<ProviderInboundMessage> inbound = new List<ProviderInboundMessage>();
 
-        if (response.IsFailure)
-            return response.Error!;
-
-        MagfaMessagesResponse body = response.Value;
-        if (body.Status != MagfaStatusCodes.Success)
+        foreach (MagfaAccount account in _accounts.Accounts)
         {
-            _logger.LogError("Magfa /messages returned request-level status {Status}.", body.Status);
-            return Error.Provider("magfa.messages_request_status", $"Magfa request-level status {body.Status}.");
+            Result<MagfaMessagesResponse> response = await ExecuteAsync<MagfaMessagesResponse>(
+                () => CreateGetRequest(account, path), cancellationToken);
+            if (response.IsFailure)
+                return response.Error!;
+
+            MagfaMessagesResponse body = response.Value;
+            if (body.Status != MagfaStatusCodes.Success)
+            {
+                _logger.LogError("Magfa /messages returned request-level status {Status}.", body.Status);
+                return Error.Provider("magfa.messages_request_status", $"Magfa request-level status {body.Status}.");
+            }
+
+            inbound.AddRange(body.Messages.Select(m =>
+                new ProviderInboundMessage(m.SenderNumber, m.RecipientNumber, m.Body, m.Date)));
         }
 
-        return Result.Success<IReadOnlyList<ProviderInboundMessage>>(body.Messages
-            .Select(m => new ProviderInboundMessage(m.SenderNumber, m.RecipientNumber, m.Body, m.Date))
-            .ToList());
+        return Result.Success<IReadOnlyList<ProviderInboundMessage>>(inbound);
+    }
+
+    // Builds the POST /send for one account's group of messages. Parallel arrays, one element per
+    // message: uids carries each message id so the response can be correlated back per message
+    // (reference §5/§6); senders repeats per recipient to satisfy Magfa's equal-length rule.
+    private static HttpRequestMessage CreateSendRequest(MagfaAccount account, IReadOnlyList<ProviderSendRequest> group)
+    {
+        HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, SendPath)
+        {
+            Content = JsonContent.Create(new
+            {
+                senders = group.Select(r => r.SenderLine).ToArray(),
+                recipients = group.Select(r => r.MobileNumber).ToArray(),
+                messages = group.Select(r => r.Body).ToArray(),
+                uids = group.Select(r => r.MessageId).ToArray(),
+            }),
+        };
+        request.Headers.Authorization = account.AuthorizationHeader;
+        return request;
+    }
+
+    private static HttpRequestMessage CreateGetRequest(MagfaAccount account, string path)
+    {
+        HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Authorization = account.AuthorizationHeader;
+        return request;
     }
 
     /// <summary>
@@ -147,13 +228,15 @@ public sealed class MagfaSmsProvider : ISmsProvider
     /// into a transient provider <see cref="Error"/> here, so callers deal only with a parsed body.
     /// </summary>
     private async Task<Result<T>> ExecuteAsync<T>(
-        Func<CancellationToken, Task<HttpResponseMessage>> send, CancellationToken cancellationToken)
+        Func<HttpRequestMessage> createRequest, CancellationToken cancellationToken)
         where T : class
     {
+        using HttpRequestMessage request = createRequest();
+
         HttpResponseMessage response;
         try
         {
-            response = await send(cancellationToken);
+            response = await _httpClient.SendAsync(request, cancellationToken);
         }
         catch (HttpRequestException ex)
         {
@@ -164,22 +247,25 @@ public sealed class MagfaSmsProvider : ISmsProvider
             return Error.Provider("magfa.timeout", $"Request timed out: {ex.Message}");
         }
 
-        if (!response.IsSuccessStatusCode)
-            return Error.Provider("magfa.http_status", $"Magfa returned HTTP {(int)response.StatusCode}.");
-
-        T? body;
-        try
+        using (response)
         {
-            body = await response.Content.ReadFromJsonAsync<T>(cancellationToken);
-        }
-        catch (JsonException ex)
-        {
-            return Error.Provider("magfa.bad_json", $"Could not parse Magfa response: {ex.Message}");
-        }
+            if (!response.IsSuccessStatusCode)
+                return Error.Provider("magfa.http_status", $"Magfa returned HTTP {(int)response.StatusCode}.");
 
-        return body is null
-            ? Error.Provider("magfa.empty_body", "Magfa returned an empty response body.")
-            : Result.Success(body);
+            T? body;
+            try
+            {
+                body = await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+            }
+            catch (JsonException ex)
+            {
+                return Error.Provider("magfa.bad_json", $"Could not parse Magfa response: {ex.Message}");
+            }
+
+            return body is null
+                ? Error.Provider("magfa.empty_body", "Magfa returned an empty response body.")
+                : Result.Success(body);
+        }
     }
 
     private Result<IReadOnlyList<Result<ProviderDispatchResult>>> MapSendResponse(

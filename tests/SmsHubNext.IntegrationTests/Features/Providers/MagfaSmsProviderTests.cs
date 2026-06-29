@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using SmsHubNext.Features.Providers;
@@ -414,9 +413,24 @@ public sealed class MagfaSmsProviderTests : IDisposable
 
     private MagfaSmsProvider NewProvider()
     {
+        // Credentials are per account and set per request by the provider, so the client carries none.
         HttpClient httpClient = new() { BaseAddress = new Uri(_magfa.Urls[0]) };
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", ExpectedBasicToken);
-        return new MagfaSmsProvider(httpClient, new MagfaOptions { BatchSize = 100 }, NullLogger<MagfaSmsProvider>.Instance);
+        MagfaOptions options = new()
+        {
+            BatchSize = 100,
+            Accounts =
+            [
+                new MagfaAccount
+                {
+                    Username = "user",
+                    Domain = "domain",
+                    Password = "secret",
+                    SenderLines = ["30001234"],
+                },
+            ],
+        };
+        return new MagfaSmsProvider(
+            httpClient, new MagfaAccountResolver(options), options, NullLogger<MagfaSmsProvider>.Instance);
     }
 
     private static string ExpectedBasicToken =>

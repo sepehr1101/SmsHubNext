@@ -133,11 +133,11 @@ public sealed class DeliveryReportPollerTests : IAsyncLifetime
             new SendMessagesRequest
             {
                 CustomerId = customerId,
-                ApiKeyId = key.Value.Id,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
                 Messages = [new SendMessageItem { Recipient = "989120000000", Text = "Hello" }],
             },
+            key.Value.Id,
             CancellationToken.None);
         Assert.True(send.IsSuccess, send.Error?.Message);
 

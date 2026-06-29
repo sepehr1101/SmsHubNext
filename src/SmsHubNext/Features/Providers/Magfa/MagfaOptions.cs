@@ -2,9 +2,14 @@ namespace SmsHubNext.Features.Providers.Magfa;
 
 /// <summary>
 /// Connection settings for the Magfa HTTP v2 provider, bound from the <c>Providers:Magfa</c>
-/// configuration section. Secrets (<see cref="Password"/>) come from user-secrets / environment
-/// variables — never committed appsettings. Encrypted <c>ProviderCredential</c> storage is a
-/// later roadmap phase; config is sufficient for Phase 1.
+/// configuration section. Transport settings (<see cref="BaseUrl"/>/<see cref="Timeout"/>/
+/// <see cref="BatchSize"/>) are shared; credentials live per <see cref="MagfaAccount"/> so each
+/// sender line can authenticate against its own Magfa account.
+///
+/// Secrets must not be committed: <c>appsettings.json</c> carries placeholders only, and real
+/// credentials go in a gitignored local source (<c>appsettings.{Environment}.local.json</c>) or
+/// environment variables. Encrypted <c>ProviderCredential</c> storage is a later roadmap phase;
+/// config is sufficient for Phase 1.
 /// </summary>
 public sealed class MagfaOptions
 {
@@ -15,21 +20,12 @@ public sealed class MagfaOptions
 
     /// <summary>
     /// When false (the default), the loopback provider stays registered so dev/local runs and
-    /// the dispatch tests work without Magfa credentials. Set true once credentials are present.
+    /// the dispatch tests work without Magfa credentials. Set true once at least one account is configured.
     /// </summary>
     public bool Enabled { get; init; }
 
     /// <summary>Service base URL. The HTTP v2 methods live under <c>/api/http/sms/v2</c>.</summary>
     public string BaseUrl { get; init; } = "https://sms.magfa.com";
-
-    /// <summary>Account username (the part before the <c>/</c> in the Basic-auth user field).</summary>
-    public string Username { get; init; } = string.Empty;
-
-    /// <summary>Account domain (the part after the <c>/</c> in the Basic-auth user field).</summary>
-    public string Domain { get; init; } = string.Empty;
-
-    /// <summary>Service password (distinct from the panel login password).</summary>
-    public string Password { get; init; } = string.Empty;
 
     /// <summary>Per-request HTTP timeout. A timeout surfaces as a transient dispatch failure.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(30);
@@ -40,12 +36,16 @@ public sealed class MagfaOptions
     /// </summary>
     public int BatchSize { get; init; } = MaxMessagesPerRequest;
 
-    /// <summary>The Basic-auth user field: <c>USERNAME/DOMAIN</c> (see the API reference, §3).</summary>
-    public string BasicAuthUser => $"{Username}/{Domain}";
+    /// <summary>
+    /// The Magfa accounts and the sender lines each one owns. Sending resolves the account from the
+    /// message's sender line; at least one account is required when the provider is enabled.
+    /// </summary>
+    public IReadOnlyList<MagfaAccount> Accounts { get; init; } = [];
 
     /// <summary>
-    /// Fail-fast guard for when the provider is enabled: all three credential parts and a base
-    /// URL must be present, otherwise startup should not proceed with a half-configured provider.
+    /// Fail-fast guard for when the provider is enabled: a base URL, a valid batch size, and at least
+    /// one fully-credentialed account that owns at least one sender line — with no sender line claimed
+    /// by two accounts — otherwise startup should not proceed with a half-configured provider.
     /// </summary>
     public void Validate()
     {
@@ -54,14 +54,37 @@ public sealed class MagfaOptions
 
         if (string.IsNullOrWhiteSpace(BaseUrl))
             throw new InvalidOperationException($"{SectionName}:BaseUrl is required when Magfa is enabled.");
-        if (string.IsNullOrWhiteSpace(Username))
-            throw new InvalidOperationException($"{SectionName}:Username is required when Magfa is enabled.");
-        if (string.IsNullOrWhiteSpace(Domain))
-            throw new InvalidOperationException($"{SectionName}:Domain is required when Magfa is enabled.");
-        if (string.IsNullOrWhiteSpace(Password))
-            throw new InvalidOperationException($"{SectionName}:Password is required when Magfa is enabled.");
+
         if (BatchSize is < 1 or > MaxMessagesPerRequest)
             throw new InvalidOperationException(
                 $"{SectionName}:BatchSize must be between 1 and {MaxMessagesPerRequest} (Magfa's per-request limit).");
+
+        if (Accounts.Count == 0)
+            throw new InvalidOperationException($"{SectionName}:Accounts must contain at least one account when Magfa is enabled.");
+
+        HashSet<string> seenLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < Accounts.Count; i++)
+        {
+            MagfaAccount account = Accounts[i];
+            string at = $"{SectionName}:Accounts[{i}]";
+
+            if (string.IsNullOrWhiteSpace(account.Username))
+                throw new InvalidOperationException($"{at}:Username is required.");
+            if (string.IsNullOrWhiteSpace(account.Domain))
+                throw new InvalidOperationException($"{at}:Domain is required.");
+            if (string.IsNullOrWhiteSpace(account.Password))
+                throw new InvalidOperationException($"{at}:Password is required.");
+            if (account.SenderLines.Count == 0)
+                throw new InvalidOperationException($"{at}:SenderLines must list at least one sender line.");
+
+            foreach (string line in account.SenderLines)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    throw new InvalidOperationException($"{at}:SenderLines contains a blank line number.");
+                if (!seenLines.Add(line.Trim()))
+                    throw new InvalidOperationException(
+                        $"{SectionName}: sender line '{line}' is claimed by more than one account.");
+            }
+        }
     }
 }

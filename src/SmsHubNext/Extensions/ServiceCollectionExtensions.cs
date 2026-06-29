@@ -3,7 +3,6 @@ using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Batches;
 using SmsHubNext.Features.Billing;
 using System.Net.Http.Headers;
-using System.Text;
 using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.Dispatch;
 using SmsHubNext.Features.Inbound;
@@ -109,8 +108,9 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    // Selects and registers the active ISmsProvider. Magfa is a typed HttpClient (base address,
-    // Basic auth, timeout configured here); when disabled/unconfigured the loopback impl stands in.
+    // Selects and registers the active ISmsProvider. Magfa is a typed HttpClient (base address and
+    // timeout configured here); credentials are per account and set per request by the provider, so
+    // the client carries no default auth. When disabled/unconfigured the loopback impl stands in.
     private static void AddSmsProvider(IServiceCollection services, IConfiguration configuration)
     {
         MagfaOptions magfaOptions = configuration.GetSection(MagfaOptions.SectionName).Get<MagfaOptions>()
@@ -124,14 +124,12 @@ public static class ServiceCollectionExtensions
             return;
         }
 
-        string basicAuth = Convert.ToBase64String(
-            Encoding.UTF8.GetBytes($"{magfaOptions.BasicAuthUser}:{magfaOptions.Password}"));
+        services.AddSingleton<MagfaAccountResolver>();
 
         services.AddHttpClient<ISmsProvider, MagfaSmsProvider>(client =>
         {
             client.BaseAddress = new Uri(magfaOptions.BaseUrl);
             client.Timeout = magfaOptions.Timeout;
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", basicAuth);
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         });
     }
