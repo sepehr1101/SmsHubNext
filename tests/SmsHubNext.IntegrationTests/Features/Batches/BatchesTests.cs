@@ -78,7 +78,7 @@ public sealed class BatchesTests : IAsyncLifetime
         Result<IssueApiKeyResponse> key = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = customerId, Name = "k" }, CancellationToken.None);
 
-        Result<SendMessagesResponse> send = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,

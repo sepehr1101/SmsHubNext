@@ -39,7 +39,7 @@ public sealed class IssueApiKeyHandler
             // The plaintext secret is returned once here and never persisted.
             return new IssueApiKeyResponse(id, keyPrefix, secret);
         }
-        catch (SqlException ex) when (ex.Number == 547) // FK violation: unknown customer
+        catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown customer
         {
             return Error.Validation("api_keys.unknown_customer", "The customer does not exist.");
         }

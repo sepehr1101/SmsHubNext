@@ -21,8 +21,13 @@ namespace SmsHubNext.Features.Authentication;
 public sealed class ApiKeyAuthenticator
 {
     private readonly Db _db;
+    private readonly TimeProvider _clock;
 
-    public ApiKeyAuthenticator(Db db) => _db = db;
+    public ApiKeyAuthenticator(Db db, TimeProvider clock)
+    {
+        _db = db;
+        _clock = clock;
+    }
 
     public async Task<Result<ApiKeyIdentity>> Authenticate(
         string? rawKey,
@@ -47,7 +52,7 @@ public sealed class ApiKeyAuthenticator
         if (!key.IsActive || key.RevokedAtUtc is not null)
             return Error.Unauthorized("auth.inactive_key", "The API key is inactive or revoked.");
 
-        if (key.ExpiresAtUtc is not null && key.ExpiresAtUtc.Value <= DateTime.UtcNow)
+        if (key.ExpiresAtUtc is not null && key.ExpiresAtUtc.Value <= _clock.GetUtcNow().UtcDateTime)
             return Error.Unauthorized("auth.expired_key", "The API key has expired.");
 
         List<string> cidrs = (await connection.QueryAsync<string>(new CommandDefinition(

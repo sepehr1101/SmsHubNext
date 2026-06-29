@@ -34,7 +34,7 @@ public sealed class ApiKeyAuthenticatorTests : IAsyncLifetime
         short customerId = await CreateCustomerAsync("auth-ok");
         IssueApiKeyResponse issued = await IssueKeyAsync(customerId);
 
-        Result<ApiKeyIdentity> result = await new ApiKeyAuthenticator(_db)
+        Result<ApiKeyIdentity> result = await new ApiKeyAuthenticator(_db, TimeProvider.System)
             .Authenticate(issued.Key, IPAddress.Loopback, CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error?.Message);
@@ -46,7 +46,7 @@ public sealed class ApiKeyAuthenticatorTests : IAsyncLifetime
     [Fact]
     public async Task A_missing_key_is_unauthorized()
     {
-        Result<ApiKeyIdentity> result = await new ApiKeyAuthenticator(_db)
+        Result<ApiKeyIdentity> result = await new ApiKeyAuthenticator(_db, TimeProvider.System)
             .Authenticate(null, IPAddress.Loopback, CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -57,7 +57,7 @@ public sealed class ApiKeyAuthenticatorTests : IAsyncLifetime
     [Fact]
     public async Task An_unrecognized_key_is_unauthorized()
     {
-        Result<ApiKeyIdentity> result = await new ApiKeyAuthenticator(_db)
+        Result<ApiKeyIdentity> result = await new ApiKeyAuthenticator(_db, TimeProvider.System)
             .Authenticate("shn_not-a-real-key", IPAddress.Loopback, CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -70,7 +70,7 @@ public sealed class ApiKeyAuthenticatorTests : IAsyncLifetime
         short customerId = await CreateCustomerAsync("auth-expired");
         IssueApiKeyResponse issued = await IssueKeyAsync(customerId, expiresAtUtc: DateTime.UtcNow.AddDays(-1));
 
-        Result<ApiKeyIdentity> result = await new ApiKeyAuthenticator(_db)
+        Result<ApiKeyIdentity> result = await new ApiKeyAuthenticator(_db, TimeProvider.System)
             .Authenticate(issued.Key, IPAddress.Loopback, CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -88,7 +88,7 @@ public sealed class ApiKeyAuthenticatorTests : IAsyncLifetime
             issued.Id, new AddIpRestrictionRequest { Cidr = "10.0.0.0/8" }, CancellationToken.None);
         Assert.True(restriction.IsSuccess);
 
-        ApiKeyAuthenticator authenticator = new ApiKeyAuthenticator(_db);
+        ApiKeyAuthenticator authenticator = new ApiKeyAuthenticator(_db, TimeProvider.System);
 
         Result<ApiKeyIdentity> allowed = await authenticator.Authenticate(
             issued.Key, IPAddress.Parse("10.1.2.3"), CancellationToken.None);

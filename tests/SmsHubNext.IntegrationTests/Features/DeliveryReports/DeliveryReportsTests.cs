@@ -38,7 +38,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     {
         long messageId = await SendOneAndGetMessageIdAsync();
 
-        Result<IngestDeliveryReportResponse> ingest = await new IngestDeliveryReportHandler(_db).Handle(
+        Result<IngestDeliveryReportResponse> ingest = await new IngestDeliveryReportHandler(_db, TimeProvider.System).Handle(
             new IngestDeliveryReportRequest
             {
                 MessageId = messageId,
@@ -67,7 +67,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     {
         long messageId = await SendOneAndGetMessageIdAsync();
 
-        Result<IngestDeliveryReportResponse> ingest = await new IngestDeliveryReportHandler(_db).Handle(
+        Result<IngestDeliveryReportResponse> ingest = await new IngestDeliveryReportHandler(_db, TimeProvider.System).Handle(
             new IngestDeliveryReportRequest
             {
                 MessageId = messageId,
@@ -84,7 +84,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     public async Task The_latest_report_wins_in_the_read_model_and_history_keeps_both()
     {
         long messageId = await SendOneAndGetMessageIdAsync();
-        IngestDeliveryReportHandler handler = new IngestDeliveryReportHandler(_db);
+        IngestDeliveryReportHandler handler = new IngestDeliveryReportHandler(_db, TimeProvider.System);
 
         await handler.Handle(
             new IngestDeliveryReportRequest { MessageId = messageId, Status = DeliveryReportStatus.Undelivered, RawStatusCode = 10 },
@@ -105,7 +105,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     [Fact]
     public async Task Ingesting_for_an_unknown_message_is_not_found()
     {
-        Result<IngestDeliveryReportResponse> result = await new IngestDeliveryReportHandler(_db).Handle(
+        Result<IngestDeliveryReportResponse> result = await new IngestDeliveryReportHandler(_db, TimeProvider.System).Handle(
             new IngestDeliveryReportRequest { MessageId = 999999, Status = DeliveryReportStatus.Delivered, RawStatusCode = 1 },
             CancellationToken.None);
 
@@ -140,7 +140,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
         Result<IssueApiKeyResponse> key = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = customerId, Name = "k" }, CancellationToken.None);
 
-        Result<SendMessagesResponse> send = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,

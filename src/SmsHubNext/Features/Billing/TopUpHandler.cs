@@ -65,7 +65,7 @@ public sealed class TopUpHandler
             transaction.Commit();
             return new TopUpResponse(request.CustomerId, balanceAfter);
         }
-        catch (SqlException ex) when (ex.Number == 547) // FK violation: unknown customer
+        catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown customer
         {
             transaction.Rollback();
             return Error.Validation("balances.unknown_customer", "The customer does not exist.");

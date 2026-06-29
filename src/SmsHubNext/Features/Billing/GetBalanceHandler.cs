@@ -8,8 +8,13 @@ namespace SmsHubNext.Features.Billing;
 public sealed class GetBalanceHandler
 {
     private readonly Db _db;
+    private readonly TimeProvider _clock;
 
-    public GetBalanceHandler(Db db) => _db = db;
+    public GetBalanceHandler(Db db, TimeProvider clock)
+    {
+        _db = db;
+        _clock = clock;
+    }
 
     public async Task<Result<CustomerBalance>> Handle(short customerId, CancellationToken cancellationToken)
     {
@@ -21,6 +26,6 @@ public sealed class GetBalanceHandler
             cancellationToken: cancellationToken));
 
         // No balance row yet means the customer has never been credited — report zero.
-        return balance ?? new CustomerBalance(customerId, 0m, DateTime.UtcNow);
+        return balance ?? new CustomerBalance(customerId, 0m, _clock.GetUtcNow().UtcDateTime);
     }
 }

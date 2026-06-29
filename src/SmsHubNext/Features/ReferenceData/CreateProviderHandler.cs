@@ -30,7 +30,7 @@ public sealed class CreateProviderHandler
 
             return new CreateProviderResponse(id);
         }
-        catch (SqlException ex) when (ex.Number is 2601 or 2627) // unique Code violation
+        catch (SqlException ex) when (ex.IsUniqueViolation()) // duplicate Code
         {
             return Error.Conflict("providers.code_exists", "A provider with this code already exists.");
         }

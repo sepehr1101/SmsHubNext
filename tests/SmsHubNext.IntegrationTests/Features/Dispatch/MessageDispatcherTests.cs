@@ -199,7 +199,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
 
     private async Task<decimal> BalanceAsync(short customerId)
     {
-        Result<CustomerBalance> balance = await new GetBalanceHandler(_db).Handle(customerId, CancellationToken.None);
+        Result<CustomerBalance> balance = await new GetBalanceHandler(_db, TimeProvider.System).Handle(customerId, CancellationToken.None);
         return balance.Value.Balance;
     }
 
@@ -219,7 +219,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
             .Select(i => new SendMessageItem { Recipient = $"98912000000{i}", Text = "Hello" })
             .ToList();
 
-        Result<SendMessagesResponse> send = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,

@@ -30,7 +30,7 @@ public sealed class CreateCustomerHandler
 
             return new CreateCustomerResponse(id);
         }
-        catch (SqlException ex) when (ex.Number is 2601 or 2627) // unique index / key violation
+        catch (SqlException ex) when (ex.IsUniqueViolation()) // duplicate Code
         {
             return Error.Conflict("customers.code_exists", "A customer with this code already exists.");
         }

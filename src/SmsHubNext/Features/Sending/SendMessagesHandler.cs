@@ -18,15 +18,24 @@ namespace SmsHubNext.Features.Sending;
 ///
 /// The per-recipient rows are the heavy part of an accept (up to <c>MaxMessages</c>), so the
 /// <c>Message</c> and <c>MessageBody</c> rows are written with <c>SqlBulkCopy</c> enlisted in the
-/// same transaction rather than row-by-row. The messages land as <c>Queued</c>/<c>Pending</c> for
-/// the background dispatcher to pick up. Pricing reuses the canonical tariff resolution
-/// (<see cref="TariffsSql.ResolveRate"/>) so quote and send never drift.
+/// same transaction rather than row-by-row (the row mapping lives in <see cref="SendMessagesRowMapper"/>).
+/// The messages land as <c>Queued</c>/<c>Pending</c> for the background dispatcher to pick up.
+/// Pricing reuses the canonical tariff resolution (<see cref="TariffsSql.ResolveRate"/>) so quote
+/// and send never drift.
+///
+/// <see cref="Handle"/> reads as the business flow — validate, resolve, price, persist — with each
+/// step a small private method below.
 /// </summary>
 public sealed class SendMessagesHandler
 {
     private readonly Db _db;
+    private readonly TimeProvider _clock;
 
-    public SendMessagesHandler(Db db) => _db = db;
+    public SendMessagesHandler(Db db, TimeProvider clock)
+    {
+        _db = db;
+        _clock = clock;
+    }
 
     /// <param name="apiKeyId">
     /// The authenticated API key making the call, resolved from the request (header / API-key
@@ -44,10 +53,24 @@ public sealed class SendMessagesHandler
 
         await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        // 1. Resolve the sender line (and the provider it belongs to).
+        Result<SenderLineRow> senderLine = await ResolveSenderLineAsync(connection, request.SenderLine, cancellationToken);
+        if (senderLine.IsFailure)
+            return senderLine.Error!;
+
+        Result<List<PricedMessage>> priced = await PriceMessagesAsync(connection, request, senderLine.Value, cancellationToken);
+        if (priced.IsFailure)
+            return priced.Error!;
+
+        return await PersistAsync(connection, request, apiKeyId, senderLine.Value, priced.Value, cancellationToken);
+    }
+
+    // Resolve the requested sender line to its keys; it must exist and be active to send.
+    private static async Task<Result<SenderLineRow>> ResolveSenderLineAsync(
+        SqlConnection connection, string lineNumber, CancellationToken cancellationToken)
+    {
         SenderLineRow? senderLine = await connection.QuerySingleOrDefaultAsync<SenderLineRow>(new CommandDefinition(
             SendingSql.ResolveSenderLine,
-            new { LineNumber = request.SenderLine },
+            new { LineNumber = lineNumber },
             cancellationToken: cancellationToken));
 
         if (senderLine is null)
@@ -55,7 +78,14 @@ public sealed class SendMessagesHandler
         if (!senderLine.IsActive)
             return Error.Validation("sending.inactive_sender_line", "The sender line is not active.");
 
-        // 2. Price every message up front (no transaction yet — tariff rates are stable reads).
+        return senderLine;
+    }
+
+    // Price every message up front (no transaction yet — tariff rates are stable reads). The resolved
+    // price is frozen onto each message at persist time so later tariff changes never rewrite history.
+    private static async Task<Result<List<PricedMessage>>> PriceMessagesAsync(
+        SqlConnection connection, SendMessagesRequest request, SenderLineRow senderLine, CancellationToken cancellationToken)
+    {
         List<PricedMessage> priced = new List<PricedMessage>(request.Messages.Count);
         foreach (SendMessageItem item in request.Messages)
         {
@@ -78,88 +108,49 @@ public sealed class SendMessagesHandler
             priced.Add(new PricedMessage(item, segments, rate.TariffId, rate.PricePerSegment));
         }
 
+        return priced;
+    }
+
+    // Persist atomically: debit the balance, then write the batch header, the ledger entry, and the
+    // messages/bodies. Any unknown FK (customer/api key/message type/geo section) rolls the lot back.
+    private async Task<Result<SendMessagesResponse>> PersistAsync(
+        SqlConnection connection,
+        SendMessagesRequest request,
+        int apiKeyId,
+        SenderLineRow senderLine,
+        IReadOnlyList<PricedMessage> priced,
+        CancellationToken cancellationToken)
+    {
         decimal totalCost = priced.Sum(p => p.TotalCost);
         int totalSegments = priced.Sum(p => p.Segments.SegmentCount);
-        DateTime nowUtc = DateTime.UtcNow;
+        DateTime nowUtc = _clock.GetUtcNow().UtcDateTime;
         string submitDateJalali = JalaliDate.FromUtc(nowUtc);
 
-        // 3. Persist atomically: debit, then header, ledger, and the messages/bodies.
         using SqlTransaction transaction = connection.BeginTransaction();
         try
         {
-            decimal? balanceAfter = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
-                SendingSql.DebitBalance,
-                new { request.CustomerId, Amount = totalCost },
-                transaction,
-                cancellationToken: cancellationToken));
-
-            // No row updated ⇒ insufficient funds (or the customer has no balance yet).
-            // For now the whole request is rejected and nothing is persisted; recording a
-            // Rejected MessageBatch for accounting visibility is an additive follow-up.
-            if (balanceAfter is null)
+            Result<decimal> balanceAfter = await DebitBalanceAsync(
+                connection, transaction, request.CustomerId, totalCost, cancellationToken);
+            if (balanceAfter.IsFailure)
             {
                 transaction.Rollback();
-                return Error.Validation(
-                    "sending.insufficient_balance",
-                    "The customer's prepaid balance is insufficient for this batch.");
+                return balanceAfter.Error!;
             }
 
-            long batchId = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
-                SendingSql.InsertBatch,
-                new
-                {
-                    SubmitDateJalali = submitDateJalali,
-                    NowUtc = nowUtc,
-                    request.CustomerId,
-                    ApiKeyId = apiKeyId,
-                    SenderLineId = senderLine.Id,
-                    senderLine.ProviderId,
-                    request.ClientBatchId,
-                    MessageCount = priced.Count,
-                    SegmentCount = totalSegments,
-                    TotalCost = totalCost,
-                    Status = (byte)BatchStatus.Received,
-                },
-                transaction,
-                cancellationToken: cancellationToken));
+            long batchId = await InsertBatchAsync(
+                connection, transaction, request, apiKeyId, senderLine,
+                priced.Count, totalSegments, totalCost, submitDateJalali, nowUtc, cancellationToken);
 
-            await connection.ExecuteAsync(new CommandDefinition(
-                SendingSql.InsertDebitLedger,
-                new
-                {
-                    request.CustomerId,
-                    Type = (byte)BalanceTransactionType.Debit,
-                    Amount = -totalCost, // signed: debits are negative (README §4.15)
-                    BalanceAfter = balanceAfter.Value,
-                    MessageBatchId = batchId,
-                    Reference = request.ClientBatchId,
-                },
-                transaction,
-                cancellationToken: cancellationToken));
+            await InsertDebitLedgerAsync(
+                connection, transaction, request, totalCost, balanceAfter.Value, batchId, cancellationToken);
 
-            // Bulk-insert the heavy rows. First the messages, then read the server-assigned ids back
-            // in insertion order to key the 1:1 bodies, then the bodies. Both bulk copies enlist in
-            // this transaction (and check FK constraints), so the whole accept stays atomic.
-            using DataTable messageRows = BuildMessageRows(priced, batchId, senderLine, request, submitDateJalali, nowUtc);
-            await connection.BulkInsertAsync(transaction, "dbo.Message", messageRows, cancellationToken);
-
-            List<long> messageIds = (await connection.QueryAsync<long>(new CommandDefinition(
-                SendingSql.SelectBatchMessageIds,
-                new { MessageBatchId = batchId },
-                transaction,
-                cancellationToken: cancellationToken))).AsList();
-
-            if (messageIds.Count != priced.Count)
-                throw new InvalidOperationException(
-                    $"Bulk insert wrote {messageIds.Count} message(s) but {priced.Count} were expected.");
-
-            using DataTable bodyRows = BuildBodyRows(messageIds, priced);
-            await connection.BulkInsertAsync(transaction, "dbo.MessageBody", bodyRows, cancellationToken);
+            await InsertMessagesAndBodiesAsync(
+                connection, transaction, request, senderLine, priced, batchId, submitDateJalali, nowUtc, cancellationToken);
 
             transaction.Commit();
             return new SendMessagesResponse(batchId, priced.Count);
         }
-        catch (SqlException ex) when (ex.Number == 547) // FK violation: unknown customer/api key/message type/geo section
+        catch (SqlException ex) when (ex.IsConstraintConflict())
         {
             transaction.Rollback();
             return Error.Validation(
@@ -168,88 +159,108 @@ public sealed class SendMessagesHandler
         }
     }
 
-    /// <summary>
-    /// Builds the <c>Message</c> rows for bulk copy. Column order is independent of the destination
-    /// (the helper maps by name and lets the server assign the identity <c>Id</c>); nullable columns
-    /// carry <see cref="DBNull"/>. Column CLR types match the SQL types (TINYINT→byte, SMALLINT→short,
-    /// INT→int, BIGINT→long, DECIMAL→decimal, CHAR/VARCHAR/NVARCHAR→string, DATETIME2→DateTime).
-    /// </summary>
-    private static DataTable BuildMessageRows(
+    // Overspend-safe debit in a single atomic statement (README §4.14): returns the post-debit balance,
+    // or a validation failure when funds are insufficient (no row updated) so nothing is persisted.
+    private static async Task<Result<decimal>> DebitBalanceAsync(
+        SqlConnection connection, SqlTransaction transaction, short customerId, decimal amount, CancellationToken cancellationToken)
+    {
+        decimal? balanceAfter = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
+            SendingSql.DebitBalance,
+            new { CustomerId = customerId, Amount = amount },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (balanceAfter is null)
+            return Error.Validation("sending.insufficient_balance", "The customer's prepaid balance is insufficient for this batch.");
+
+        return balanceAfter.Value;
+    }
+
+    // Write the MessageBatch header (one row per API call) and return its server-assigned id.
+    private static Task<long> InsertBatchAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        SendMessagesRequest request,
+        int apiKeyId,
+        SenderLineRow senderLine,
+        int messageCount,
+        int segmentCount,
+        decimal totalCost,
+        string submitDateJalali,
+        DateTime nowUtc,
+        CancellationToken cancellationToken) =>
+        connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            SendingSql.InsertBatch,
+            new
+            {
+                SubmitDateJalali = submitDateJalali,
+                NowUtc = nowUtc,
+                request.CustomerId,
+                ApiKeyId = apiKeyId,
+                SenderLineId = senderLine.Id,
+                senderLine.ProviderId,
+                request.ClientBatchId,
+                MessageCount = messageCount,
+                SegmentCount = segmentCount,
+                TotalCost = totalCost,
+                Status = (byte)BatchStatus.Received,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+    // Append the signed money-ledger entry for the debit (debits are negative, README §4.15).
+    private static Task InsertDebitLedgerAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        SendMessagesRequest request,
+        decimal totalCost,
+        decimal balanceAfter,
+        long batchId,
+        CancellationToken cancellationToken) =>
+        connection.ExecuteAsync(new CommandDefinition(
+            SendingSql.InsertDebitLedger,
+            new
+            {
+                request.CustomerId,
+                Type = (byte)BalanceTransactionType.Debit,
+                Amount = -totalCost,
+                BalanceAfter = balanceAfter,
+                MessageBatchId = batchId,
+                Reference = request.ClientBatchId,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+    // Bulk-insert the heavy rows: the messages, then the server-assigned ids read back in insertion
+    // order to key the 1:1 bodies, then the bodies. Both bulk copies enlist in this transaction (and
+    // check FK constraints), so the whole accept stays atomic.
+    private static async Task InsertMessagesAndBodiesAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        SendMessagesRequest request,
+        SenderLineRow senderLine,
         IReadOnlyList<PricedMessage> priced,
         long batchId,
-        SenderLineRow senderLine,
-        SendMessagesRequest request,
         string submitDateJalali,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
     {
-        DataTable table = new DataTable();
-        table.Columns.Add("SubmitDateJalali", typeof(string));
-        table.Columns.Add("MessageBatchId", typeof(long));
-        table.Columns.Add("SubmittedAtUtc", typeof(DateTime));
-        table.Columns.Add("CustomerId", typeof(short));
-        table.Columns.Add("ProviderId", typeof(byte));
-        table.Columns.Add("SenderLineId", typeof(short));
-        table.Columns.Add("MessageTypeId", typeof(byte));
-        table.Columns.Add("GeoSectionId", typeof(int));
-        table.Columns.Add("MobileNumber", typeof(string));
-        table.Columns.Add("ClientCorrelatedId", typeof(string));
-        table.Columns.Add("BillId", typeof(string));
-        table.Columns.Add("PayId", typeof(string));
-        table.Columns.Add("Encoding", typeof(byte));
-        table.Columns.Add("CharacterCount", typeof(short));
-        table.Columns.Add("SegmentCount", typeof(byte));
-        table.Columns.Add("TariffId", typeof(int));
-        table.Columns.Add("UnitPrice", typeof(decimal));
-        table.Columns.Add("TotalCost", typeof(decimal));
-        table.Columns.Add("Status", typeof(byte));
-        table.Columns.Add("DeliveryStatus", typeof(byte));
+        using DataTable messageRows = SendMessagesRowMapper.BuildMessageRows(
+            priced, request, batchId, senderLine.ProviderId, senderLine.Id, submitDateJalali, nowUtc);
+        await connection.BulkInsertAsync(transaction, SendMessagesRowMapper.MessageTable, messageRows, cancellationToken);
 
-        foreach (PricedMessage message in priced)
-        {
-            table.Rows.Add(
-                submitDateJalali,
-                batchId,
-                nowUtc,
-                request.CustomerId,
-                senderLine.ProviderId,
-                senderLine.Id,
-                request.MessageTypeId,
-                (object?)message.Item.GeoSectionId ?? DBNull.Value,
-                message.Item.Recipient,
-                (object?)message.Item.ClientCorrelatedId ?? DBNull.Value,
-                (object?)message.Item.BillId ?? DBNull.Value,
-                (object?)message.Item.PayId ?? DBNull.Value,
-                (byte)message.Segments.Encoding,
-                (short)message.Segments.CharacterCount,
-                (byte)message.Segments.SegmentCount,
-                message.TariffId,
-                message.UnitPrice,
-                message.TotalCost,
-                (byte)SendStatus.Queued,
-                (byte)DeliveryStatus.Pending);
-        }
+        List<long> messageIds = (await connection.QueryAsync<long>(new CommandDefinition(
+            SendingSql.SelectBatchMessageIds,
+            new { MessageBatchId = batchId },
+            transaction,
+            cancellationToken: cancellationToken))).AsList();
 
-        return table;
-    }
+        if (messageIds.Count != priced.Count)
+            throw new InvalidOperationException(
+                $"Bulk insert wrote {messageIds.Count} message(s) but {priced.Count} were expected.");
 
-    /// <summary>Builds the 1:1 <c>MessageBody</c> rows, pairing each read-back id with its body
-    /// (both in insertion order — see <see cref="SendingSql.SelectBatchMessageIds"/>).</summary>
-    private static DataTable BuildBodyRows(IReadOnlyList<long> messageIds, IReadOnlyList<PricedMessage> priced)
-    {
-        DataTable table = new DataTable();
-        table.Columns.Add("Id", typeof(long));
-        table.Columns.Add("Body", typeof(string));
-
-        for (int i = 0; i < messageIds.Count; i++)
-            table.Rows.Add(messageIds[i], priced[i].Item.Text);
-
-        return table;
-    }
-
-    /// <summary>A message paired with its resolved cost snapshot, ready to persist.</summary>
-    private sealed record PricedMessage(SendMessageItem Item, SmsSegmentInfo Segments, int TariffId, decimal UnitPrice)
-    {
-        public decimal TotalCost => UnitPrice * Segments.SegmentCount;
+        using DataTable bodyRows = SendMessagesRowMapper.BuildBodyRows(messageIds, priced);
+        await connection.BulkInsertAsync(transaction, SendMessagesRowMapper.MessageBodyTable, bodyRows, cancellationToken);
     }
 
     private sealed record SenderLineRow(short Id, byte ProviderId, bool IsActive);

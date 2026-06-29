@@ -49,7 +49,7 @@ public sealed class BalancesTests : IAsyncLifetime
         Assert.True(second.IsSuccess);
         Assert.Equal(1500m, second.Value.Balance);
 
-        Result<CustomerBalance> balance = await new GetBalanceHandler(_db).Handle(id, CancellationToken.None);
+        Result<CustomerBalance> balance = await new GetBalanceHandler(_db, TimeProvider.System).Handle(id, CancellationToken.None);
         Assert.True(balance.IsSuccess);
         Assert.Equal(1500m, balance.Value.Balance);
     }
@@ -69,7 +69,7 @@ public sealed class BalancesTests : IAsyncLifetime
     {
         short id = await CreateCustomerAsync("fresh");
 
-        Result<CustomerBalance> balance = await new GetBalanceHandler(_db).Handle(id, CancellationToken.None);
+        Result<CustomerBalance> balance = await new GetBalanceHandler(_db, TimeProvider.System).Handle(id, CancellationToken.None);
 
         Assert.True(balance.IsSuccess);
         Assert.Equal(0m, balance.Value.Balance);

@@ -31,7 +31,7 @@ public sealed class AddIpRestrictionHandler
 
             return new ApiKeyIpRestriction(id, apiKeyId, request.Cidr, request.Description);
         }
-        catch (SqlException ex) when (ex.Number == 547) // FK violation: unknown API key
+        catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown API key
         {
             return Error.Validation("api_keys.unknown_key", "The API key does not exist.");
         }

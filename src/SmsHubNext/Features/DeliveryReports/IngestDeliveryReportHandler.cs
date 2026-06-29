@@ -15,8 +15,13 @@ namespace SmsHubNext.Features.DeliveryReports;
 public sealed class IngestDeliveryReportHandler
 {
     private readonly Db _db;
+    private readonly TimeProvider _clock;
 
-    public IngestDeliveryReportHandler(Db db) => _db = db;
+    public IngestDeliveryReportHandler(Db db, TimeProvider clock)
+    {
+        _db = db;
+        _clock = clock;
+    }
 
     public async Task<Result<IngestDeliveryReportResponse>> Handle(
         IngestDeliveryReportRequest request,
@@ -38,7 +43,7 @@ public sealed class IngestDeliveryReportHandler
             return Error.NotFound("delivery_reports.unknown_message", "The message does not exist.");
 
         DeliveryStatus readModel = request.Status.ToDeliveryStatus();
-        DateTime receivedAtUtc = DateTime.UtcNow;
+        DateTime receivedAtUtc = _clock.GetUtcNow().UtcDateTime;
 
         using SqlTransaction transaction = connection.BeginTransaction();
 

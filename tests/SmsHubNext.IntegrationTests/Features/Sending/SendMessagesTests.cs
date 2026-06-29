@@ -38,7 +38,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         int apiKeyId = await IssueApiKeyAsync(customerId);
 
         // Two GSM-7 single-segment messages against the seeded 1000 IRR/segment tariff.
-        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,
@@ -89,7 +89,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         Assert.Equal(2, bodyCount);
 
         // The balance is debited and the ledger records the matching signed entry.
-        Result<CustomerBalance> balance = await new GetBalanceHandler(_db).Handle(customerId, CancellationToken.None);
+        Result<CustomerBalance> balance = await new GetBalanceHandler(_db, TimeProvider.System).Handle(customerId, CancellationToken.None);
         Assert.Equal(8000m, balance.Value.Balance);
 
         (byte Type, decimal Amount, long? MessageBatchId) debit = await connection.QuerySingleAsync<(byte Type, decimal Amount, long? MessageBatchId)>(
@@ -106,7 +106,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         await TopUpAsync(customerId, 500m); // less than the 1000 IRR a single segment costs
         int apiKeyId = await IssueApiKeyAsync(customerId);
 
-        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,
@@ -127,7 +127,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
             "SELECT COUNT(*) FROM dbo.Message WHERE CustomerId = @CustomerId;", new { CustomerId = customerId });
         Assert.Equal(0, messageCount);
 
-        Result<CustomerBalance> balance = await new GetBalanceHandler(_db).Handle(customerId, CancellationToken.None);
+        Result<CustomerBalance> balance = await new GetBalanceHandler(_db, TimeProvider.System).Handle(customerId, CancellationToken.None);
         Assert.Equal(500m, balance.Value.Balance);
     }
 
@@ -138,7 +138,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         await TopUpAsync(customerId, 10000m);
         int apiKeyId = await IssueApiKeyAsync(customerId);
 
-        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db).Handle(
+        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
                 CustomerId = customerId,
