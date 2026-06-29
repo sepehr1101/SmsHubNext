@@ -24,6 +24,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
 {
     private const string SendPath = "/api/http/sms/v2/send";
     private const string StatusesPath = "/api/http/sms/v2/statuses/";
+    private const string MidPath = "/api/http/sms/v2/mid/";
 
     private readonly HttpClient _httpClient;
     private readonly MagfaOptions _options;
@@ -65,6 +66,29 @@ public sealed class MagfaSmsProvider : ISmsProvider
         return response.IsFailure
             ? response.Error!
             : MapSendResponse(response.Value, requests);
+    }
+
+    public async Task<Result<string?>> ResolveSubmittedMessageIdAsync(
+        long messageId, CancellationToken cancellationToken)
+    {
+        // GET /mid/{uid} — the uid we sent is the message id (reference §6).
+        Result<MagfaMidResponse> response = await ExecuteAsync<MagfaMidResponse>(
+            token => _httpClient.GetAsync(MidPath + messageId, token), cancellationToken);
+
+        if (response.IsFailure)
+            return response.Error!;
+
+        MagfaMidResponse body = response.Value;
+        if (body.Status != MagfaStatusCodes.Success)
+        {
+            _logger.LogError("Magfa /mid returned request-level status {Status}.", body.Status);
+            return Error.Provider("magfa.mid_request_status", $"Magfa request-level status {body.Status}.");
+        }
+
+        // mid -1 means Magfa has no record for this uid (safe to re-send).
+        return body.Mid < 0
+            ? Result.Success<string?>(null)
+            : Result.Success<string?>(body.Mid.ToString());
     }
 
     public async Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(

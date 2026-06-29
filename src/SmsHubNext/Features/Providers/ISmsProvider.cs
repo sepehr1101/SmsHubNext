@@ -37,6 +37,14 @@ public interface ISmsProvider
         IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Recovers from a send whose response was lost: looks up whether the provider already accepted
+    /// the message we submitted with this id (sent as the provider's correlation id / uid). Returns
+    /// the provider message id if it was accepted, or <c>null</c> if the provider has no record of it
+    /// (safe to re-send). A failed <c>Result</c> is a transient/transport error (retry the lookup).
+    /// </summary>
+    Task<Result<string?>> ResolveSubmittedMessageIdAsync(long messageId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Queries the provider for the delivery status of previously-submitted messages, by their
     /// provider message ids (the DLR-polling pipeline, Phase 2). A failed <c>Result</c> is a
     /// transport/transient error (retry next cycle); a successful result carries one

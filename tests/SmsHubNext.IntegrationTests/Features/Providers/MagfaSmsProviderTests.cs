@@ -277,6 +277,59 @@ public sealed class MagfaSmsProviderTests : IDisposable
         Assert.True(batch.Value[1].IsFailure);  // 222 missing -> transient, retried next cycle
     }
 
+    [Fact]
+    public async Task Mid_lookup_returns_the_provider_id_when_the_message_was_accepted()
+    {
+        StubMid(200, """{ "status": 0, "mid": 555 }""");
+
+        Result<string?> result = await NewProvider().ResolveSubmittedMessageIdAsync(123, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal("555", result.Value);
+    }
+
+    [Fact]
+    public async Task Mid_lookup_returns_null_when_the_message_is_unknown()
+    {
+        // status 0 with mid -1 = valid request, no record for this uid (safe to re-send).
+        StubMid(200, """{ "status": 0, "mid": -1 }""");
+
+        Result<string?> result = await NewProvider().ResolveSubmittedMessageIdAsync(123, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public async Task Mid_lookup_request_error_is_transient()
+    {
+        StubMid(200, """{ "status": 18, "mid": -1 }""");
+
+        Result<string?> result = await NewProvider().ResolveSubmittedMessageIdAsync(123, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Provider, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task Mid_lookup_targets_the_uid_path()
+    {
+        StubMid(200, """{ "status": 0, "mid": 1 }""");
+
+        await NewProvider().ResolveSubmittedMessageIdAsync(98765, CancellationToken.None);
+
+        WireMock.Logging.ILogEntry entry = Assert.Single(_magfa.LogEntries);
+        Assert.EndsWith("/api/http/sms/v2/mid/98765", entry.RequestMessage.Path);
+    }
+
+    private void StubMid(int statusCode, string body) =>
+        _magfa
+            .Given(Request.Create().WithPath(p => p.StartsWith("/api/http/sms/v2/mid/")).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode((HttpStatusCode)statusCode)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody(body));
+
     private void StubStatuses(int statusCode, string body) =>
         _magfa
             .Given(Request.Create().WithPath(p => p.StartsWith("/api/http/sms/v2/statuses/")).UsingGet())

@@ -30,25 +30,27 @@ internal static class DispatchSql
     public const string GetSenderLineNumber =
         "SELECT LineNumber FROM dbo.SenderLine WHERE Id = @SenderLineId;";
 
-    // Only the still-Queued messages — so a resumed batch reprocesses just the unsent rows (idempotent).
-    public const string LoadQueuedMessages =
+    // Messages still needing dispatch: Queued (never sent) or AwaitingConfirmation (sent, response
+    // lost — reconciled before re-sending). A resumed batch reprocesses just these rows (idempotent).
+    public const string LoadDispatchableMessages =
         """
-        SELECT m.Id, m.MobileNumber, m.TotalCost, m.CustomerId, body.Body
+        SELECT m.Id, m.MobileNumber, m.TotalCost, m.CustomerId, body.Body, m.Status
         FROM dbo.Message m
         INNER JOIN dbo.MessageBody body ON body.Id = m.Id
-        WHERE m.MessageBatchId = @BatchId AND m.Status = 1     -- Queued
+        WHERE m.MessageBatchId = @BatchId AND m.Status IN (1, 6)   -- Queued, AwaitingConfirmation
         ORDER BY m.Id;
         """;
 
-    // Guarded transitions (WHERE Status = 1) make every update idempotent under retry/restart.
-    // On the same transition, enqueue the message for delivery-report polling (Phase 2). The
-    // enqueue is guarded (message now Submitted with this provider id, and not already queued),
-    // so a retried submit never double-enqueues. DispatchedAtUtc/@Now anchors the status window.
+    // Guarded transition (Status Queued or AwaitingConfirmation -> Submitted) keeps every update
+    // idempotent under retry/restart, and serves both a fresh send and a reconciled-confirmed send.
+    // On the same transition, enqueue the message for delivery-report polling (Phase 2). The enqueue
+    // is guarded (message now Submitted with this provider id, and not already queued), so a retried
+    // submit never double-enqueues. DispatchedAtUtc/@Now anchors the status window.
     public const string MarkSubmitted =
         """
         UPDATE dbo.Message
         SET Status = 2, ProviderMessageId = @ProviderMessageId   -- Submitted
-        WHERE Id = @Id AND Status = 1;
+        WHERE Id = @Id AND Status IN (1, 6);                     -- Queued or AwaitingConfirmation
 
         INSERT INTO dbo.DeliveryReportPoll
             (MessageId, SubmitDateJalali, ProviderId, ProviderMessageId, DispatchedAtUtc, NextPollAtUtc, Attempts)
@@ -56,6 +58,24 @@ internal static class DispatchSql
         FROM dbo.Message m
         WHERE m.Id = @Id AND m.Status = 2 AND m.ProviderMessageId = @ProviderMessageId
           AND NOT EXISTS (SELECT 1 FROM dbo.DeliveryReportPoll p WHERE p.MessageId = m.Id);
+        """;
+
+    // Park messages whose send response was lost (transport failure): the outcome is unknown, so the
+    // next cycle reconciles them via the provider instead of blindly re-sending.
+    public const string MarkAwaitingConfirmation =
+        """
+        UPDATE dbo.Message
+        SET Status = 6                                            -- AwaitingConfirmation
+        WHERE Id IN @Ids AND Status = 1;                         -- only ones still Queued
+        """;
+
+    // Reconciliation found no provider record: the message was never accepted, so reset it to Queued
+    // for a normal (safe) re-send.
+    public const string RequeueMessage =
+        """
+        UPDATE dbo.Message
+        SET Status = 1                                            -- Queued
+        WHERE Id = @Id AND Status = 6;                           -- AwaitingConfirmation
         """;
 
     public const string MarkRejected =

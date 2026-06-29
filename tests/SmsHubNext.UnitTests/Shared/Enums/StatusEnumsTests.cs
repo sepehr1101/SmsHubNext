@@ -13,6 +13,7 @@ public class StatusEnumsTests
     [InlineData(SendStatus.Sent, 3)]
     [InlineData(SendStatus.Rejected, 4)]
     [InlineData(SendStatus.Unknown, 5)]
+    [InlineData(SendStatus.AwaitingConfirmation, 6)]
     public void SendStatus_values_are_stable(SendStatus status, byte expected)
         => Assert.Equal(expected, (byte)status);
 

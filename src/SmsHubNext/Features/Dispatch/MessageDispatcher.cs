@@ -68,20 +68,54 @@ public sealed class MessageDispatcher
             cancellationToken: cancellationToken));
 
         List<QueuedMessage> messages = (await connection.QueryAsync<QueuedMessage>(new CommandDefinition(
-            DispatchSql.LoadQueuedMessages,
+            DispatchSql.LoadDispatchableMessages,
             new { BatchId = batch.Id },
             cancellationToken: cancellationToken))).AsList();
 
-        _logger.LogDebug("Dispatching batch {BatchId}: {Count} queued message(s)", batch.Id, messages.Count);
+        _logger.LogDebug("Dispatching batch {BatchId}: {Count} message(s)", batch.Id, messages.Count);
 
-        // Hand the queued messages to the provider in chunks of at most MaxBatchSize — one HTTP
+        // Reconcile any message whose previous send response was lost (AwaitingConfirmation): confirm
+        // it via the provider rather than blindly re-sending, so a lost response never double-charges.
+        // The rest (Queued) go straight to the send phase.
+        List<QueuedMessage> toSend = new List<QueuedMessage>(messages.Count);
+        foreach (QueuedMessage message in messages)
+        {
+            if (message.Status != (byte)SendStatus.AwaitingConfirmation)
+            {
+                toSend.Add(message);
+                continue;
+            }
+
+            Result<string?> lookup = await SafeResolveAsync(message.Id, cancellationToken);
+            if (lookup.IsFailure)
+            {
+                // Can't confirm right now: re-queue and retry the whole batch on a later cycle.
+                await RequeueBatchAsync(connection, batch.Id, now, cancellationToken);
+                return true;
+            }
+
+            if (lookup.Value is string providerMessageId)
+            {
+                // The provider had already accepted it — confirm Submitted without re-sending.
+                await MarkSubmittedAsync(connection, message.Id, providerMessageId, now, cancellationToken);
+            }
+            else
+            {
+                // No provider record — it was never accepted, so reset to Queued and send it below.
+                await connection.ExecuteAsync(new CommandDefinition(
+                    DispatchSql.RequeueMessage, new { message.Id }, cancellationToken: cancellationToken));
+                toSend.Add(message);
+            }
+        }
+
+        // Hand the remaining messages to the provider in chunks of at most MaxBatchSize — one HTTP
         // request per chunk — but apply each message's outcome individually, exactly as a one-by-one
         // dispatch would. Batching is a transport optimization only; the per-message state machine
-        // (Submitted / Rejected+refund / retried / held) is unchanged.
+        // (Submitted / Rejected+refund / retried / held / awaiting-confirmation) is unchanged.
         bool held = false;
         bool requeue = false;
 
-        foreach (QueuedMessage[] chunk in messages.Chunk(_provider.MaxBatchSize))
+        foreach (QueuedMessage[] chunk in toSend.Chunk(_provider.MaxBatchSize))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -94,10 +128,11 @@ public sealed class MessageDispatcher
 
             if (batchResult.IsFailure)
             {
-                // Whole-chunk transport error: re-queue the batch and stop; a later cycle retries.
-                // Messages already Submitted in earlier chunks stay Submitted (not reloaded).
+                // Transport error: the chunk's outcome is unknown. Park these messages so the next
+                // cycle reconciles them via the provider rather than re-sending, then re-queue.
                 _logger.LogWarning("Transient dispatch failure on batch {BatchId}: {Error}. Re-queuing.",
                     batch.Id, batchResult.Error!.Message);
+                await MarkAwaitingConfirmationAsync(connection, chunk, cancellationToken);
                 await RequeueBatchAsync(connection, batch.Id, now, cancellationToken);
                 return true;
             }
@@ -111,7 +146,8 @@ public sealed class MessageDispatcher
 
                 if (send.IsFailure)
                 {
-                    // Per-message transient: leave this one Queued so a later cycle retries just it.
+                    // Per-message transient (provider said "busy"): leave it Queued — it was not sent,
+                    // so a later cycle safely re-sends it (no confirmation needed).
                     requeue = true;
                     continue;
                 }
@@ -120,10 +156,7 @@ public sealed class MessageDispatcher
                 switch (outcome.Status)
                 {
                     case ProviderDispatchStatus.Accepted:
-                        await connection.ExecuteAsync(new CommandDefinition(
-                            DispatchSql.MarkSubmitted,
-                            new { message.Id, outcome.ProviderMessageId, Now = now },
-                            cancellationToken: cancellationToken));
+                        await MarkSubmittedAsync(connection, message.Id, outcome.ProviderMessageId!, now, cancellationToken);
                         break;
 
                     case ProviderDispatchStatus.Rejected:
@@ -167,6 +200,37 @@ public sealed class MessageDispatcher
         connection.ExecuteAsync(new CommandDefinition(
             DispatchSql.RevertBatchToReceived, new { Id = batchId, Now = now },
             cancellationToken: cancellationToken));
+
+    // Mark a message Submitted (from Queued or a reconciled AwaitingConfirmation) and enqueue its
+    // delivery-report poll. Used both by a fresh accept and by a lookup-confirmed send.
+    private static Task MarkSubmittedAsync(
+        SqlConnection connection, long messageId, string providerMessageId, DateTime now, CancellationToken cancellationToken) =>
+        connection.ExecuteAsync(new CommandDefinition(
+            DispatchSql.MarkSubmitted,
+            new { Id = messageId, ProviderMessageId = providerMessageId, Now = now },
+            cancellationToken: cancellationToken));
+
+    // Park a chunk's still-Queued messages as AwaitingConfirmation after a lost send response.
+    private static Task MarkAwaitingConfirmationAsync(
+        SqlConnection connection, IReadOnlyList<QueuedMessage> chunk, CancellationToken cancellationToken) =>
+        connection.ExecuteAsync(new CommandDefinition(
+            DispatchSql.MarkAwaitingConfirmation,
+            new { Ids = chunk.Select(m => m.Id).ToArray() },
+            cancellationToken: cancellationToken));
+
+    private async Task<Result<string?>> SafeResolveAsync(long messageId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _provider.ResolveSubmittedMessageIdAsync(messageId, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A provider should not throw for expected failures; treat anything that escapes as transient.
+            _logger.LogError(ex, "Provider threw resolving message {MessageId}", messageId);
+            return Error.Provider("dispatch.provider_threw", ex.Message);
+        }
+    }
 
     private async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SafeSendBatchAsync(
         IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
@@ -254,7 +318,8 @@ public sealed class MessageDispatcher
 
     private sealed record ClaimedBatch(long Id, short CustomerId, byte ProviderId, short SenderLineId);
 
-    private sealed record QueuedMessage(long Id, string MobileNumber, decimal TotalCost, short CustomerId, string Body);
+    private sealed record QueuedMessage(
+        long Id, string MobileNumber, decimal TotalCost, short CustomerId, string Body, byte Status);
 
     private sealed record StatusCounts(int? Queued, int? Submitted, int? Rejected);
 }

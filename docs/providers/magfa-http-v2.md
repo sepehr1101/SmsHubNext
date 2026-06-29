@@ -284,7 +284,8 @@ Send-only walking skeleton. The dispatcher already submits **one message per cal
   arrays (+ `uids` = `Message.Id` for correlation/idempotency), then map each `messages[]` entry to
   its `ProviderDispatchResult`.
 * **`GET /balance`** — handy for an ops/health surface (optional this phase).
-* **`GET /mid/{uid}`** — only needed once we add timeout-safe resend; we pass `uids` now so it's
-  available later.
+* **`GET /mid/{uid}`** — Phase 3 (timeout-safe resend). When a `/send` response is lost the message
+  is parked `AwaitingConfirmation`; the next dispatch cycle looks up `/mid/{Message.Id}` — a real mid
+  means Magfa already accepted it (confirm `Submitted`, no re-send), `-1` means re-send is safe.
 * **`GET /statuses`** — Phase 2 (delivery-status polling worker), maps to `DeliveryReport`.
 * **`GET /messages`** — later phase (inbound).

@@ -118,15 +118,84 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.NotNull(done.Value.FinishedAtUtc);
     }
 
+    [Fact]
+    public async Task A_lost_send_response_is_confirmed_via_lookup_without_resending()
+    {
+        (long batchId, short customerId) = await SendBatchAsync(messageCount: 1);
+
+        // Cycle 1: the send response is lost (transport failure) -> the message awaits confirmation.
+        MessageDispatcher failing = Dispatcher(
+            _ => ProviderDispatchResult.Accepted("unused"),
+            sendFailure: Error.Provider("dispatch.timeout", "response lost"));
+        Assert.True(await failing.DispatchNextBatchAsync(CancellationToken.None));
+
+        Assert.Equal((byte)SendStatus.AwaitingConfirmation, await MessageStatusAsync(batchId));
+        Assert.Equal(9000m, await BalanceAsync(customerId)); // debited once, not refunded
+
+        // Cycle 2: the provider confirms it WAS accepted -> Submitted, no resend, no extra charge.
+        int sendCalls = 0;
+        MessageDispatcher recovering = Dispatcher(
+            _ => { sendCalls++; return ProviderDispatchResult.Accepted("should-not-be-used"); },
+            resolve: _ => Result.Success<string?>("magfa-555"));
+        Assert.True(await recovering.DispatchNextBatchAsync(CancellationToken.None));
+
+        Assert.Equal(0, sendCalls); // never re-sent
+        Assert.Equal((byte)SendStatus.Submitted, await MessageStatusAsync(batchId));
+        Assert.Equal("magfa-555", await ProviderMessageIdAsync(batchId)); // id recovered from the lookup
+        Assert.Equal(9000m, await BalanceAsync(customerId)); // still only the original debit
+
+        Result<Batch> done = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(BatchStatus.Completed, done.Value.Status);
+    }
+
+    [Fact]
+    public async Task A_lost_send_response_with_no_provider_record_is_resent()
+    {
+        (long batchId, _) = await SendBatchAsync(messageCount: 1);
+
+        MessageDispatcher failing = Dispatcher(
+            _ => ProviderDispatchResult.Accepted("unused"),
+            sendFailure: Error.Provider("dispatch.timeout", "response lost"));
+        Assert.True(await failing.DispatchNextBatchAsync(CancellationToken.None));
+        Assert.Equal((byte)SendStatus.AwaitingConfirmation, await MessageStatusAsync(batchId));
+
+        // The provider has no record -> it was never accepted, so this cycle re-sends and accepts it.
+        int sendCalls = 0;
+        MessageDispatcher resending = Dispatcher(
+            _ => { sendCalls++; return ProviderDispatchResult.Accepted("magfa-777"); },
+            resolve: _ => Result.Success<string?>(null));
+        Assert.True(await resending.DispatchNextBatchAsync(CancellationToken.None));
+
+        Assert.Equal(1, sendCalls); // re-sent exactly once
+        Assert.Equal((byte)SendStatus.Submitted, await MessageStatusAsync(batchId));
+        Assert.Equal("magfa-777", await ProviderMessageIdAsync(batchId));
+    }
+
     private MessageDispatcher Dispatcher(
         Func<ProviderSendRequest, Result<ProviderDispatchResult>> behavior,
-        DispatchOptions? options = null) =>
+        DispatchOptions? options = null,
+        Func<long, Result<string?>>? resolve = null,
+        Error? sendFailure = null) =>
         new(
             _db,
-            new StubProvider(behavior),
+            new StubProvider(behavior, resolve, sendFailure),
             options ?? new DispatchOptions(),
             TimeProvider.System,
             NullLogger<MessageDispatcher>.Instance);
+
+    private async Task<byte> MessageStatusAsync(long batchId)
+    {
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        return await connection.ExecuteScalarAsync<byte>(
+            "SELECT TOP 1 Status FROM dbo.Message WHERE MessageBatchId = @batchId ORDER BY Id;", new { batchId });
+    }
+
+    private async Task<string?> ProviderMessageIdAsync(long batchId)
+    {
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        return await connection.ExecuteScalarAsync<string?>(
+            "SELECT TOP 1 ProviderMessageId FROM dbo.Message WHERE MessageBatchId = @batchId ORDER BY Id;", new { batchId });
+    }
 
     private async Task<decimal> BalanceAsync(short customerId)
     {
@@ -168,21 +237,37 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
     private sealed class StubProvider : ISmsProvider
     {
         private readonly Func<ProviderSendRequest, Result<ProviderDispatchResult>> _behavior;
+        private readonly Func<long, Result<string?>> _resolve;
+        private readonly Error? _sendFailure;
 
-        public StubProvider(Func<ProviderSendRequest, Result<ProviderDispatchResult>> behavior) =>
+        public StubProvider(
+            Func<ProviderSendRequest, Result<ProviderDispatchResult>> behavior,
+            Func<long, Result<string?>>? resolve = null,
+            Error? sendFailure = null)
+        {
             _behavior = behavior;
+            _resolve = resolve ?? (_ => Result.Success<string?>(null));
+            _sendFailure = sendFailure;
+        }
 
         public string Name => "stub";
 
         public int MaxBatchSize => 1000;
 
-        // Apply the per-message behavior to each request, aligned to input order.
+        // Apply the per-message behavior to each request, aligned to input order — unless a whole-batch
+        // (transport) failure is configured.
         public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
             IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
         {
+            if (_sendFailure is not null)
+                return Task.FromResult(Result.Failure<IReadOnlyList<Result<ProviderDispatchResult>>>(_sendFailure));
+
             IReadOnlyList<Result<ProviderDispatchResult>> results = requests.Select(_behavior).ToList();
             return Task.FromResult(Result.Success(results));
         }
+
+        public Task<Result<string?>> ResolveSubmittedMessageIdAsync(long messageId, CancellationToken cancellationToken) =>
+            Task.FromResult(_resolve(messageId));
 
         public Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
             IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken) =>
