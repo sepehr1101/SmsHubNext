@@ -46,13 +46,11 @@ public sealed class MagfaSmsProvider : ISmsProvider
         if (requests.Count == 0)
             return Result.Success<IReadOnlyList<Result<ProviderDispatchResult>>>([]);
 
-        HttpResponseMessage response;
-        try
-        {
-            // Parallel arrays, one element per message. uids carries each message id so the response
-            // can be correlated back per message (reference §5/§6); senders repeats per recipient to
-            // satisfy Magfa's equal-length rule even if a future batch mixes lines.
-            response = await _httpClient.PostAsJsonAsync(
+        // Parallel arrays, one element per message. uids carries each message id so the response can
+        // be correlated back per message (reference §5/§6); senders repeats per recipient to satisfy
+        // Magfa's equal-length rule even if a future batch mixes lines.
+        Result<MagfaSendResponse> response = await ExecuteAsync<MagfaSendResponse>(
+            token => _httpClient.PostAsJsonAsync(
                 SendPath,
                 new
                 {
@@ -61,7 +59,54 @@ public sealed class MagfaSmsProvider : ISmsProvider
                     messages = requests.Select(r => r.Body).ToArray(),
                     uids = requests.Select(r => r.MessageId).ToArray(),
                 },
-                cancellationToken);
+                token),
+            cancellationToken);
+
+        return response.IsFailure
+            ? response.Error!
+            : MapSendResponse(response.Value, requests);
+    }
+
+    public async Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
+        IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken)
+    {
+        if (providerMessageIds.Count == 0)
+            return Result.Success<IReadOnlyList<ProviderDeliveryReport>>([]);
+
+        // GET /statuses/{mid1,mid2,...} — up to MaxBatchSize ids (the poller batches to that limit).
+        Result<MagfaStatusesResponse> response = await ExecuteAsync<MagfaStatusesResponse>(
+            token => _httpClient.GetAsync(StatusesPath + string.Join(',', providerMessageIds), token),
+            cancellationToken);
+
+        if (response.IsFailure)
+            return response.Error!;
+
+        MagfaStatusesResponse body = response.Value;
+        if (body.Status != MagfaStatusCodes.Success)
+        {
+            _logger.LogError("Magfa /statuses returned request-level status {Status}.", body.Status);
+            return Error.Provider("magfa.statuses_request_status", $"Magfa request-level status {body.Status}.");
+        }
+
+        return Result.Success<IReadOnlyList<ProviderDeliveryReport>>(body.Dlrs
+            .Select(dlr => new ProviderDeliveryReport(
+                dlr.Mid.ToString(), MagfaDeliveryStatusCodes.Classify(dlr.Status), dlr.Status))
+            .ToList());
+    }
+
+    /// <summary>
+    /// Issues one Magfa request and deserializes its JSON body. All transport-boundary failures —
+    /// connection errors, timeouts, non-success status codes, and malformed/empty bodies — are turned
+    /// into a transient provider <see cref="Error"/> here, so callers deal only with a parsed body.
+    /// </summary>
+    private async Task<Result<T>> ExecuteAsync<T>(
+        Func<CancellationToken, Task<HttpResponseMessage>> send, CancellationToken cancellationToken)
+        where T : class
+    {
+        HttpResponseMessage response;
+        try
+        {
+            response = await send(cancellationToken);
         }
         catch (HttpRequestException ex)
         {
@@ -75,66 +120,70 @@ public sealed class MagfaSmsProvider : ISmsProvider
         if (!response.IsSuccessStatusCode)
             return Error.Provider("magfa.http_status", $"Magfa returned HTTP {(int)response.StatusCode}.");
 
-        MagfaSendResponse? body;
+        T? body;
         try
         {
-            body = await response.Content.ReadFromJsonAsync<MagfaSendResponse>(cancellationToken);
+            body = await response.Content.ReadFromJsonAsync<T>(cancellationToken);
         }
         catch (JsonException ex)
         {
             return Error.Provider("magfa.bad_json", $"Could not parse Magfa response: {ex.Message}");
         }
 
-        if (body is null)
-            return Error.Provider("magfa.empty_body", "Magfa returned an empty response body.");
-
-        return MapBatch(body, requests);
+        return body is null
+            ? Error.Provider("magfa.empty_body", "Magfa returned an empty response body.")
+            : Result.Success(body);
     }
 
-    private Result<IReadOnlyList<Result<ProviderDispatchResult>>> MapBatch(
-        MagfaSendResponse body, IReadOnlyList<ProviderSendRequest> requests)
+    private Result<IReadOnlyList<Result<ProviderDispatchResult>>> MapSendResponse(
+        MagfaSendResponse response, IReadOnlyList<ProviderSendRequest> requests)
     {
         // A non-zero request-level status applies to the whole chunk, before any per-message result.
-        if (body.Status != MagfaStatusCodes.Success)
-        {
-            if (MagfaStatusCodes.Classify(body.Status) == MagfaDisposition.InsufficientCredit)
-            {
-                // The whole request was blocked on credit: every message is out-of-credit, so the
-                // dispatcher holds the batch and leaves them queued.
-                List<Result<ProviderDispatchResult>> credit = requests
-                    .Select(_ => Result.Success(ProviderDispatchResult.InsufficientCredit(body.Status)))
-                    .ToList();
-                return Result.Success<IReadOnlyList<Result<ProviderDispatchResult>>>(credit);
-            }
+        if (response.Status == MagfaStatusCodes.Success)
+            return Result.Success(CorrelateResults(response, requests));
 
-            // Auth/IP/protocol faults and "server busy" are not per-message outcomes: re-queue the
-            // whole chunk and surface loudly so a misconfiguration is fixed rather than charged.
-            _logger.LogError(
-                "Magfa rejected the send request ({Count} message(s)) with request-level status {Status}.",
-                requests.Count, body.Status);
-            return Error.Provider("magfa.request_status", $"Magfa request-level status {body.Status}.");
+        if (MagfaStatusCodes.Classify(response.Status) == MagfaDisposition.InsufficientCredit)
+        {
+            // The whole request was blocked on credit: every message is out-of-credit, so the
+            // dispatcher holds the batch and leaves them queued.
+            IReadOnlyList<Result<ProviderDispatchResult>> outOfCredit = requests
+                .Select(_ => Result.Success(ProviderDispatchResult.InsufficientCredit(response.Status)))
+                .ToList();
+            return Result.Success(outOfCredit);
         }
 
-        // Correlate each per-message result back to its request by the uid we sent (Message.Id), so a
-        // reordered response still maps correctly. When Magfa does not echo uids but returned exactly
-        // one result per message, fall back to position; otherwise an unmatched message is retried.
-        Dictionary<long, MagfaSentMessage> byUid = new Dictionary<long, MagfaSentMessage>(body.Messages.Count);
-        foreach (MagfaSentMessage sent in body.Messages)
+        // Auth/IP/protocol faults and "server busy" are not per-message outcomes: re-queue the whole
+        // chunk and surface loudly so a misconfiguration is fixed rather than charged.
+        _logger.LogError("Magfa rejected the send request ({Count} message(s)) with request-level status {Status}.",
+            requests.Count, response.Status);
+        return Error.Provider("magfa.request_status", $"Magfa request-level status {response.Status}.");
+    }
+
+    /// <summary>
+    /// Aligns Magfa's per-recipient results to the input requests by the uid we sent (Message.Id), so
+    /// a reordered response still maps correctly. When Magfa returned exactly one result per message
+    /// without echoing uids, falls back to position; an otherwise-unmatched message is left transient
+    /// (retried). Always returns one result per request, in input order.
+    /// </summary>
+    private IReadOnlyList<Result<ProviderDispatchResult>> CorrelateResults(
+        MagfaSendResponse response, IReadOnlyList<ProviderSendRequest> requests)
+    {
+        Dictionary<long, MagfaSentMessage> byUid = new Dictionary<long, MagfaSentMessage>(response.Messages.Count);
+        foreach (MagfaSentMessage sent in response.Messages)
         {
             if (sent.UserId is long uid)
                 byUid[uid] = sent;
         }
 
-        bool positionalFallback = body.Messages.Count == requests.Count;
+        bool positionalFallback = response.Messages.Count == requests.Count;
 
         List<Result<ProviderDispatchResult>> results = new List<Result<ProviderDispatchResult>>(requests.Count);
         for (int i = 0; i < requests.Count; i++)
         {
             ProviderSendRequest request = requests[i];
-
             MagfaSentMessage? sent = byUid.TryGetValue(request.MessageId, out MagfaSentMessage? matched)
                 ? matched
-                : positionalFallback ? body.Messages[i] : null;
+                : positionalFallback ? response.Messages[i] : null;
 
             if (sent is null)
             {
@@ -147,7 +196,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
             }
         }
 
-        return Result.Success<IReadOnlyList<Result<ProviderDispatchResult>>>(results);
+        return results;
     }
 
     /// <summary>Maps one per-recipient result to a domain outcome (success) or a per-message transient
@@ -178,62 +227,5 @@ public sealed class MagfaSmsProvider : ISmsProvider
                     request.MessageId, message.Status);
                 return ProviderDispatchResult.Rejected(message.Status, $"Magfa status {message.Status} (configuration).");
         }
-    }
-
-    public async Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
-        IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken)
-    {
-        if (providerMessageIds.Count == 0)
-            return Result.Success<IReadOnlyList<ProviderDeliveryReport>>([]);
-
-        // GET /statuses/{mid1,mid2,...} — up to 100 ids (the poller batches to that limit).
-        string path = StatusesPath + string.Join(',', providerMessageIds);
-
-        HttpResponseMessage response;
-        try
-        {
-            response = await _httpClient.GetAsync(path, cancellationToken);
-        }
-        catch (HttpRequestException ex)
-        {
-            return Error.Provider("magfa.transport", $"HTTP transport error: {ex.Message}");
-        }
-        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            return Error.Provider("magfa.timeout", $"Request timed out: {ex.Message}");
-        }
-
-        if (!response.IsSuccessStatusCode)
-            return Error.Provider("magfa.http_status", $"Magfa returned HTTP {(int)response.StatusCode}.");
-
-        MagfaStatusesResponse? body;
-        try
-        {
-            body = await response.Content.ReadFromJsonAsync<MagfaStatusesResponse>(cancellationToken);
-        }
-        catch (JsonException ex)
-        {
-            return Error.Provider("magfa.bad_json", $"Could not parse Magfa statuses response: {ex.Message}");
-        }
-
-        if (body is null)
-            return Error.Provider("magfa.empty_body", "Magfa returned an empty statuses body.");
-
-        if (body.Status != MagfaStatusCodes.Success)
-        {
-            _logger.LogError("Magfa /statuses returned request-level status {Status}.", body.Status);
-            return Error.Provider("magfa.statuses_request_status", $"Magfa request-level status {body.Status}.");
-        }
-
-        List<ProviderDeliveryReport> reports = new(body.Dlrs.Count);
-        foreach (MagfaDlr dlr in body.Dlrs)
-        {
-            reports.Add(new ProviderDeliveryReport(
-                dlr.Mid.ToString(),
-                MagfaDeliveryStatusCodes.Classify(dlr.Status),
-                dlr.Status));
-        }
-
-        return Result.Success<IReadOnlyList<ProviderDeliveryReport>>(reports);
     }
 }

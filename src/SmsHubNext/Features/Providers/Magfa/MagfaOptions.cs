@@ -10,6 +10,9 @@ public sealed class MagfaOptions
 {
     public const string SectionName = "Providers:Magfa";
 
+    /// <summary>Magfa's hard cap on messages per <c>/send</c> (and mids per <c>/statuses</c>) request (reference §1).</summary>
+    public const int MaxMessagesPerRequest = 100;
+
     /// <summary>
     /// When false (the default), the loopback provider stays registered so dev/local runs and
     /// the dispatch tests work without Magfa credentials. Set true once credentials are present.
@@ -32,10 +35,10 @@ public sealed class MagfaOptions
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Maximum messages per <c>/send</c> request. Magfa hard-caps this at 100 (reference §1); the
+    /// Maximum messages per <c>/send</c> request, capped at <see cref="MaxMessagesPerRequest"/>; the
     /// dispatcher chunks a batch by this value, so one HTTP request carries up to this many messages.
     /// </summary>
-    public int BatchSize { get; init; } = 100;
+    public int BatchSize { get; init; } = MaxMessagesPerRequest;
 
     /// <summary>The Basic-auth user field: <c>USERNAME/DOMAIN</c> (see the API reference, §3).</summary>
     public string BasicAuthUser => $"{Username}/{Domain}";
@@ -57,8 +60,8 @@ public sealed class MagfaOptions
             throw new InvalidOperationException($"{SectionName}:Domain is required when Magfa is enabled.");
         if (string.IsNullOrWhiteSpace(Password))
             throw new InvalidOperationException($"{SectionName}:Password is required when Magfa is enabled.");
-        if (BatchSize is < 1 or > 100)
+        if (BatchSize is < 1 or > MaxMessagesPerRequest)
             throw new InvalidOperationException(
-                $"{SectionName}:BatchSize must be between 1 and 100 (Magfa's per-request limit).");
+                $"{SectionName}:BatchSize must be between 1 and {MaxMessagesPerRequest} (Magfa's per-request limit).");
     }
 }

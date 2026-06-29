@@ -81,7 +81,7 @@ public sealed class MessageDispatcher
         bool held = false;
         bool requeue = false;
 
-        foreach (QueuedMessage[] chunk in messages.Chunk(Math.Max(1, _provider.MaxBatchSize)))
+        foreach (QueuedMessage[] chunk in messages.Chunk(_provider.MaxBatchSize))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -98,25 +98,12 @@ public sealed class MessageDispatcher
                 // Messages already Submitted in earlier chunks stay Submitted (not reloaded).
                 _logger.LogWarning("Transient dispatch failure on batch {BatchId}: {Error}. Re-queuing.",
                     batch.Id, batchResult.Error!.Message);
-                await connection.ExecuteAsync(new CommandDefinition(
-                    DispatchSql.RevertBatchToReceived, new { batch.Id, Now = now },
-                    cancellationToken: cancellationToken));
+                await RequeueBatchAsync(connection, batch.Id, now, cancellationToken);
                 return true;
             }
 
+            // The provider returns one result per request, in input order (ISmsProvider contract).
             IReadOnlyList<Result<ProviderDispatchResult>> outcomes = batchResult.Value;
-            if (outcomes.Count != chunk.Length)
-            {
-                // A provider must return one result per request; anything else is a contract breach.
-                // Treat it as transient and re-queue rather than guess at the alignment.
-                _logger.LogError("Provider returned {Got} result(s) for {Sent} message(s) on batch {BatchId}; re-queuing.",
-                    outcomes.Count, chunk.Length, batch.Id);
-                await connection.ExecuteAsync(new CommandDefinition(
-                    DispatchSql.RevertBatchToReceived, new { batch.Id, Now = now },
-                    cancellationToken: cancellationToken));
-                return true;
-            }
-
             for (int i = 0; i < chunk.Length; i++)
             {
                 QueuedMessage message = chunk[i];
@@ -166,15 +153,20 @@ public sealed class MessageDispatcher
         if (requeue)
         {
             // Some messages hit a per-message transient and stay Queued: re-queue so they are retried.
-            await connection.ExecuteAsync(new CommandDefinition(
-                DispatchSql.RevertBatchToReceived, new { batch.Id, Now = now },
-                cancellationToken: cancellationToken));
+            await RequeueBatchAsync(connection, batch.Id, now, cancellationToken);
             return true;
         }
 
         await FinalizeAsync(connection, batch.Id, now, cancellationToken);
         return true;
     }
+
+    // Return a batch to Received so a later cycle re-claims it and retries its still-Queued messages.
+    private static Task RequeueBatchAsync(
+        SqlConnection connection, long batchId, DateTime now, CancellationToken cancellationToken) =>
+        connection.ExecuteAsync(new CommandDefinition(
+            DispatchSql.RevertBatchToReceived, new { Id = batchId, Now = now },
+            cancellationToken: cancellationToken));
 
     private async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SafeSendBatchAsync(
         IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
