@@ -151,9 +151,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ListDeliveryReportsHandler>();
 
         services.AddScoped<ListMessageTypesHandler>();
+        services.AddScoped<CreateMessageTypeHandler>();
         services.AddScoped<ListProvidersHandler>();
         services.AddScoped<CreateProviderHandler>();
         services.AddScoped<ListSenderLinesHandler>();
+        services.AddScoped<CreateSenderLineHandler>();
         services.AddScoped<ListGeoSectionsHandler>();
         services.AddScoped<CreateGeoSectionHandler>();
         services.AddScoped<CreateCustomerHandler>();
