@@ -367,7 +367,7 @@ All wiring lives in `Extensions/`:
 - `ApplicationBuilderExtensions.ConfigurePipeline` — HTTP pipeline (Serilog request logging, OpenAPI + Scalar, root endpoint, controller and health-check mapping).
 - `DatabaseExtensions.MigrateDatabase` — startup database migration.
 
-New feature handlers are registered in `AddFeatureHandlers`, not in `Program.cs`.
+Feature handlers are not listed by hand: `AddFeatureHandlers` scans the assembly and registers them by convention (ADR-017). Other services (options, workers, the provider seam, the auth resolver) are registered explicitly in the relevant extension method, not in `Program.cs`.
 
 ### Why
 
@@ -447,6 +447,43 @@ This is a stylistic preference, not a correctness claim; both compile identicall
 ### Revisit
 
 Not expected. If a future type name becomes genuinely unhelpful (e.g. long generic tuples), prefer a named type over relaxing the rule.
+
+---
+
+# ADR-017
+## Feature handlers auto-register via Scrutor assembly scanning
+
+### Decision
+
+Feature handlers are registered by **assembly scanning** (the [Scrutor](https://github.com/khellang/Scrutor) library), not one `services.AddScoped<…>()` line each. `AddFeatureHandlers` scans the application assembly and registers every concrete class named `*Handler` as **scoped**, **as itself** (controllers inject the concrete handler — there are no handler interfaces, per ADR-010):
+
+```csharp
+services.Scan(scan => scan
+    .FromAssemblyOf<SendMessagesHandler>()
+    .AddClasses(classes => classes.Where(type => type.Name.EndsWith("Handler")), publicOnly: true)
+    .AsSelf()
+    .WithScopedLifetime());
+```
+
+The `…Handler` name + `Features/**` location is the contract: adding a handler wires it automatically, with no edit to the composition root.
+
+Services that are **not** use-case handlers stay explicitly registered in the relevant extension method: `ApiKeyAuthenticator` (a shared auth resolver, ADR-015), the options objects, the background workers and their pollers/dispatcher, and the `ISmsProvider` seam (selected at runtime, ADR — Magfa vs. loopback).
+
+### Why
+
+- **No registration drift.** The hand-maintained list grew with every feature and was easy to forget — a missing line is a runtime DI failure, not a compile error. A convention can't be forgotten.
+- **Feature-first.** Adding a feature touches only its own folder; the host file stays untouched.
+- **Matches the house style.** Handlers are already uniform — plain `*Handler` classes, scoped, no interface (ADR-010). The scan encodes exactly that uniformity; it is not a move toward a mediator/CQRS dispatch pipeline (still none — ARCHITECTURE.md §3).
+
+### Consequences
+
+- A new dependency (Scrutor) on the runtime project. It is a thin, widely-used wrapper over `IServiceCollection`; pinned exactly via central package management (ADR-013).
+- The handler **naming convention is now load-bearing**: a use-case class that does not end in `Handler` is not registered, and a non-handler class that does would be picked up. Both are unlikely given the existing uniformity, and a handler needing a different lifetime can be registered explicitly (it will simply be registered twice — explicit wins for an exact match only if ordered after; prefer excluding it from the scan).
+- Registration is no longer greppable as a static list; the convention is documented here and in `CLAUDE.md` §7 instead.
+
+### Revisit
+
+If handlers ever need per-handler lifetimes/decorators at scale, or the convention proves too blunt, revert to explicit registration (or use Scrutor's decoration support). Not expected.
 
 ---
 

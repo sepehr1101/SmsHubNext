@@ -23,6 +23,8 @@
     <!-- Data access: hand-written SQL (ADR-002, ADR-003) -->
     <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
+    <!-- Assembly scanning for DI: feature-handler registration (ADR-017) -->
+    <PackageReference Include="Scrutor" />
     <!-- Schema migrations: raw SQL scripts under Migrations/ -->
     <PackageReference Include="dbup-sqlserver" />
     <!-- Structured logging -->

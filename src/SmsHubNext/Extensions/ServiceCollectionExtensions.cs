@@ -1,16 +1,11 @@
-using SmsHubNext.Features.ApiKeys;
-using SmsHubNext.Features.Authentication;
-using SmsHubNext.Features.Batches;
-using SmsHubNext.Features.Billing;
 using System.Net.Http.Headers;
+using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.Dispatch;
 using SmsHubNext.Features.Inbound;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.Magfa;
-using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
-using SmsHubNext.Features.Tariffs;
 using SmsHubNext.Shared.Database;
 
 namespace SmsHubNext.Extensions;
@@ -134,46 +129,23 @@ public static class ServiceCollectionExtensions
         });
     }
 
-    // Feature handlers — plain classes, resolved per request.
+    // Feature handlers — plain classes resolved per request. Rather than list every one (a file that
+    // grew with each feature and was easy to forget), scan the application assembly with Scrutor and
+    // register each concrete *Handler as scoped, as itself (controllers inject the concrete type).
+    // The naming convention is the contract: a new `Features/**/*Handler.cs` is wired automatically.
+    // See ADR-017.
     private static IServiceCollection AddFeatureHandlers(this IServiceCollection services)
     {
-        // API-key authentication — resolver service only. The enforcing middleware
-        // (ApiKeyAuthenticationMiddleware) is intentionally NOT added to the pipeline yet;
-        // the APIs stay open for testing. See ADR-015.
+        // API-key authentication — a shared resolver service, not a use-case handler, so it is
+        // registered explicitly. The enforcing middleware (ApiKeyAuthenticationMiddleware) is
+        // intentionally NOT added to the pipeline yet; the APIs stay open for testing. See ADR-015.
         services.AddScoped<ApiKeyAuthenticator>();
 
-        services.AddScoped<SendMessagesHandler>();
-
-        services.AddScoped<GetBatchHandler>();
-        services.AddScoped<ListBatchMessagesHandler>();
-
-        services.AddScoped<IngestDeliveryReportHandler>();
-        services.AddScoped<ListDeliveryReportsHandler>();
-
-        services.AddScoped<ListMessageTypesHandler>();
-        services.AddScoped<CreateMessageTypeHandler>();
-        services.AddScoped<ListProvidersHandler>();
-        services.AddScoped<CreateProviderHandler>();
-        services.AddScoped<ListSenderLinesHandler>();
-        services.AddScoped<CreateSenderLineHandler>();
-        services.AddScoped<ListGeoSectionsHandler>();
-        services.AddScoped<CreateGeoSectionHandler>();
-        services.AddScoped<CreateCustomerHandler>();
-        services.AddScoped<ListCustomersHandler>();
-
-        services.AddScoped<IssueApiKeyHandler>();
-        services.AddScoped<ListApiKeysHandler>();
-        services.AddScoped<AddIpRestrictionHandler>();
-        services.AddScoped<ListIpRestrictionsHandler>();
-
-        services.AddScoped<ListTariffsHandler>();
-        services.AddScoped<QuoteHandler>();
-
-        services.AddScoped<GetBalanceHandler>();
-        services.AddScoped<TopUpHandler>();
-        services.AddScoped<ListTransactionsHandler>();
-
-        services.AddScoped<ListInboundMessagesHandler>();
+        services.Scan(scan => scan
+            .FromAssemblyOf<SendMessagesHandler>()
+            .AddClasses(classes => classes.Where(type => type.Name.EndsWith("Handler")), publicOnly: true)
+            .AsSelf()
+            .WithScopedLifetime());
 
         return services;
     }
