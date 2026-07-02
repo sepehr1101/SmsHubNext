@@ -27,3 +27,5 @@ public sealed class CreateSenderLineRequest
         return Result.Success();
     }
 }
+
+public sealed record CreateSenderLineResponse(short Id);

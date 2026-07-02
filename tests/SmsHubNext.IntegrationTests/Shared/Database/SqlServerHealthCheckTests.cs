@@ -10,7 +10,7 @@ namespace SmsHubNext.IntegrationTests.Shared.Database;
 /// </summary>
 public sealed class SqlServerHealthCheckTests : IAsyncLifetime
 {
-    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder().Build();
+    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
 
     public Task InitializeAsync() => _sqlServer.StartAsync();
 

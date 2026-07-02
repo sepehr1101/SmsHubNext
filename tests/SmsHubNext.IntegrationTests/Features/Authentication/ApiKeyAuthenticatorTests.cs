@@ -2,6 +2,7 @@ using DbUp.Engine;
 using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.ReferenceData;
+using SmsHubNext.IntegrationTests.Shared;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 using System.Net;
@@ -12,7 +13,7 @@ namespace SmsHubNext.IntegrationTests.Features.Authentication;
 
 public sealed class ApiKeyAuthenticatorTests : IAsyncLifetime
 {
-    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder().Build();
+    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
     private Db _db = null!;
 
     public async Task InitializeAsync()

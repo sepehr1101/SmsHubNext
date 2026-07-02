@@ -24,3 +24,5 @@ public sealed class CreateGeoSectionRequest
         return Result.Success();
     }
 }
+
+public sealed record CreateGeoSectionResponse(int Id, string Path);

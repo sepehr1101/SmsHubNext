@@ -2,6 +2,7 @@ using DbUp.Engine;
 using Microsoft.Extensions.Logging.Abstractions;
 using SmsHubNext.Features.Inbound;
 using SmsHubNext.Features.Providers;
+using SmsHubNext.IntegrationTests.Shared;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 using Testcontainers.MsSql;
@@ -15,7 +16,7 @@ namespace SmsHubNext.IntegrationTests.Features.Inbound;
 /// </summary>
 public sealed class InboundTests : IAsyncLifetime
 {
-    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder().Build();
+    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
     private Db _db = null!;
 
     public async Task InitializeAsync()

@@ -1,4 +1,5 @@
 using SmsHubNext.Features.Sending;
+using SmsHubNext.Shared.Results;
 using Xunit;
 
 namespace SmsHubNext.UnitTests.Features.Sending;

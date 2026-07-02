@@ -23,3 +23,5 @@ public sealed class CreateProviderRequest
         return Result.Success();
     }
 }
+
+public sealed record CreateProviderResponse(byte Id);

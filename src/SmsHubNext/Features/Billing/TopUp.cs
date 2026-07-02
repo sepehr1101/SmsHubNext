@@ -19,3 +19,5 @@ public sealed class TopUpRequest
         return Result.Success();
     }
 }
+
+public sealed record TopUpResponse(short CustomerId, decimal Balance);

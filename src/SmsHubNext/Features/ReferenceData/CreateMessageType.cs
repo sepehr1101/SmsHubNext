@@ -31,3 +31,5 @@ public sealed class CreateMessageTypeRequest
         return Result.Success();
     }
 }
+
+public sealed record CreateMessageTypeResponse(byte Id);

@@ -7,6 +7,7 @@ using SmsHubNext.Features.Billing;
 using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
+using SmsHubNext.IntegrationTests.Shared;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Enums;
 using SmsHubNext.Shared.Results;
@@ -17,7 +18,7 @@ namespace SmsHubNext.IntegrationTests.Features.DeliveryReports;
 
 public sealed class DeliveryReportsTests : IAsyncLifetime
 {
-    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder().Build();
+    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
     private Db _db = null!;
 
     public async Task InitializeAsync()

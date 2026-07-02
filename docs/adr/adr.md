@@ -487,6 +487,50 @@ If handlers ever need per-handler lifetimes/decorators at scale, or the conventi
 
 ---
 
+# ADR-018
+## Co-locate use-case request and response in one file
+
+### Decision
+
+For a command or query endpoint, put `{Operation}Request` and `{Operation}Response` (when both exist) in **one file** named after the operation — e.g. `CreateCustomer.cs`, `TopUp.cs`, `SendMessages.cs`. Type names keep the `Request`/`Response` suffix; only the file layout changes.
+
+Request-only endpoints follow the same file naming (`AddIpRestriction.cs` holds `AddIpRestrictionRequest` only).
+
+### Alternatives
+
+- One public type per file (previous convention)
+- Nested request/response types inside the handler file
+
+### Why
+
+- **Fewer files, same clarity.** Most response types are tiny records paired 1:1 with a request; splitting them added navigation cost without readability benefit.
+- **Feature-first locality.** Opening `CreateCustomer.cs` shows the whole API contract for that operation in one place.
+- **Matches ARCHITECTURE.md §4.** Simplicity and co-location are explicit project goals.
+
+### Do not merge
+
+- **Shared read models** reused across handlers (e.g. `TariffResponse` for list + admin)
+- **Provider HTTP DTOs** under `Features/Providers/` (external API shapes, not app use-case contracts)
+- **Domain/row types** (`Customer`, `ApiKeyIpRestriction`, …)
+- **Nested item types** that belong to a larger request (`SendMessageItem` stays separate)
+
+### Consequences
+
+Pros
+
+- Less folder clutter
+- Contract for an operation is greppable by one filename
+
+Cons
+
+- Files with both request validation and response shape are slightly longer (still typically small)
+
+### Revisit
+
+Not expected. If a response type becomes shared across multiple operations, extract it to its own file rather than duplicating or over-merging unrelated contracts.
+
+---
+
 # Future Reconsideration
 
 These decisions are intentionally conservative.

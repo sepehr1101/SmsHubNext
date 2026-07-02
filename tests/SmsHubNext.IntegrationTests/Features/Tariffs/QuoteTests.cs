@@ -1,5 +1,6 @@
 using DbUp.Engine;
 using SmsHubNext.Features.Tariffs;
+using SmsHubNext.IntegrationTests.Shared;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
 using SmsHubNext.Shared.Sms;
@@ -10,7 +11,7 @@ namespace SmsHubNext.IntegrationTests.Features.Tariffs;
 
 public sealed class QuoteTests : IAsyncLifetime
 {
-    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder().Build();
+    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
     private Db _db = null!;
 
     public async Task InitializeAsync()

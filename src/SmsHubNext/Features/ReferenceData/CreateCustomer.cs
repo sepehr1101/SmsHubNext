@@ -18,3 +18,5 @@ public sealed class CreateCustomerRequest
         return Result.Success();
     }
 }
+
+public sealed record CreateCustomerResponse(short Id);

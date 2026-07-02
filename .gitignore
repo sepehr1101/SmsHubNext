@@ -26,7 +26,9 @@ coverage/
 # Local secrets / environment
 *.env
 appsettings.*.local.json
+appsettings.Development.local.json
 
 # OS noise
 .DS_Store
 Thumbs.db
+

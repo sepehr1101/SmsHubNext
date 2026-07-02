@@ -15,14 +15,22 @@
     <None Remove="Migrations/Scripts/*.sql" />
     <EmbeddedResource Include="Migrations/Scripts/*.sql" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Remove="appsettings.Development.local.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="appsettings.Development.local.json" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- OpenAPI document generation + Scalar API reference UI (served in Development) -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />
     <!-- Data access: hand-written SQL (ADR-002, ADR-003) -->
     <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Scriban.Signed" />
     <!-- Assembly scanning for DI: feature-handler registration (ADR-017) -->
     <PackageReference Include="Scrutor" />
     <!-- Schema migrations: raw SQL scripts under Migrations/ -->

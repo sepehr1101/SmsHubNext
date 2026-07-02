@@ -89,12 +89,13 @@ A feature folder is flat and holds *everything for that capability*. Example:
 ```
 Features/Sending/
 ├─ SendMessagesController.cs     # ASP.NET Core controller actions → handler
-├─ SendMessagesRequest.cs      # request model + a plain Validate() returning errors
-├─ SendMessagesResponse.cs     # response model
-├─ SendMessagesHandler.cs      # the feature logic (a plain class, injected) → Result<T>
-├─ SendSql.cs                  # the Dapper SQL strings + small row records for this feature
+├─ SendMessages.cs               # SendMessagesRequest + SendMessagesResponse (one use-case contract file)
+├─ SendMessagesHandler.cs        # the feature logic (a plain class, injected) → Result<T>
+├─ SendSql.cs                    # the Dapper SQL strings + small row records for this feature
 └─ (anything else only Sending needs)
 ```
+
+**Use-case contract files.** For a command or query endpoint, put its `{Operation}Request` and `{Operation}Response` (when both exist) in **one file** named after the operation — e.g. `CreateCustomer.cs`, `TopUp.cs`, `SendMessages.cs`. Type names keep the `Request`/`Response` suffix; only the file is merged. Request-only endpoints use the same naming (`AddIpRestriction.cs` holds `AddIpRestrictionRequest` only). **Do not merge:** shared read models reused across handlers (e.g. `TariffResponse`), provider HTTP DTOs under `Features/Providers/`, domain/row types, or nested item types (`SendMessageItem`).
 
 - **Endpoint** is a thin minimal-API mapping that binds the request, calls the handler, and translates `Result` → HTTP.
 - **Routes** carry **no `api/` prefix** — controllers route on the resource directly (e.g. `[Route("messages")]`, `[Route("reference-data/message-types")]`).
@@ -125,7 +126,7 @@ SQL lives **in the feature** that owns it; the only shared piece is a tiny conne
 No FluentValidation. Each feature validates its own request **explicitly**:
 
 - A `Validate()` method on the request (or guard checks at the top of the handler) returns a **`Result` with `Validation` errors** — never throws for bad input.
-- Rules live **next to the request** they validate, not in a global `Validators/` folder.
+- Rules live **in the same use-case contract file as the request** (see §4), not in a global `Validators/` folder.
 - The controller maps a validation `Result` to **400** via the single mapper (§7).
 
 *Why no framework:* validation here is simple field/relationship checks; a fluent DSL + a `IValidator<T>` registry is ceremony for little gain, and it scatters rules away from the feature.

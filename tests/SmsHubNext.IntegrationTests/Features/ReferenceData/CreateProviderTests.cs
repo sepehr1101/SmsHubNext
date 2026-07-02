@@ -1,6 +1,8 @@
 using DbUp.Engine;
 using SmsHubNext.Features.ReferenceData;
+using SmsHubNext.IntegrationTests.Shared;
 using SmsHubNext.Shared.Database;
+using SmsHubNext.Shared.Results;
 using Testcontainers.MsSql;
 using Xunit;
 
@@ -8,7 +10,7 @@ namespace SmsHubNext.IntegrationTests.Features.ReferenceData;
 
 public sealed class CreateProviderTests : IAsyncLifetime
 {
-    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder().Build();
+    private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
     private Db _db = null!;
 
     public async Task InitializeAsync()
