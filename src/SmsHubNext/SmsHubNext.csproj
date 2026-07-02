@@ -16,9 +16,6 @@
     <EmbeddedResource Include="Migrations/Scripts/*.sql" />
   </ItemGroup>
   <ItemGroup>
-    <Content Remove="appsettings.Development.local.json" />
-  </ItemGroup>
-  <ItemGroup>
     <None Include="appsettings.Development.local.json" />
   </ItemGroup>
 

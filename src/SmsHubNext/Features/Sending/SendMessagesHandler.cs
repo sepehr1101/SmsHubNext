@@ -265,5 +265,5 @@ public sealed class SendMessagesHandler
 
     private sealed record SenderLineRow(short Id, byte ProviderId, bool IsActive);
 
-    private sealed record RateRow(int TariffId, decimal PricePerSegment);
+    private sealed record RateRow(int TariffId, string Currency, decimal PricePerSegment);
 }
