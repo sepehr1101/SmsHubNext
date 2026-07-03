@@ -54,6 +54,10 @@ public sealed class SendMessagesHandler
 
         await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
+        Result references = await ValidateReferencesAsync(connection, request, identity, cancellationToken);
+        if (references.IsFailure)
+            return references.Error!;
+
         Result<SenderLineRow> senderLine = await ResolveSenderLineAsync(connection, request.SenderLine, cancellationToken);
         if (senderLine.IsFailure)
             return senderLine.Error!;
@@ -63,6 +67,56 @@ public sealed class SendMessagesHandler
             return priced.Error!;
 
         return await PersistAsync(connection, request, identity, senderLine.Value, priced.Value, cancellationToken);
+    }
+
+    private static async Task<Result> ValidateReferencesAsync(
+        SqlConnection connection,
+        SendMessagesRequest request,
+        ApiKeyIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        bool customerExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            SendingSql.CustomerExists,
+            new { identity.CustomerId },
+            cancellationToken: cancellationToken));
+
+        if (!customerExists)
+            return Error.NotFound("sending.unknown_customer", "The authenticated customer does not exist or is inactive.");
+
+        bool apiKeyBelongsToCustomer = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            SendingSql.ApiKeyBelongsToCustomer,
+            new { identity.ApiKeyId, identity.CustomerId },
+            cancellationToken: cancellationToken));
+
+        if (!apiKeyBelongsToCustomer)
+            return Error.Validation("sending.api_key_customer_mismatch", "The API key does not belong to the authenticated customer.");
+
+        bool messageTypeExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            SendingSql.MessageTypeExists,
+            new { request.MessageTypeId },
+            cancellationToken: cancellationToken));
+
+        if (!messageTypeExists)
+            return Error.NotFound("sending.unknown_message_type", "The message type does not exist.");
+
+        int[] geoSectionIds = request.Messages
+            .Where(message => message.GeoSectionId is not null)
+            .Select(message => message.GeoSectionId!.Value)
+            .Distinct()
+            .ToArray();
+
+        if (geoSectionIds.Length == 0)
+            return Result.Success();
+
+        long existingGeoSections = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            SendingSql.CountExistingGeoSections,
+            new { GeoSectionIds = geoSectionIds },
+            cancellationToken: cancellationToken));
+
+        if (existingGeoSections != geoSectionIds.Length)
+            return Error.NotFound("sending.unknown_geo_section", "One or more geo sections do not exist or are inactive.");
+
+        return Result.Success();
     }
 
     // Resolve the requested sender line to its keys; it must exist and be active to send.

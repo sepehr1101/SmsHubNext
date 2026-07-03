@@ -10,6 +10,40 @@ internal static class SendingSql
         WHERE LineNumber = @LineNumber;
         """;
 
+    public const string CustomerExists =
+        """
+        SELECT CAST(CASE WHEN EXISTS (
+            SELECT 1
+            FROM dbo.Customer
+            WHERE Id = @CustomerId AND IsActive = 1
+        ) THEN 1 ELSE 0 END AS bit);
+        """;
+
+    public const string ApiKeyBelongsToCustomer =
+        """
+        SELECT CAST(CASE WHEN EXISTS (
+            SELECT 1
+            FROM dbo.ApiKey
+            WHERE Id = @ApiKeyId AND CustomerId = @CustomerId
+        ) THEN 1 ELSE 0 END AS bit);
+        """;
+
+    public const string MessageTypeExists =
+        """
+        SELECT CAST(CASE WHEN EXISTS (
+            SELECT 1
+            FROM dbo.MessageType
+            WHERE Id = @MessageTypeId
+        ) THEN 1 ELSE 0 END AS bit);
+        """;
+
+    public const string CountExistingGeoSections =
+        """
+        SELECT COUNT_BIG(*)
+        FROM dbo.GeoSection
+        WHERE Id IN @GeoSectionIds AND IsActive = 1;
+        """;
+
     // Overspend-safe debit: a single atomic statement. OUTPUT returns the post-debit
     // balance, or no rows when funds are insufficient or the customer has no balance row
     // (README §4.14/§8.6). No SELECT-then-UPDATE race.
