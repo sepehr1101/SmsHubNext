@@ -7,7 +7,7 @@ namespace SmsHubNext.UnitTests.Features.Sending;
 public class SendMessagesRequestTests
 {
     private static SendMessagesRequest Valid(params SendMessageItem[] messages) =>
-        new() { SenderLine = "30001234", Messages = messages };
+        new() { SenderLine = "30001234", MessageTypeId = 1, Messages = messages };
 
     private static SendMessageItem Item(string recipient = "989120000000", string text = "Hello") =>
         new() { Recipient = recipient, Text = text };

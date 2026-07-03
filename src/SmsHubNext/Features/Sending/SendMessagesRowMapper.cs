@@ -23,6 +23,7 @@ internal static class SendMessagesRowMapper
     public static DataTable BuildMessageRows(
         IReadOnlyList<PricedMessage> priced,
         SendMessagesRequest request,
+        short customerId,
         long batchId,
         byte providerId,
         short senderLineId,
@@ -57,7 +58,7 @@ internal static class SendMessagesRowMapper
                 submitDateJalali,
                 batchId,
                 submittedAtUtc,
-                request.CustomerId,
+                customerId,
                 providerId,
                 senderLineId,
                 request.MessageTypeId,

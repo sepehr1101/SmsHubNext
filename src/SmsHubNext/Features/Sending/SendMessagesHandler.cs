@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Microsoft.Data.SqlClient;
+using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Tariffs;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Enums;
@@ -37,14 +38,14 @@ public sealed class SendMessagesHandler
         _clock = clock;
     }
 
-    /// <param name="apiKeyId">
+    /// <param name="identity">
     /// The authenticated API key making the call, resolved from the request (header / API-key
     /// context) by the controller — never accepted in the request body. Used for per-call
-    /// attribution on <c>MessageBatch</c>.
+    /// attribution and tenant ownership on <c>MessageBatch</c> and <c>Message</c>.
     /// </param>
     public async Task<Result<SendMessagesResponse>> Handle(
         SendMessagesRequest request,
-        int apiKeyId,
+        ApiKeyIdentity identity,
         CancellationToken cancellationToken)
     {
         Result validation = request.Validate();
@@ -61,7 +62,7 @@ public sealed class SendMessagesHandler
         if (priced.IsFailure)
             return priced.Error!;
 
-        return await PersistAsync(connection, request, apiKeyId, senderLine.Value, priced.Value, cancellationToken);
+        return await PersistAsync(connection, request, identity, senderLine.Value, priced.Value, cancellationToken);
     }
 
     // Resolve the requested sender line to its keys; it must exist and be active to send.
@@ -116,7 +117,7 @@ public sealed class SendMessagesHandler
     private async Task<Result<SendMessagesResponse>> PersistAsync(
         SqlConnection connection,
         SendMessagesRequest request,
-        int apiKeyId,
+        ApiKeyIdentity identity,
         SenderLineRow senderLine,
         IReadOnlyList<PricedMessage> priced,
         CancellationToken cancellationToken)
@@ -130,7 +131,7 @@ public sealed class SendMessagesHandler
         try
         {
             Result<decimal> balanceAfter = await DebitBalanceAsync(
-                connection, transaction, request.CustomerId, totalCost, cancellationToken);
+                connection, transaction, identity.CustomerId, totalCost, cancellationToken);
             if (balanceAfter.IsFailure)
             {
                 transaction.Rollback();
@@ -138,14 +139,14 @@ public sealed class SendMessagesHandler
             }
 
             long batchId = await InsertBatchAsync(
-                connection, transaction, request, apiKeyId, senderLine,
+                connection, transaction, request, identity, senderLine,
                 priced.Count, totalSegments, totalCost, submitDateJalali, nowUtc, cancellationToken);
 
             await InsertDebitLedgerAsync(
-                connection, transaction, request, totalCost, balanceAfter.Value, batchId, cancellationToken);
+                connection, transaction, request, identity.CustomerId, totalCost, balanceAfter.Value, batchId, cancellationToken);
 
             await InsertMessagesAndBodiesAsync(
-                connection, transaction, request, senderLine, priced, batchId, submitDateJalali, nowUtc, cancellationToken);
+                connection, transaction, request, identity.CustomerId, senderLine, priced, batchId, submitDateJalali, nowUtc, cancellationToken);
 
             transaction.Commit();
             return new SendMessagesResponse(batchId, priced.Count);
@@ -181,7 +182,7 @@ public sealed class SendMessagesHandler
         SqlConnection connection,
         SqlTransaction transaction,
         SendMessagesRequest request,
-        int apiKeyId,
+        ApiKeyIdentity identity,
         SenderLineRow senderLine,
         int messageCount,
         int segmentCount,
@@ -195,8 +196,8 @@ public sealed class SendMessagesHandler
             {
                 SubmitDateJalali = submitDateJalali,
                 NowUtc = nowUtc,
-                request.CustomerId,
-                ApiKeyId = apiKeyId,
+                identity.CustomerId,
+                identity.ApiKeyId,
                 SenderLineId = senderLine.Id,
                 senderLine.ProviderId,
                 request.ClientBatchId,
@@ -213,6 +214,7 @@ public sealed class SendMessagesHandler
         SqlConnection connection,
         SqlTransaction transaction,
         SendMessagesRequest request,
+        short customerId,
         decimal totalCost,
         decimal balanceAfter,
         long batchId,
@@ -221,7 +223,7 @@ public sealed class SendMessagesHandler
             SendingSql.InsertDebitLedger,
             new
             {
-                request.CustomerId,
+                CustomerId = customerId,
                 Type = (byte)BalanceTransactionType.Debit,
                 Amount = -totalCost,
                 BalanceAfter = balanceAfter,
@@ -238,6 +240,7 @@ public sealed class SendMessagesHandler
         SqlConnection connection,
         SqlTransaction transaction,
         SendMessagesRequest request,
+        short customerId,
         SenderLineRow senderLine,
         IReadOnlyList<PricedMessage> priced,
         long batchId,
@@ -246,7 +249,7 @@ public sealed class SendMessagesHandler
         CancellationToken cancellationToken)
     {
         using DataTable messageRows = SendMessagesRowMapper.BuildMessageRows(
-            priced, request, batchId, senderLine.ProviderId, senderLine.Id, submitDateJalali, nowUtc);
+            priced, request, customerId, batchId, senderLine.ProviderId, senderLine.Id, submitDateJalali, nowUtc);
         await connection.BulkInsertAsync(transaction, SendMessagesRowMapper.MessageTable, messageRows, cancellationToken);
 
         List<long> messageIds = (await connection.QueryAsync<long>(new CommandDefinition(

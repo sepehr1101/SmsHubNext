@@ -2,6 +2,7 @@ using Dapper;
 using DbUp.Engine;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.ApiKeys;
+using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Batches;
 using SmsHubNext.Features.Billing;
 using SmsHubNext.Features.DeliveryReports;
@@ -149,7 +150,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
                 MessageTypeId = 1,
                 Messages = [new SendMessageItem { Recipient = "989120000001", Text = "Hello" }],
             },
-            key.Value.Id,
+            new ApiKeyIdentity(key.Value.Id, customerId, key.Value.KeyPrefix),
             CancellationToken.None);
 
         Assert.True(send.IsSuccess, send.Error?.Message);

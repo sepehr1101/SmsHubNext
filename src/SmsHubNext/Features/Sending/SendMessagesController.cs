@@ -26,27 +26,25 @@ public sealed class SendMessagesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Send([FromBody] SendMessagesRequest request, CancellationToken cancellationToken)
     {
-        Result<int> apiKeyId = await ResolveApiKeyId(cancellationToken);
-        if (apiKeyId.IsFailure)
-            return apiKeyId.ToActionResult();
+        Result<ApiKeyIdentity> identity = await ResolveApiKeyIdentity(cancellationToken);
+        if (identity.IsFailure)
+            return identity.ToActionResult();
 
-        return (await _handler.Handle(request, apiKeyId.Value, cancellationToken))
+        return (await _handler.Handle(request, identity.Value, cancellationToken))
             .ToActionResult(StatusCodes.Status202Accepted);
     }
 
-    private async Task<Result<int>> ResolveApiKeyId(CancellationToken cancellationToken)
+    private async Task<Result<ApiKeyIdentity>> ResolveApiKeyIdentity(CancellationToken cancellationToken)
     {
         // Prefer the identity the auth middleware already resolved (enforcement active).
         ApiKeyIdentity? identity = HttpContext.GetApiKeyIdentity();
         if (identity is not null)
-            return identity.ApiKeyId;
+            return identity;
 
         // Middleware off: resolve the X-Api-Key header here so the key is still never taken from the body.
-        Result<ApiKeyIdentity> resolved = await _authenticator.Authenticate(
+        return await _authenticator.Authenticate(
             Request.Headers[ApiKeyConstants.HeaderName].ToString(),
             HttpContext.Connection.RemoteIpAddress,
             cancellationToken);
-
-        return resolved.IsFailure ? resolved.Error! : resolved.Value.ApiKeyId;
     }
 }

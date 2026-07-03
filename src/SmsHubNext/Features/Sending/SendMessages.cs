@@ -13,8 +13,8 @@ public sealed class SendMessagesRequest
     public const int MaxMessages = 1000;
 
     /// <summary>
-    /// The sending customer (tenant). INTERIM: carried explicitly until API-key
-    /// authentication lands (next increment), which will resolve it from the request.
+    /// Deprecated input kept temporarily for compatibility; send attribution uses the authenticated
+    /// API key's customer, never this body value.
     /// </summary>
     public short CustomerId { get; init; }
 
@@ -36,9 +36,6 @@ public sealed class SendMessagesRequest
     /// </summary>
     public Result Validate()
     {
-        if (CustomerId <= 0)
-            return Error.Validation("sending.customer_required", "A customer id is required.");
-
         if (string.IsNullOrWhiteSpace(SenderLine))
             return Error.Validation("sending.sender_line_required", "A sender line is required.");
 

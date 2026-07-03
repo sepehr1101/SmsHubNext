@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-Guidance for Claude when working in the **SmsHubNext** repository. Keep this file concise and high-signal; update it as decisions are made.
+Guidance for Codex when working in the **SmsHubNext** repository. Keep this file concise and high-signal; update it as decisions are made.
 
 ---
 
@@ -83,8 +83,8 @@ Full table-by-table detail lives in **`README.md`** — read it before changing 
 
 ## 7. Working conventions
 
-* **Branch:** develop on the designated feature branch (currently `claude/continue-previous-work-c6qqvn`). Never push elsewhere without explicit permission.
-* **Commits:** clear, descriptive messages. Commit author/email must be `Claude <noreply@anthropic.com>` so GitHub shows commits as verified.
+* **Branch:** develop on the designated feature branch (currently `Codex/continue-previous-work-c6qqvn`). Never push elsewhere without explicit permission.
+* **Commits:** clear, descriptive messages. Commit author/email must be `Codex <noreply@anthropic.com>` so GitHub shows commits as verified.
 * **PRs:** do **not** open a pull request unless explicitly asked.
 * **Dependencies:** pin **exact** NuGet versions in `Directory.Packages.props` (Central Package Management). **No floating versions** (`2.*`, ranges) — see ADR-013.
 * **Composition root:** keep `Program.cs` **minimal** — builder creation, calling extension methods, `Build()`/`Run()` only. All service registration and HTTP-pipeline wiring go through `Extensions/` (`ServiceCollectionExtensions.AddApplicationServices`, `ApplicationBuilderExtensions.ConfigurePipeline`, `DatabaseExtensions.MigrateDatabase`).

@@ -2,6 +2,7 @@ using Dapper;
 using DbUp.Engine;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.ApiKeys;
+using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Billing;
 using SmsHubNext.Features.ReferenceData;
 using SmsHubNext.Features.Sending;
@@ -36,7 +37,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
     {
         short customerId = await CreateCustomerAsync("sender");
         await TopUpAsync(customerId, 10000m);
-        int apiKeyId = await IssueApiKeyAsync(customerId);
+        ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
 
         // Two GSM-7 single-segment messages against the seeded 1000 IRR/segment tariff.
         Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
@@ -52,7 +53,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
                     new SendMessageItem { Recipient = "989120000002", Text = "World" },
                 ],
             },
-            apiKeyId,
+            identity,
             CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error?.Message);
@@ -105,7 +106,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
     {
         short customerId = await CreateCustomerAsync("broke");
         await TopUpAsync(customerId, 500m); // less than the 1000 IRR a single segment costs
-        int apiKeyId = await IssueApiKeyAsync(customerId);
+        ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
 
         Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
@@ -115,7 +116,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
                 MessageTypeId = 1,
                 Messages = [new SendMessageItem { Recipient = "989120000003", Text = "Hello" }],
             },
-            apiKeyId,
+            identity,
             CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -137,7 +138,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
     {
         short customerId = await CreateCustomerAsync("liner");
         await TopUpAsync(customerId, 10000m);
-        int apiKeyId = await IssueApiKeyAsync(customerId);
+        ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
 
         Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
@@ -147,7 +148,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
                 MessageTypeId = 1,
                 Messages = [new SendMessageItem { Recipient = "989120000004", Text = "Hello" }],
             },
-            apiKeyId,
+            identity,
             CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -169,11 +170,11 @@ public sealed class SendMessagesTests : IAsyncLifetime
         Assert.True(topUp.IsSuccess);
     }
 
-    private async Task<int> IssueApiKeyAsync(short customerId)
+    private async Task<ApiKeyIdentity> IssueApiKeyAsync(short customerId)
     {
         Result<IssueApiKeyResponse> key = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = customerId, Name = "test-key" }, CancellationToken.None);
         Assert.True(key.IsSuccess);
-        return key.Value.Id;
+        return new ApiKeyIdentity(key.Value.Id, customerId, key.Value.KeyPrefix);
     }
 }

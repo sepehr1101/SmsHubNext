@@ -1,5 +1,6 @@
 using DbUp.Engine;
 using SmsHubNext.Features.ApiKeys;
+using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Batches;
 using SmsHubNext.Features.Billing;
 using SmsHubNext.Features.ReferenceData;
@@ -91,7 +92,7 @@ public sealed class BatchesTests : IAsyncLifetime
                     new SendMessageItem { Recipient = "989120000002", Text = "World" },
                 ],
             },
-            key.Value.Id,
+            new ApiKeyIdentity(key.Value.Id, customerId, key.Value.KeyPrefix),
             CancellationToken.None);
 
         Assert.True(send.IsSuccess, send.Error?.Message);
