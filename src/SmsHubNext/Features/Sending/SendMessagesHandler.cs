@@ -145,6 +145,9 @@ public sealed class SendMessagesHandler
             await InsertDebitLedgerAsync(
                 connection, transaction, request, identity.CustomerId, totalCost, balanceAfter.Value, batchId, cancellationToken);
 
+            await InsertAcceptedEventAsync(
+                connection, transaction, batchId, priced.Count, totalSegments, totalCost, nowUtc, cancellationToken);
+
             await InsertMessagesAndBodiesAsync(
                 connection, transaction, request, identity.CustomerId, senderLine, priced, batchId, submitDateJalali, nowUtc, cancellationToken);
 
@@ -229,6 +232,28 @@ public sealed class SendMessagesHandler
                 BalanceAfter = balanceAfter,
                 MessageBatchId = batchId,
                 Reference = request.ClientBatchId,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+    private static Task InsertAcceptedEventAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        long batchId,
+        int messageCount,
+        int segmentCount,
+        decimal totalCost,
+        DateTime nowUtc,
+        CancellationToken cancellationToken) =>
+        connection.ExecuteAsync(new CommandDefinition(
+            SendingSql.InsertBatchEvent,
+            new
+            {
+                MessageBatchId = batchId,
+                NowUtc = nowUtc,
+                EventType = (byte)MessageBatchEventType.Accepted,
+                BatchStatus = (byte)BatchStatus.Received,
+                Detail = $"Batch accepted: {messageCount} message(s), {segmentCount} segment(s), total cost {totalCost:0.####} IRR.",
             },
             transaction,
             cancellationToken: cancellationToken));

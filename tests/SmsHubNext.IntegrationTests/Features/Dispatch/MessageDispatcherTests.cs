@@ -52,6 +52,11 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.NotNull(batch.Value.DispatchStartedAtUtc);
         Assert.NotNull(batch.Value.FinishedAtUtc);
 
+        Result<IReadOnlyList<BatchEvent>> events = await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.Accepted);
+        Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.DispatchStarted);
+        Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.Completed);
+
         Result<IReadOnlyList<BatchMessage>> messages = await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.All(messages.Value, m => Assert.Equal(SendStatus.Submitted, m.Status));
 
@@ -89,6 +94,10 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
             "SELECT COUNT(*) FROM dbo.BalanceTransaction WHERE CustomerId = @CustomerId AND Type = 3;",
             new { CustomerId = customerId });
         Assert.Equal(1, refunds);
+
+        Result<IReadOnlyList<BatchEvent>> events = await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.MessageRejected);
+        Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.Failed);
     }
 
     [Fact]
@@ -105,6 +114,11 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.Equal(BatchStatusReason.InsufficientProviderCredit, held.Value.StatusReason);
         Assert.Null(held.Value.FinishedAtUtc);
 
+        Result<IReadOnlyList<BatchEvent>> heldEvents = await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Contains(heldEvents.Value, e =>
+            e.EventType == MessageBatchEventType.Held &&
+            e.BatchStatusReason == BatchStatusReason.InsufficientProviderCredit);
+
         Result<IReadOnlyList<BatchMessage>> queued = await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.All(queued.Value, m => Assert.Equal(SendStatus.Queued, m.Status));
         Assert.Equal(9000m, await BalanceAsync(customerId)); // still debited, not refunded
@@ -118,6 +132,10 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Result<Batch> done = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.Equal(BatchStatus.Completed, done.Value.Status);
         Assert.NotNull(done.Value.FinishedAtUtc);
+
+        Result<IReadOnlyList<BatchEvent>> doneEvents = await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Contains(doneEvents.Value, e => e.EventType == MessageBatchEventType.DispatchResumed);
+        Assert.Contains(doneEvents.Value, e => e.EventType == MessageBatchEventType.Completed);
     }
 
     [Fact]
@@ -133,6 +151,9 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
 
         Assert.Equal((byte)SendStatus.AwaitingConfirmation, await MessageStatusAsync(batchId));
         Assert.Equal(9000m, await BalanceAsync(customerId)); // debited once, not refunded
+
+        Result<IReadOnlyList<BatchEvent>> awaitingEvents = await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Contains(awaitingEvents.Value, e => e.EventType == MessageBatchEventType.AwaitingConfirmation);
 
         // Cycle 2: the provider confirms it WAS accepted -> Submitted, no resend, no extra charge.
         int sendCalls = 0;

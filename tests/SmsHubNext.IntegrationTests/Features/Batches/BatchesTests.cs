@@ -54,6 +54,12 @@ public sealed class BatchesTests : IAsyncLifetime
             Assert.Equal(SendStatus.Queued, m.Status);
             Assert.Equal(DeliveryStatus.Pending, m.DeliveryStatus);
         });
+
+        Result<IReadOnlyList<BatchEvent>> events = await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.True(events.IsSuccess);
+        BatchEvent accepted = Assert.Single(events.Value);
+        Assert.Equal(MessageBatchEventType.Accepted, accepted.EventType);
+        Assert.Equal(BatchStatus.Received, accepted.BatchStatus);
     }
 
     [Fact]
@@ -66,6 +72,10 @@ public sealed class BatchesTests : IAsyncLifetime
         Result<IReadOnlyList<BatchMessage>> messages = await new ListBatchMessagesHandler(_db).Handle(999999, CancellationToken.None);
         Assert.True(messages.IsFailure);
         Assert.Equal(ErrorType.NotFound, messages.Error!.Type);
+
+        Result<IReadOnlyList<BatchEvent>> events = await new ListBatchEventsHandler(_db).Handle(999999, CancellationToken.None);
+        Assert.True(events.IsFailure);
+        Assert.Equal(ErrorType.NotFound, events.Error!.Type);
     }
 
     private async Task<long> SendBatchAsync()

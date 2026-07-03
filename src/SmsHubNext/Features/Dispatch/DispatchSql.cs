@@ -22,7 +22,8 @@ internal static class DispatchSql
             StatusReason = NULL,
             DispatchStartedAtUtc = COALESCE(b.DispatchStartedAtUtc, @Now),
             StatusChangedAtUtc = @Now
-        OUTPUT INSERTED.Id, INSERTED.CustomerId, INSERTED.ProviderId, INSERTED.SenderLineId
+        OUTPUT INSERTED.Id, INSERTED.CustomerId, INSERTED.ProviderId, INSERTED.SenderLineId,
+               DELETED.Status AS PreviousStatus
         FROM dbo.MessageBatch b
         INNER JOIN next ON next.Id = b.Id;
         """;
@@ -98,6 +99,14 @@ internal static class DispatchSql
         """
         INSERT INTO dbo.BalanceTransaction (CustomerId, Type, Amount, BalanceAfter, MessageBatchId, Reference)
         VALUES (@CustomerId, @Type, @Amount, @BalanceAfter, @MessageBatchId, @Reference);
+        """;
+
+    public const string InsertBatchEvent =
+        """
+        INSERT INTO dbo.MessageBatchEvent
+            (MessageBatchId, EventTimeUtc, EventType, BatchStatus, BatchStatusReason, ProviderResultCode, Detail)
+        VALUES
+            (@MessageBatchId, @Now, @EventType, @BatchStatus, @BatchStatusReason, @ProviderResultCode, @Detail);
         """;
 
     public const string HoldBatch =

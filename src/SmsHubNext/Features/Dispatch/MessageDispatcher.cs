@@ -17,8 +17,8 @@ namespace SmsHubNext.Features.Dispatch;
 /// claims are atomic, transitions are guarded (idempotent), and a restart resumes from the DB.
 ///
 /// Provider selection by <c>Message.ProviderId</c> is a later concern; with one provider
-/// registered today every batch goes through it. Per-attempt telemetry
-/// (<c>MessageBatchEvent</c>) is a follow-up.
+/// registered today every batch goes through it. Operator-facing state changes are appended
+/// to <c>MessageBatchEvent</c> so held/retried/failed batches have a readable timeline.
 /// </summary>
 public sealed class MessageDispatcher
 {
@@ -62,6 +62,15 @@ public sealed class MessageDispatcher
         if (batch is null)
             return false;
 
+        MessageBatchEventType claimEventType = batch.PreviousStatus == (byte)BatchStatus.Received
+            ? MessageBatchEventType.DispatchStarted
+            : MessageBatchEventType.DispatchResumed;
+        string claimDetail = claimEventType == MessageBatchEventType.DispatchStarted
+            ? "Dispatch started."
+            : "Dispatch resumed after a hold or expired dispatch lease.";
+        await InsertBatchEventAsync(
+            connection, batch.Id, now, claimEventType, BatchStatus.Dispatching, null, null, claimDetail, cancellationToken);
+
         string senderLine = await connection.QuerySingleAsync<string>(new CommandDefinition(
             DispatchSql.GetSenderLineNumber,
             new { batch.SenderLineId },
@@ -91,6 +100,16 @@ public sealed class MessageDispatcher
             {
                 // Can't confirm right now: re-queue and retry the whole batch on a later cycle.
                 await RequeueBatchAsync(connection, batch.Id, now, cancellationToken);
+                await InsertBatchEventAsync(
+                    connection,
+                    batch.Id,
+                    now,
+                    MessageBatchEventType.Requeued,
+                    BatchStatus.Received,
+                    null,
+                    null,
+                    $"Provider confirmation lookup failed: {lookup.Error!.Message}. Batch requeued.",
+                    cancellationToken);
                 return true;
             }
 
@@ -134,6 +153,16 @@ public sealed class MessageDispatcher
                     batch.Id, batchResult.Error!.Message);
                 await MarkAwaitingConfirmationAsync(connection, chunk, cancellationToken);
                 await RequeueBatchAsync(connection, batch.Id, now, cancellationToken);
+                await InsertBatchEventAsync(
+                    connection,
+                    batch.Id,
+                    now,
+                    MessageBatchEventType.AwaitingConfirmation,
+                    BatchStatus.Received,
+                    null,
+                    null,
+                    $"Provider send response was lost for {chunk.Length} message(s): {batchResult.Error.Message}. Batch requeued for confirmation.",
+                    cancellationToken);
                 return true;
             }
 
@@ -180,6 +209,16 @@ public sealed class MessageDispatcher
                 DispatchSql.HoldBatch,
                 new { batch.Id, Now = now, Reason = (byte)BatchStatusReason.InsufficientProviderCredit },
                 cancellationToken: cancellationToken));
+            await InsertBatchEventAsync(
+                connection,
+                batch.Id,
+                now,
+                MessageBatchEventType.Held,
+                BatchStatus.Held,
+                BatchStatusReason.InsufficientProviderCredit,
+                null,
+                "Provider credit is exhausted; batch held and will be retried later.",
+                cancellationToken);
             return true;
         }
 
@@ -187,6 +226,16 @@ public sealed class MessageDispatcher
         {
             // Some messages hit a per-message transient and stay Queued: re-queue so they are retried.
             await RequeueBatchAsync(connection, batch.Id, now, cancellationToken);
+            await InsertBatchEventAsync(
+                connection,
+                batch.Id,
+                now,
+                MessageBatchEventType.Requeued,
+                BatchStatus.Received,
+                null,
+                null,
+                "One or more messages had a transient provider result; batch requeued.",
+                cancellationToken);
             return true;
         }
 
@@ -285,6 +334,18 @@ public sealed class MessageDispatcher
                 },
                 transaction,
                 cancellationToken: cancellationToken));
+
+            await InsertBatchEventAsync(
+                connection,
+                transaction,
+                batch.Id,
+                now,
+                MessageBatchEventType.MessageRejected,
+                BatchStatus.Dispatching,
+                null,
+                outcome.ProviderResultCode,
+                $"Message {message.Id} rejected by provider; refunded {message.TotalCost:0.####} IRR.",
+                cancellationToken);
         }
 
         transaction.Commit();
@@ -314,9 +375,67 @@ public sealed class MessageDispatcher
             DispatchSql.FinalizeBatch,
             new { Id = batchId, Status = (byte)status, Now = now },
             cancellationToken: cancellationToken));
+
+        await InsertBatchEventAsync(
+            connection,
+            batchId,
+            now,
+            EventTypeFor(status),
+            status,
+            null,
+            null,
+            $"Batch finalized as {status}: {submitted} submitted, {rejected} rejected.",
+            cancellationToken);
     }
 
-    private sealed record ClaimedBatch(long Id, short CustomerId, byte ProviderId, short SenderLineId);
+    private static MessageBatchEventType EventTypeFor(BatchStatus status) => status switch
+    {
+        BatchStatus.Completed => MessageBatchEventType.Completed,
+        BatchStatus.PartiallyFailed => MessageBatchEventType.PartiallyFailed,
+        BatchStatus.Failed => MessageBatchEventType.Failed,
+        _ => throw new InvalidOperationException($"Batch status {status} is not a dispatch finalization event."),
+    };
+
+    private static Task InsertBatchEventAsync(
+        SqlConnection connection,
+        long batchId,
+        DateTime now,
+        MessageBatchEventType eventType,
+        BatchStatus? batchStatus,
+        BatchStatusReason? reason,
+        int? providerResultCode,
+        string detail,
+        CancellationToken cancellationToken) =>
+        InsertBatchEventAsync(
+            connection, null, batchId, now, eventType, batchStatus, reason, providerResultCode, detail, cancellationToken);
+
+    private static Task InsertBatchEventAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        long batchId,
+        DateTime now,
+        MessageBatchEventType eventType,
+        BatchStatus? batchStatus,
+        BatchStatusReason? reason,
+        int? providerResultCode,
+        string detail,
+        CancellationToken cancellationToken) =>
+        connection.ExecuteAsync(new CommandDefinition(
+            DispatchSql.InsertBatchEvent,
+            new
+            {
+                MessageBatchId = batchId,
+                Now = now,
+                EventType = (byte)eventType,
+                BatchStatus = batchStatus is null ? null : (byte?)batchStatus.Value,
+                BatchStatusReason = reason is null ? null : (byte?)reason.Value,
+                ProviderResultCode = providerResultCode,
+                Detail = detail,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+    private sealed record ClaimedBatch(long Id, short CustomerId, byte ProviderId, short SenderLineId, byte PreviousStatus);
 
     private sealed record QueuedMessage(
         long Id, string MobileNumber, decimal TotalCost, short CustomerId, string Body, byte Status);

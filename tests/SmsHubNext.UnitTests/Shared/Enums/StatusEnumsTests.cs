@@ -53,6 +53,20 @@ public class StatusEnumsTests
         => Assert.Equal(expected, (byte)reason);
 
     [Theory]
+    [InlineData(MessageBatchEventType.Accepted, 1)]
+    [InlineData(MessageBatchEventType.DispatchStarted, 2)]
+    [InlineData(MessageBatchEventType.DispatchResumed, 3)]
+    [InlineData(MessageBatchEventType.Requeued, 4)]
+    [InlineData(MessageBatchEventType.AwaitingConfirmation, 5)]
+    [InlineData(MessageBatchEventType.Held, 6)]
+    [InlineData(MessageBatchEventType.MessageRejected, 7)]
+    [InlineData(MessageBatchEventType.Completed, 8)]
+    [InlineData(MessageBatchEventType.PartiallyFailed, 9)]
+    [InlineData(MessageBatchEventType.Failed, 10)]
+    public void MessageBatchEventType_values_are_stable(MessageBatchEventType eventType, byte expected)
+        => Assert.Equal(expected, (byte)eventType);
+
+    [Theory]
     [InlineData(DeliveryStatus.Pending, false)]
     [InlineData(DeliveryStatus.Delivered, true)]
     [InlineData(DeliveryStatus.Undelivered, true)]

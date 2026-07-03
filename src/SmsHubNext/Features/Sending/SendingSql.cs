@@ -40,6 +40,14 @@ internal static class SendingSql
             (@CustomerId, @Type, @Amount, @BalanceAfter, @MessageBatchId, @Reference);
         """;
 
+    public const string InsertBatchEvent =
+        """
+        INSERT INTO dbo.MessageBatchEvent
+            (MessageBatchId, EventTimeUtc, EventType, BatchStatus, Detail)
+        VALUES
+            (@MessageBatchId, @NowUtc, @EventType, @BatchStatus, @Detail);
+        """;
+
     // The Message and MessageBody rows are bulk-inserted (SqlBulkCopy) rather than looped, so the
     // column lists live in SendMessagesHandler's DataTable builders. After the message bulk insert
     // we read the server-assigned ids back in insertion order to key the 1:1 bodies: all rows share
