@@ -17,4 +17,22 @@ public sealed class DispatchOptions
     /// messages are re-sent (guarded, idempotent transitions).
     /// </summary>
     public TimeSpan DispatchLeaseTimeout { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>Maximum transient dispatch attempts before the batch is marked failed.</summary>
+    public int MaxDispatchAttempts { get; init; } = 5;
+
+    /// <summary>
+    /// Retry delays, in seconds, by dispatch attempt. Attempts beyond the configured list use the
+    /// last delay. Defaults: 30 seconds, 2 minutes, 5 minutes, then 15 minutes.
+    /// </summary>
+    public int[] RetryBackoffSeconds { get; init; } = [30, 120, 300, 900];
+
+    public TimeSpan RetryDelayForAttempt(int dispatchAttemptCount)
+    {
+        if (RetryBackoffSeconds.Length == 0)
+            return TimeSpan.Zero;
+
+        int index = Math.Clamp(dispatchAttemptCount - 1, 0, RetryBackoffSeconds.Length - 1);
+        return TimeSpan.FromSeconds(RetryBackoffSeconds[index]);
+    }
 }

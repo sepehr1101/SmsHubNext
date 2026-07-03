@@ -62,6 +62,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(dispatchOptions);
 
         services.AddScoped<MessageDispatcher>();
+        services.AddSingleton<SmsProviderRegistry>();
         services.AddHostedService<DispatchWorker>();
 
         return services;

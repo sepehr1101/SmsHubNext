@@ -34,12 +34,12 @@ public sealed class IngestDeliveryReportHandler
         await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
         // The report copies the message's partition key, so it must exist first.
-        string? submitDateJalali = await connection.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+        MessagePartition? partition = await connection.QuerySingleOrDefaultAsync<MessagePartition>(new CommandDefinition(
             DeliveryReportsSql.GetMessagePartition,
             new { request.MessageId },
             cancellationToken: cancellationToken));
 
-        if (submitDateJalali is null)
+        if (partition is null)
             return Error.NotFound("delivery_reports.unknown_message", "The message does not exist.");
 
         DeliveryStatus readModel = request.Status.ToDeliveryStatus();
@@ -51,7 +51,7 @@ public sealed class IngestDeliveryReportHandler
             DeliveryReportsSql.InsertReport,
             new
             {
-                SubmitDateJalali = submitDateJalali,
+                partition.SubmitDateJalali,
                 request.MessageId,
                 NormalizedStatus = (byte)request.Status,
                 request.RawStatusCode,
@@ -72,7 +72,21 @@ public sealed class IngestDeliveryReportHandler
             transaction,
             cancellationToken: cancellationToken));
 
+        await connection.ExecuteAsync(new CommandDefinition(
+            DeliveryReportsSql.InsertBatchEventForReport,
+            new
+            {
+                partition.MessageBatchId,
+                ReceivedAtUtc = receivedAtUtc,
+                EventType = (byte)MessageBatchEventType.DeliveryUpdated,
+                Detail = $"Delivery report applied for message {request.MessageId}: {readModel}.",
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
         transaction.Commit();
         return new IngestDeliveryReportResponse(reportId, readModel);
     }
+
+    private sealed record MessagePartition(string SubmitDateJalali, long MessageBatchId);
 }

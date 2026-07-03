@@ -58,15 +58,42 @@ public sealed class SendMessagesHandler
         if (references.IsFailure)
             return references.Error!;
 
-        Result<SenderLineRow> senderLine = await ResolveSenderLineAsync(connection, request.SenderLine, cancellationToken);
+        Result<SenderLineRow> senderLine = await ResolveSenderLineAsync(
+            connection, request.SenderLine, identity.CustomerId, cancellationToken);
         if (senderLine.IsFailure)
             return senderLine.Error!;
+
+        Result<SendMessagesResponse?> existing = await FindExistingBatchAsync(
+            connection, request, identity.CustomerId, cancellationToken);
+        if (existing.IsFailure)
+            return existing.Error!;
+        if (existing.Value is not null)
+            return existing.Value;
 
         Result<List<PricedMessage>> priced = await PriceMessagesAsync(connection, request, senderLine.Value, cancellationToken);
         if (priced.IsFailure)
             return priced.Error!;
 
         return await PersistAsync(connection, request, identity, senderLine.Value, priced.Value, cancellationToken);
+    }
+
+    private static async Task<Result<SendMessagesResponse?>> FindExistingBatchAsync(
+        SqlConnection connection,
+        SendMessagesRequest request,
+        short customerId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.ClientBatchId))
+            return Result.Success<SendMessagesResponse?>(null);
+
+        ExistingBatchRow? existing = await connection.QuerySingleOrDefaultAsync<ExistingBatchRow>(new CommandDefinition(
+            SendingSql.GetExistingBatchByClientBatchId,
+            new { CustomerId = customerId, request.ClientBatchId },
+            cancellationToken: cancellationToken));
+
+        return existing is null
+            ? Result.Success<SendMessagesResponse?>(null)
+            : new SendMessagesResponse(existing.BatchId, existing.AcceptedCount, IsDuplicate: true);
     }
 
     private static async Task<Result> ValidateReferencesAsync(
@@ -121,7 +148,7 @@ public sealed class SendMessagesHandler
 
     // Resolve the requested sender line to its keys; it must exist and be active to send.
     private static async Task<Result<SenderLineRow>> ResolveSenderLineAsync(
-        SqlConnection connection, string lineNumber, CancellationToken cancellationToken)
+        SqlConnection connection, string lineNumber, short customerId, CancellationToken cancellationToken)
     {
         SenderLineRow? senderLine = await connection.QuerySingleOrDefaultAsync<SenderLineRow>(new CommandDefinition(
             SendingSql.ResolveSenderLine,
@@ -132,6 +159,8 @@ public sealed class SendMessagesHandler
             return Error.NotFound("sending.unknown_sender_line", "The sender line does not exist.");
         if (!senderLine.IsActive)
             return Error.Validation("sending.inactive_sender_line", "The sender line is not active.");
+        if (!senderLine.IsSharedLine && senderLine.CustomerId is not null && senderLine.CustomerId != customerId)
+            return Error.Validation("sending.sender_line_not_allowed", "The sender line is not assigned to the authenticated customer.");
 
         return senderLine;
     }
@@ -142,28 +171,70 @@ public sealed class SendMessagesHandler
         SqlConnection connection, SendMessagesRequest request, SenderLineRow senderLine, CancellationToken cancellationToken)
     {
         List<PricedMessage> priced = new List<PricedMessage>(request.Messages.Count);
+        Dictionary<RateLookupKey, RateRow> rateCache = new Dictionary<RateLookupKey, RateRow>();
         foreach (SendMessageItem item in request.Messages)
         {
             SmsSegmentInfo segments = SmsPartCalculator.Calculate(item.Text);
+            RateLookupKey key = new RateLookupKey(senderLine.ProviderId, request.MessageTypeId, segments.Encoding, segments.CharacterCount);
 
-            RateRow? rate = await connection.QuerySingleOrDefaultAsync<RateRow>(new CommandDefinition(
-                TariffsSql.ResolveRate,
-                new
-                {
-                    senderLine.ProviderId,
-                    MessageTypeId = request.MessageTypeId,
-                    Encoding = (byte)segments.Encoding,
-                    segments.CharacterCount,
-                },
-                cancellationToken: cancellationToken));
+            if (!rateCache.TryGetValue(key, out RateRow? rate))
+            {
+                rate = await connection.QuerySingleOrDefaultAsync<RateRow>(new CommandDefinition(
+                    TariffsSql.ResolveRate,
+                    new
+                    {
+                        senderLine.ProviderId,
+                        MessageTypeId = request.MessageTypeId,
+                        Encoding = (byte)segments.Encoding,
+                        segments.CharacterCount,
+                    },
+                    cancellationToken: cancellationToken));
 
-            if (rate is null)
-                return Error.NotFound("sending.no_rate", "No active tariff rate matches a message in the batch.");
+                if (rate is null)
+                    return await MissingRateErrorAsync(connection, request, senderLine, segments, cancellationToken);
+
+                rateCache.Add(key, rate);
+            }
 
             priced.Add(new PricedMessage(item, segments, rate.TariffId, rate.PricePerSegment));
         }
 
         return priced;
+    }
+
+    private readonly record struct RateLookupKey(
+        byte ProviderId,
+        byte MessageTypeId,
+        SmsEncoding Encoding,
+        int CharacterCount);
+
+    private static async Task<Error> MissingRateErrorAsync(
+        SqlConnection connection,
+        SendMessagesRequest request,
+        SenderLineRow senderLine,
+        SmsSegmentInfo segments,
+        CancellationToken cancellationToken)
+    {
+        bool hasActiveTariff = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            SendingSql.HasActiveTariff,
+            new
+            {
+                senderLine.ProviderId,
+                request.MessageTypeId,
+                Encoding = (byte)segments.Encoding,
+            },
+            cancellationToken: cancellationToken));
+
+        if (!hasActiveTariff)
+        {
+            return Error.NotFound(
+                "sending.no_active_tariff",
+                "No active tariff matches the sender line provider, message type, and SMS encoding.");
+        }
+
+        return Error.NotFound(
+            "sending.no_tariff_rate_band",
+            "An active tariff exists, but no tariff rate band covers the message character count.");
     }
 
     // Persist atomically: debit the balance, then write the batch header, the ledger entry, and the
@@ -214,6 +285,16 @@ public sealed class SendMessagesHandler
             return Error.Validation(
                 "sending.unknown_reference",
                 "The customer, API key, message type, or geo section does not exist.");
+        }
+        catch (SqlException ex) when (ex.IsUniqueViolation())
+        {
+            transaction.Rollback();
+            Result<SendMessagesResponse?> existing = await FindExistingBatchAsync(
+                connection, request, identity.CustomerId, cancellationToken);
+            if (existing.IsSuccess && existing.Value is not null)
+                return existing.Value;
+
+            return Error.Conflict("sending.duplicate_client_batch_id", "A batch with this client batch id already exists.");
         }
     }
 
@@ -345,7 +426,9 @@ public sealed class SendMessagesHandler
         await connection.BulkInsertAsync(transaction, SendMessagesRowMapper.MessageBodyTable, bodyRows, cancellationToken);
     }
 
-    private sealed record SenderLineRow(short Id, byte ProviderId, bool IsActive);
+    private sealed record SenderLineRow(short Id, byte ProviderId, bool IsSharedLine, short? CustomerId, bool IsActive);
 
     private sealed record RateRow(int TariffId, string Currency, decimal PricePerSegment);
+
+    private sealed record ExistingBatchRow(long BatchId, int AcceptedCount);
 }

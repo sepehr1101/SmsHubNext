@@ -9,7 +9,8 @@ internal static class BatchesSql
         """
         SELECT Id, SubmitDateJalali, ReceivedAtUtc, CustomerId, ApiKeyId, SenderLineId, ProviderId,
                ClientBatchId, MessageCount, SegmentCount, TotalCost, Status, StatusReason,
-               ProviderResultCode, DispatchStartedAtUtc, FinishedAtUtc, StatusChangedAtUtc
+               ProviderResultCode, DispatchStartedAtUtc, FinishedAtUtc, StatusChangedAtUtc,
+               DispatchAttemptCount, NextDispatchAtUtc
         FROM dbo.MessageBatch
         WHERE Id = @Id;
         """;

@@ -3,6 +3,9 @@ namespace SmsHubNext.Features.Sending;
 /// <summary>One recipient and the distinct message they should receive.</summary>
 public sealed class SendMessageItem
 {
+    public const int LocalIranMobileLength = 11;
+    public const int InternationalIranMobileLength = 12;
+
     /// <summary>Recipient mobile number (ad-hoc).</summary>
     public string Recipient { get; init; } = string.Empty;
 
@@ -20,4 +23,20 @@ public sealed class SendMessageItem
 
     /// <summary>Optional caller-supplied geographic section (province/city/zone) for reporting.</summary>
     public int? GeoSectionId { get; init; }
+
+    public static bool IsValidRecipient(string recipient)
+    {
+        if (string.IsNullOrWhiteSpace(recipient))
+            return false;
+
+        string trimmed = recipient.Trim();
+        foreach (char character in trimmed)
+        {
+            if (!char.IsAsciiDigit(character))
+                return false;
+        }
+
+        return (trimmed.Length == LocalIranMobileLength && trimmed.StartsWith("09", StringComparison.Ordinal))
+            || (trimmed.Length == InternationalIranMobileLength && trimmed.StartsWith("989", StringComparison.Ordinal));
+    }
 }

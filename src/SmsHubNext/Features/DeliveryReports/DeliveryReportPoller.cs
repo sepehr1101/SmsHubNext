@@ -24,20 +24,20 @@ namespace SmsHubNext.Features.DeliveryReports;
 public sealed class DeliveryReportPoller
 {
     private readonly Db _db;
-    private readonly ISmsProvider _provider;
+    private readonly SmsProviderRegistry _providers;
     private readonly DeliveryReportPollOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<DeliveryReportPoller> _logger;
 
     public DeliveryReportPoller(
         Db db,
-        ISmsProvider provider,
+        SmsProviderRegistry providers,
         DeliveryReportPollOptions options,
         TimeProvider clock,
         ILogger<DeliveryReportPoller> logger)
     {
         _db = db;
-        _provider = provider;
+        _providers = providers;
         _options = options;
         _clock = clock;
         _logger = logger;
@@ -88,18 +88,34 @@ public sealed class DeliveryReportPoller
 
         if (live.Count > 0)
         {
-            List<string> providerMessageIds = live.Select(r => r.ProviderMessageId).ToList();
-            Result<IReadOnlyList<ProviderDeliveryReport>> query = await SafeQueryAsync(providerMessageIds, cancellationToken);
+            foreach (IGrouping<byte, PollRow> providerGroup in live.GroupBy(row => row.ProviderId))
+            {
+                string providerCode = await connection.QuerySingleAsync<string>(new CommandDefinition(
+                    DeliveryReportsSql.GetProviderCode,
+                    new { ProviderId = providerGroup.Key },
+                    cancellationToken: cancellationToken));
 
-            if (query.IsFailure)
-            {
-                // Transient: the live rows are leased forward and retried next cycle. Any expiries
-                // gathered above are independent of the provider and are still applied below.
-                _logger.LogWarning("Delivery-report query failed: {Error}. Retrying next cycle.", query.Error!.Message);
-            }
-            else
-            {
-                Dictionary<string, PollRow> byProviderMessageId = live.ToDictionary(r => r.ProviderMessageId);
+                Result<ISmsProvider> provider = _providers.Resolve(providerCode);
+                if (provider.IsFailure)
+                {
+                    _logger.LogWarning("Delivery-report provider is not registered: {Error}. Retrying next cycle.", provider.Error!.Message);
+                    continue;
+                }
+
+                List<PollRow> providerRows = providerGroup.ToList();
+                List<string> providerMessageIds = providerRows.Select(r => r.ProviderMessageId).ToList();
+                Result<IReadOnlyList<ProviderDeliveryReport>> query = await SafeQueryAsync(
+                    provider.Value, providerMessageIds, cancellationToken);
+
+                if (query.IsFailure)
+                {
+                    // Transient: the live rows are leased forward and retried next cycle. Any expiries
+                    // gathered above are independent of the provider and are still applied below.
+                    _logger.LogWarning("Delivery-report query failed: {Error}. Retrying next cycle.", query.Error!.Message);
+                    continue;
+                }
+
+                Dictionary<string, PollRow> byProviderMessageId = providerRows.ToDictionary(r => r.ProviderMessageId);
                 foreach (ProviderDeliveryReport report in query.Value)
                 {
                     if (report.Status is null)
@@ -140,6 +156,7 @@ public sealed class DeliveryReportPoller
             {
                 DeliveredValue = (byte)DeliveryStatus.Delivered,
                 PendingValue = (byte)DeliveryStatus.Pending,
+                DeliveryUpdatedEventType = (byte)MessageBatchEventType.DeliveryUpdated,
             },
             transaction,
             cancellationToken: cancellationToken));
@@ -172,11 +189,12 @@ public sealed class DeliveryReportPoller
     }
 
     private async Task<Result<IReadOnlyList<ProviderDeliveryReport>>> SafeQueryAsync(
+        ISmsProvider provider,
         IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken)
     {
         try
         {
-            return await _provider.GetDeliveryReportsAsync(providerMessageIds, cancellationToken);
+            return await provider.GetDeliveryReportsAsync(providerMessageIds, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

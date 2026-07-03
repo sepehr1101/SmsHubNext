@@ -12,7 +12,7 @@ internal static class DispatchSql
         ;WITH next AS (
             SELECT TOP (1) Id
             FROM dbo.MessageBatch WITH (READPAST, UPDLOCK, ROWLOCK)
-            WHERE Status = 1                                                  -- Received
+            WHERE (Status = 1 AND (NextDispatchAtUtc IS NULL OR NextDispatchAtUtc <= @Now)) -- Received and due
                OR (Status = 5 AND StatusChangedAtUtc <= @HeldRetryBefore)    -- Held, due for resume
                OR (Status = 2 AND StatusChangedAtUtc <= @DispatchStaleBefore) -- Dispatching, lease expired
             ORDER BY Id
@@ -20,16 +20,21 @@ internal static class DispatchSql
         UPDATE b
         SET Status = 2,                                        -- Dispatching
             StatusReason = NULL,
+            NextDispatchAtUtc = NULL,
+            DispatchAttemptCount = DispatchAttemptCount + 1,
             DispatchStartedAtUtc = COALESCE(b.DispatchStartedAtUtc, @Now),
             StatusChangedAtUtc = @Now
         OUTPUT INSERTED.Id, INSERTED.CustomerId, INSERTED.ProviderId, INSERTED.SenderLineId,
-               DELETED.Status AS PreviousStatus
+               DELETED.Status AS PreviousStatus, INSERTED.DispatchAttemptCount
         FROM dbo.MessageBatch b
         INNER JOIN next ON next.Id = b.Id;
         """;
 
     public const string GetSenderLineNumber =
         "SELECT LineNumber FROM dbo.SenderLine WHERE Id = @SenderLineId;";
+
+    public const string GetProviderCode =
+        "SELECT Code FROM dbo.Provider WHERE Id = @ProviderId;";
 
     // Messages still needing dispatch: Queued (never sent) or AwaitingConfirmation (sent, response
     // lost — reconciled before re-sending). A resumed batch reprocesses just these rows (idempotent).
@@ -120,7 +125,7 @@ internal static class DispatchSql
     public const string RevertBatchToReceived =
         """
         UPDATE dbo.MessageBatch
-        SET Status = 1, StatusChangedAtUtc = @Now                          -- Received
+        SET Status = 1, NextDispatchAtUtc = @NextDispatchAtUtc, StatusChangedAtUtc = @Now -- Received
         WHERE Id = @Id;
         """;
 
@@ -129,6 +134,34 @@ internal static class DispatchSql
         UPDATE dbo.MessageBatch
         SET Status = @Status, StatusReason = NULL, FinishedAtUtc = @Now, StatusChangedAtUtc = @Now
         WHERE Id = @Id;
+        """;
+
+    public const string FailBatch =
+        """
+        UPDATE dbo.MessageBatch
+        SET Status = 7, StatusReason = @Reason, NextDispatchAtUtc = NULL,
+            FinishedAtUtc = @Now, StatusChangedAtUtc = @Now
+        WHERE Id = @Id;
+        """;
+
+    public const string RetryFailedBatch =
+        """
+        UPDATE dbo.MessageBatch
+        SET Status = 1,
+            StatusReason = NULL,
+            NextDispatchAtUtc = @Now,
+            DispatchAttemptCount = 0,
+            DispatchStartedAtUtc = NULL,
+            FinishedAtUtc = NULL,
+            StatusChangedAtUtc = @Now
+        OUTPUT INSERTED.Id
+        WHERE Id = @Id
+          AND Status = 7
+          AND EXISTS (
+              SELECT 1
+              FROM dbo.Message
+              WHERE MessageBatchId = @Id AND Status IN (1, 6)
+          );
         """;
 
     // The batch's message-status distribution, used to pick the terminal batch status.

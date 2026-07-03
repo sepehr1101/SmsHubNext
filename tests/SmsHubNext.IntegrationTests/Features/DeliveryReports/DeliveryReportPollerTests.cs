@@ -112,7 +112,7 @@ public sealed class DeliveryReportPollerTests : IAsyncLifetime
         DeliveryReportPollOptions? options = null) =>
         new(
             _db,
-            new StubProvider(dlrBehavior),
+            new SmsProviderRegistry([new StubProvider(dlrBehavior)]),
             options ?? new DeliveryReportPollOptions(),
             TimeProvider.System,
             NullLogger<DeliveryReportPoller>.Instance);
@@ -145,7 +145,7 @@ public sealed class DeliveryReportPollerTests : IAsyncLifetime
 
         MessageDispatcher dispatcher = new(
             _db,
-            new StubProvider(_ => [], () => ProviderDispatchResult.Accepted(providerMessageId)),
+            new SmsProviderRegistry([new StubProvider(_ => [], () => ProviderDispatchResult.Accepted(providerMessageId))]),
             new DispatchOptions(),
             TimeProvider.System,
             NullLogger<MessageDispatcher>.Instance);
@@ -198,7 +198,7 @@ public sealed class DeliveryReportPollerTests : IAsyncLifetime
             _send = send ?? (() => ProviderDispatchResult.Accepted(Guid.NewGuid().ToString("N")));
         }
 
-        public string Name => "stub";
+        public string Name => "magfa";
 
         public int MaxBatchSize => 1000;
 

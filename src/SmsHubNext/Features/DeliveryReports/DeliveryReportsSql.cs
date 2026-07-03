@@ -4,7 +4,7 @@ internal static class DeliveryReportsSql
 {
     // Fetch the message's partition key (and prove it exists) before recording a report.
     public const string GetMessagePartition =
-        "SELECT SubmitDateJalali FROM dbo.Message WHERE Id = @MessageId;";
+        "SELECT SubmitDateJalali, MessageBatchId FROM dbo.Message WHERE Id = @MessageId;";
 
     public const string InsertReport =
         """
@@ -21,6 +21,12 @@ internal static class DeliveryReportsSql
         SET DeliveryStatus = @DeliveryStatus,
             DeliveredAtUtc = CASE WHEN @DeliveryStatus = @DeliveredValue THEN @ReceivedAtUtc ELSE DeliveredAtUtc END
         WHERE Id = @MessageId;
+        """;
+
+    public const string InsertBatchEventForReport =
+        """
+        INSERT INTO dbo.MessageBatchEvent (MessageBatchId, EventTimeUtc, EventType, Detail)
+        VALUES (@MessageBatchId, @ReceivedAtUtc, @EventType, @Detail);
         """;
 
     public const string ListByMessage =
@@ -51,6 +57,9 @@ internal static class DeliveryReportsSql
         FROM dbo.DeliveryReportPoll p
         INNER JOIN due ON due.MessageId = p.MessageId;
         """;
+
+    public const string GetProviderCode =
+        "SELECT Code FROM dbo.Provider WHERE Id = @ProviderId;";
 
     // Staging table for a cycle's terminal outcomes, bulk-loaded (SqlBulkCopy) before ApplyTerminalReports.
     // Session-scoped #temp on the poller's connection; dropped when that connection closes.
@@ -88,6 +97,24 @@ internal static class DeliveryReportsSql
         SELECT a.SubmitDateJalali, a.MessageId, a.NormalizedStatus, a.RawStatusCode, a.ReceivedAtUtc
         FROM #TerminalApply a
         INNER JOIN @Transitioned t ON t.Id = a.MessageId;
+
+        INSERT INTO dbo.MessageBatchEvent (MessageBatchId, EventTimeUtc, EventType, Detail)
+        SELECT
+            m.MessageBatchId,
+            MAX(a.ReceivedAtUtc),
+            @DeliveryUpdatedEventType,
+            CONCAT(
+                'Delivery reports applied: ', COUNT_BIG(*),
+                ' terminal message(s); delivered=', SUM(CASE WHEN a.DeliveryStatus = @DeliveredValue THEN 1 ELSE 0 END),
+                ', undelivered=', SUM(CASE WHEN a.DeliveryStatus = 3 THEN 1 ELSE 0 END),
+                ', expired=', SUM(CASE WHEN a.DeliveryStatus = 4 THEN 1 ELSE 0 END),
+                ', unknown=', SUM(CASE WHEN a.DeliveryStatus = 5 THEN 1 ELSE 0 END),
+                '.'
+            )
+        FROM #TerminalApply a
+        INNER JOIN @Transitioned t ON t.Id = a.MessageId
+        INNER JOIN dbo.Message m ON m.Id = a.MessageId
+        GROUP BY m.MessageBatchId;
 
         DELETE p
         FROM dbo.DeliveryReportPoll p

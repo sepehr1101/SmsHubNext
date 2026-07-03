@@ -59,6 +59,11 @@ public sealed class SendMessagesRequest
                     "sending.recipient_required",
                     $"Message at index {index} is missing a recipient.");
 
+            if (!SendMessageItem.IsValidRecipient(message.Recipient))
+                return Error.Validation(
+                    "sending.recipient_invalid",
+                    $"Message at index {index} has an invalid Iranian mobile number.");
+
             if (string.IsNullOrWhiteSpace(message.Text))
                 return Error.Validation(
                     "sending.text_required",
@@ -73,4 +78,4 @@ public sealed class SendMessagesRequest
 /// Acknowledgement that a send request was accepted and persisted. The batch is
 /// processed asynchronously; callers poll its status later (accept → dispatch → status).
 /// </summary>
-public sealed record SendMessagesResponse(long BatchId, int AcceptedCount);
+public sealed record SendMessagesResponse(long BatchId, int AcceptedCount, bool IsDuplicate = false);

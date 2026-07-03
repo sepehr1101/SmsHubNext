@@ -8,11 +8,11 @@ public enum BatchStatus : byte
 {
     Received = 1,
     Dispatching = 2,
-    Completed = 3,
-    PartiallyFailed = 4,
+    DispatchCompleted = 3,
+    DispatchPartiallyFailed = 4,
     Held = 5,
     Rejected = 6,
-    Failed = 7,
+    DispatchFailed = 7,
 }
 
 public static class BatchStatusExtensions
@@ -24,8 +24,8 @@ public static class BatchStatusExtensions
     /// </summary>
     public static bool IsTerminal(this BatchStatus status) => status switch
     {
-        BatchStatus.Completed or BatchStatus.PartiallyFailed
-            or BatchStatus.Rejected or BatchStatus.Failed => true,
+        BatchStatus.DispatchCompleted or BatchStatus.DispatchPartiallyFailed
+            or BatchStatus.Rejected or BatchStatus.DispatchFailed => true,
         _ => false,
     };
 }

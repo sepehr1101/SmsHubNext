@@ -38,17 +38,18 @@ public class StatusEnumsTests
     [Theory]
     [InlineData(BatchStatus.Received, 1)]
     [InlineData(BatchStatus.Dispatching, 2)]
-    [InlineData(BatchStatus.Completed, 3)]
-    [InlineData(BatchStatus.PartiallyFailed, 4)]
+    [InlineData(BatchStatus.DispatchCompleted, 3)]
+    [InlineData(BatchStatus.DispatchPartiallyFailed, 4)]
     [InlineData(BatchStatus.Held, 5)]
     [InlineData(BatchStatus.Rejected, 6)]
-    [InlineData(BatchStatus.Failed, 7)]
+    [InlineData(BatchStatus.DispatchFailed, 7)]
     public void BatchStatus_values_are_stable(BatchStatus status, byte expected)
         => Assert.Equal(expected, (byte)status);
 
     [Theory]
     [InlineData(BatchStatusReason.InsufficientProviderCredit, 1)]
     [InlineData(BatchStatusReason.InsufficientCustomerBalance, 2)]
+    [InlineData(BatchStatusReason.DispatchRetriesExhausted, 3)]
     public void BatchStatusReason_values_are_stable(BatchStatusReason reason, byte expected)
         => Assert.Equal(expected, (byte)reason);
 
@@ -60,9 +61,11 @@ public class StatusEnumsTests
     [InlineData(MessageBatchEventType.AwaitingConfirmation, 5)]
     [InlineData(MessageBatchEventType.Held, 6)]
     [InlineData(MessageBatchEventType.MessageRejected, 7)]
-    [InlineData(MessageBatchEventType.Completed, 8)]
-    [InlineData(MessageBatchEventType.PartiallyFailed, 9)]
-    [InlineData(MessageBatchEventType.Failed, 10)]
+    [InlineData(MessageBatchEventType.DispatchCompleted, 8)]
+    [InlineData(MessageBatchEventType.DispatchPartiallyFailed, 9)]
+    [InlineData(MessageBatchEventType.DispatchFailed, 10)]
+    [InlineData(MessageBatchEventType.DeliveryUpdated, 11)]
+    [InlineData(MessageBatchEventType.DispatchRetryRequested, 12)]
     public void MessageBatchEventType_values_are_stable(MessageBatchEventType eventType, byte expected)
         => Assert.Equal(expected, (byte)eventType);
 
@@ -79,10 +82,10 @@ public class StatusEnumsTests
     [InlineData(BatchStatus.Received, false)]
     [InlineData(BatchStatus.Dispatching, false)]
     [InlineData(BatchStatus.Held, false)]
-    [InlineData(BatchStatus.Completed, true)]
-    [InlineData(BatchStatus.PartiallyFailed, true)]
+    [InlineData(BatchStatus.DispatchCompleted, true)]
+    [InlineData(BatchStatus.DispatchPartiallyFailed, true)]
     [InlineData(BatchStatus.Rejected, true)]
-    [InlineData(BatchStatus.Failed, true)]
+    [InlineData(BatchStatus.DispatchFailed, true)]
     public void BatchStatus_terminal_classification(BatchStatus status, bool isTerminal)
         => Assert.Equal(isTerminal, status.IsTerminal());
 }

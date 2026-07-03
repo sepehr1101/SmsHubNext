@@ -5,7 +5,7 @@ internal static class SendingSql
     // Resolve the requested sender line to its keys; only active lines may send.
     public const string ResolveSenderLine =
         """
-        SELECT Id, ProviderId, IsActive
+        SELECT Id, ProviderId, IsSharedLine, CustomerId, IsActive
         FROM dbo.SenderLine
         WHERE LineNumber = @LineNumber;
         """;
@@ -42,6 +42,27 @@ internal static class SendingSql
         SELECT COUNT_BIG(*)
         FROM dbo.GeoSection
         WHERE Id IN @GeoSectionIds AND IsActive = 1;
+        """;
+
+    public const string GetExistingBatchByClientBatchId =
+        """
+        SELECT Id AS BatchId, MessageCount AS AcceptedCount
+        FROM dbo.MessageBatch
+        WHERE CustomerId = @CustomerId AND ClientBatchId = @ClientBatchId;
+        """;
+
+    public const string HasActiveTariff =
+        """
+        SELECT CAST(CASE WHEN EXISTS (
+            SELECT 1
+            FROM dbo.Tariff
+            WHERE ProviderId = @ProviderId
+              AND (MessageTypeId = @MessageTypeId OR MessageTypeId IS NULL)
+              AND Encoding = @Encoding
+              AND IsActive = 1
+              AND EffectiveFromUtc <= SYSUTCDATETIME()
+              AND (EffectiveToUtc IS NULL OR EffectiveToUtc > SYSUTCDATETIME())
+        ) THEN 1 ELSE 0 END AS bit);
         """;
 
     // Overspend-safe debit: a single atomic statement. OUTPUT returns the post-debit

@@ -23,4 +23,6 @@ public sealed record Batch(
     int? ProviderResultCode,
     DateTime? DispatchStartedAtUtc,
     DateTime? FinishedAtUtc,
-    DateTime StatusChangedAtUtc);
+    DateTime StatusChangedAtUtc,
+    int DispatchAttemptCount,
+    DateTime? NextDispatchAtUtc);

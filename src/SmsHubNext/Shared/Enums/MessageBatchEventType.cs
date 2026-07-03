@@ -13,7 +13,9 @@ public enum MessageBatchEventType : byte
     AwaitingConfirmation = 5,
     Held = 6,
     MessageRejected = 7,
-    Completed = 8,
-    PartiallyFailed = 9,
-    Failed = 10,
+    DispatchCompleted = 8,
+    DispatchPartiallyFailed = 9,
+    DispatchFailed = 10,
+    DeliveryUpdated = 11,
+    DispatchRetryRequested = 12,
 }

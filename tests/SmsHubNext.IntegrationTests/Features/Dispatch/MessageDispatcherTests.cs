@@ -48,14 +48,14 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.False(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));  // nothing left to claim
 
         Result<Batch> batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
-        Assert.Equal(BatchStatus.Completed, batch.Value.Status);
+        Assert.Equal(BatchStatus.DispatchCompleted, batch.Value.Status);
         Assert.NotNull(batch.Value.DispatchStartedAtUtc);
         Assert.NotNull(batch.Value.FinishedAtUtc);
 
         Result<IReadOnlyList<BatchEvent>> events = await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.Accepted);
         Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.DispatchStarted);
-        Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.Completed);
+        Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.DispatchCompleted);
 
         Result<IReadOnlyList<BatchMessage>> messages = await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.All(messages.Value, m => Assert.Equal(SendStatus.Submitted, m.Status));
@@ -81,7 +81,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.True(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
 
         Result<Batch> batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
-        Assert.Equal(BatchStatus.Failed, batch.Value.Status); // all messages rejected
+        Assert.Equal(BatchStatus.DispatchFailed, batch.Value.Status); // all messages rejected
 
         Result<IReadOnlyList<BatchMessage>> messages = await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.All(messages.Value, m => Assert.Equal(SendStatus.Rejected, m.Status));
@@ -97,7 +97,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
 
         Result<IReadOnlyList<BatchEvent>> events = await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.MessageRejected);
-        Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.Failed);
+        Assert.Contains(events.Value, e => e.EventType == MessageBatchEventType.DispatchFailed);
     }
 
     [Fact]
@@ -130,12 +130,12 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.True(await ok.DispatchNextBatchAsync(CancellationToken.None));
 
         Result<Batch> done = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
-        Assert.Equal(BatchStatus.Completed, done.Value.Status);
+        Assert.Equal(BatchStatus.DispatchCompleted, done.Value.Status);
         Assert.NotNull(done.Value.FinishedAtUtc);
 
         Result<IReadOnlyList<BatchEvent>> doneEvents = await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
         Assert.Contains(doneEvents.Value, e => e.EventType == MessageBatchEventType.DispatchResumed);
-        Assert.Contains(doneEvents.Value, e => e.EventType == MessageBatchEventType.Completed);
+        Assert.Contains(doneEvents.Value, e => e.EventType == MessageBatchEventType.DispatchCompleted);
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.Equal(9000m, await BalanceAsync(customerId)); // still only the original debit
 
         Result<Batch> done = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
-        Assert.Equal(BatchStatus.Completed, done.Value.Status);
+        Assert.Equal(BatchStatus.DispatchCompleted, done.Value.Status);
     }
 
     [Fact]
@@ -201,7 +201,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Error? sendFailure = null) =>
         new(
             _db,
-            new StubProvider(behavior, resolve, sendFailure),
+            new SmsProviderRegistry([new StubProvider(behavior, resolve, sendFailure)]),
             options ?? new DispatchOptions(),
             TimeProvider.System,
             NullLogger<MessageDispatcher>.Instance);
@@ -273,7 +273,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
             _sendFailure = sendFailure;
         }
 
-        public string Name => "stub";
+        public string Name => "magfa";
 
         public int MaxBatchSize => 1000;
 

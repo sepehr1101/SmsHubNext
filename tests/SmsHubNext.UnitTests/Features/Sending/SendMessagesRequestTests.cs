@@ -56,6 +56,20 @@ public class SendMessagesRequestTests
         Assert.Contains("index 1", result.Error!.Message);
     }
 
+    [Theory]
+    [InlineData("9120000000")]
+    [InlineData("98912000000x")]
+    [InlineData("+989120000000")]
+    public void Each_item_must_have_a_valid_iranian_mobile_number(string recipient)
+    {
+        SendMessagesRequest request = Valid(Item(recipient: recipient));
+
+        Result result = request.Validate();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("sending.recipient_invalid", result.Error!.Code);
+    }
+
     [Fact]
     public void Each_item_must_have_text()
     {

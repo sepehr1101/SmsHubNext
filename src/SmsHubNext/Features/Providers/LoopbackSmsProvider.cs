@@ -11,7 +11,7 @@ namespace SmsHubNext.Features.Providers;
 /// </summary>
 public sealed class LoopbackSmsProvider : ISmsProvider
 {
-    public string Name => "loopback";
+    public string Name => "magfa";
 
     // No real transport limit; large enough to send a whole queued batch in one (no-op) call.
     public int MaxBatchSize => 1000;
