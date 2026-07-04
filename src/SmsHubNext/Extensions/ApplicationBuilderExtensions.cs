@@ -41,6 +41,7 @@ public static class ApplicationBuilderExtensions
                 quote = "/tariffs/quote",
                 balances = "/balances?customerId=1",
                 whoami = "/auth/whoami",
+                dispatchOperations = "/dispatch/operations/summary",
             },
         });
 
