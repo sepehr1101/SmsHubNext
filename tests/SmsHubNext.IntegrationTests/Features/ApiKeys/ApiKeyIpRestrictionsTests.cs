@@ -1,6 +1,10 @@
 using DbUp.Engine;
 using SmsHubNext.Features.ApiKeys;
-using SmsHubNext.Features.ReferenceData;
+using SmsHubNext.Features.ReferenceData.Customers;
+using SmsHubNext.Features.ReferenceData.GeoSections;
+using SmsHubNext.Features.ReferenceData.MessageTypes;
+using SmsHubNext.Features.ReferenceData.Providers;
+using SmsHubNext.Features.ReferenceData.SenderLines;
 using SmsHubNext.IntegrationTests.Shared;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
