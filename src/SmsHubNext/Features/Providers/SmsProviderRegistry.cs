@@ -13,6 +13,8 @@ public sealed class SmsProviderRegistry
             StringComparer.OrdinalIgnoreCase);
     }
 
+    public IReadOnlyCollection<ISmsProvider> Providers => _providers.Values.ToArray();
+
     public Result<ISmsProvider> Resolve(string providerCode)
     {
         if (_providers.TryGetValue(providerCode, out ISmsProvider? provider))

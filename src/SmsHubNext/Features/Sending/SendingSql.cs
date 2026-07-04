@@ -46,7 +46,7 @@ internal static class SendingSql
 
     public const string GetExistingBatchByClientBatchId =
         """
-        SELECT Id AS BatchId, MessageCount AS AcceptedCount
+        SELECT Id AS BatchId, MessageCount AS AcceptedCount, RequestHash
         FROM dbo.MessageBatch
         WHERE CustomerId = @CustomerId AND ClientBatchId = @ClientBatchId;
         """;
@@ -80,11 +80,11 @@ internal static class SendingSql
         """
         INSERT INTO dbo.MessageBatch
             (SubmitDateJalali, ReceivedAtUtc, CustomerId, ApiKeyId, SenderLineId, ProviderId,
-             ClientBatchId, MessageCount, SegmentCount, TotalCost, Status, StatusChangedAtUtc)
+             ClientBatchId, RequestHash, MessageCount, SegmentCount, TotalCost, Status, StatusChangedAtUtc)
         OUTPUT INSERTED.Id
         VALUES
             (@SubmitDateJalali, @NowUtc, @CustomerId, @ApiKeyId, @SenderLineId, @ProviderId,
-             @ClientBatchId, @MessageCount, @SegmentCount, @TotalCost, @Status, @NowUtc);
+             @ClientBatchId, @RequestHash, @MessageCount, @SegmentCount, @TotalCost, @Status, @NowUtc);
         """;
 
     public const string InsertDebitLedger =

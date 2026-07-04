@@ -16,8 +16,8 @@ public sealed class DeliveryReportPollOptions
 
     /// <summary>
     /// How long the provider retains queryable status for a message. Past this, an unresolved
-    /// message is marked <c>Expired</c> and dequeued instead of being polled forever (Magfa keeps
-    /// statuses ~24h).
+    /// message is marked <c>Expired</c> only after a successful provider query, so outages do not
+    /// become delivery outcomes (Magfa keeps statuses ~24h).
     /// </summary>
     public TimeSpan StatusWindow { get; init; } = TimeSpan.FromHours(24);
 

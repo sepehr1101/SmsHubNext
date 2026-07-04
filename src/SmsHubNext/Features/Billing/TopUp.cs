@@ -16,8 +16,11 @@ public sealed class TopUpRequest
         if (Amount <= 0)
             return Error.Validation("balances.amount_positive", "Top-up amount must be positive.");
 
+        if (Reference?.Length > 100)
+            return Error.Validation("balances.reference_too_long", "The top-up reference may contain at most 100 characters.");
+
         return Result.Success();
     }
 }
 
-public sealed record TopUpResponse(short CustomerId, decimal Balance);
+public sealed record TopUpResponse(short CustomerId, decimal Balance, bool IsDuplicate = false);

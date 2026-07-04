@@ -70,25 +70,10 @@ public sealed class DeliveryReportPoller
         // misbehaving provider could repeat a mid) so the temp table's PK can't be violated.
         List<TerminalApply> applies = new List<TerminalApply>(rows.Count);
         HashSet<long> seen = new HashSet<long>(rows.Count);
-        List<PollRow> live = new List<PollRow>(rows.Count);
 
-        foreach (PollRow row in rows)
+        if (rows.Count > 0)
         {
-            // Past the provider's status window it will never resolve: expire it (terminal) with no call.
-            if (row.DispatchedAtUtc <= windowStart)
-            {
-                if (seen.Add(row.MessageId))
-                    applies.Add(TerminalApply.For(row, DeliveryReportStatus.Expired, rawStatusCode: 0, now));
-            }
-            else
-            {
-                live.Add(row);
-            }
-        }
-
-        if (live.Count > 0)
-        {
-            foreach (IGrouping<byte, PollRow> providerGroup in live.GroupBy(row => row.ProviderId))
+            foreach (IGrouping<byte, PollRow> providerGroup in rows.GroupBy(row => row.ProviderId))
             {
                 string providerCode = await connection.QuerySingleAsync<string>(new CommandDefinition(
                     DeliveryReportsSql.GetProviderCode,
@@ -109,8 +94,8 @@ public sealed class DeliveryReportPoller
 
                 if (query.IsFailure)
                 {
-                    // Transient: the live rows are leased forward and retried next cycle. Any expiries
-                    // gathered above are independent of the provider and are still applied below.
+                    // Transient: the rows are leased forward and retried next cycle. We do not infer
+                    // Expired from elapsed time while the provider cannot be reached.
                     _logger.LogWarning("Delivery-report query failed: {Error}. Retrying next cycle.", query.Error!.Message);
                     continue;
                 }
@@ -123,6 +108,12 @@ public sealed class DeliveryReportPoller
 
                     if (byProviderMessageId.TryGetValue(report.ProviderMessageId, out PollRow? row) && seen.Add(row.MessageId))
                         applies.Add(TerminalApply.For(row, report.Status.Value, report.RawStatusCode, now));
+                }
+
+                foreach (PollRow row in providerRows)
+                {
+                    if (row.DispatchedAtUtc <= windowStart && seen.Add(row.MessageId))
+                        applies.Add(TerminalApply.For(row, DeliveryReportStatus.Expired, rawStatusCode: 0, now));
                 }
             }
         }

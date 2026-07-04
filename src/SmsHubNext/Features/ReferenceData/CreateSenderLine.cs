@@ -13,6 +13,8 @@ public sealed class CreateSenderLineRequest
     /// <summary>Whether the line is shared across customers (shared <c>3000…</c>/<c>4040…</c>) or dedicated.</summary>
     public bool IsSharedLine { get; init; }
 
+    public short? CustomerId { get; init; }
+
     /// <summary>New lines are active by default; set false to register a line that cannot yet send.</summary>
     public bool IsActive { get; init; } = true;
 
@@ -23,6 +25,12 @@ public sealed class CreateSenderLineRequest
 
         if (string.IsNullOrWhiteSpace(LineNumber))
             return Error.Validation("sender_lines.line_number_required", "A line number is required.");
+
+        if (CustomerId <= 0)
+            return Error.Validation("sender_lines.invalid_customer", "A customer id must be positive when provided.");
+
+        if (IsSharedLine && CustomerId is not null)
+            return Error.Validation("sender_lines.shared_line_has_owner", "A shared sender line cannot be assigned to one customer.");
 
         return Result.Success();
     }

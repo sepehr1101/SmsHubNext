@@ -98,7 +98,11 @@ public sealed class InboundTests : IAsyncLifetime
     }
 
     private InboundPoller Poller(Func<Result<IReadOnlyList<ProviderInboundMessage>>> fetch) =>
-        new(_db, new InboundStub(fetch), new InboundPollOptions { BatchSize = 50 }, NullLogger<InboundPoller>.Instance);
+        new(
+            _db,
+            new SmsProviderRegistry([new InboundStub(fetch)]),
+            new InboundPollOptions { BatchSize = 50 },
+            NullLogger<InboundPoller>.Instance);
 
     private async Task<List<InboundMessage>> ListAsync(string? recipient = null, int take = 100)
     {

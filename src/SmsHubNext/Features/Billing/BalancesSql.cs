@@ -23,6 +23,15 @@ internal static class BalancesSql
         VALUES (@CustomerId, @Type, @Amount, @BalanceAfter, @Reference);
         """;
 
+    public const string GetTopUpByReference =
+        """
+        SELECT BalanceAfter
+        FROM dbo.BalanceTransaction
+        WHERE CustomerId = @CustomerId
+          AND Type = @Type
+          AND Reference = @Reference;
+        """;
+
     public const string ListTransactions =
         """
         SELECT Id, CustomerId, Type, Amount, BalanceAfter, MessageBatchId, Reference, CreatedAtUtc

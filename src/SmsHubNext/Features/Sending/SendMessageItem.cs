@@ -39,4 +39,12 @@ public sealed class SendMessageItem
         return (trimmed.Length == LocalIranMobileLength && trimmed.StartsWith("09", StringComparison.Ordinal))
             || (trimmed.Length == InternationalIranMobileLength && trimmed.StartsWith("989", StringComparison.Ordinal));
     }
+
+    public static string NormalizeRecipient(string recipient)
+    {
+        string trimmed = recipient.Trim();
+        return trimmed.StartsWith("09", StringComparison.Ordinal)
+            ? "98" + trimmed[1..]
+            : trimmed;
+    }
 }

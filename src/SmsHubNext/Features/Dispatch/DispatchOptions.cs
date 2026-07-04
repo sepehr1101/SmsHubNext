@@ -22,6 +22,21 @@ public sealed class DispatchOptions
     public int MaxDispatchAttempts { get; init; } = 5;
 
     /// <summary>
+    /// Minimum time to wait before trusting a provider "no record" response for a message whose
+    /// submit outcome is unknown. This avoids resending while the provider may still be indexing uid/mid.
+    /// </summary>
+    public TimeSpan MinAwaitingConfirmationAge { get; init; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Delay between confirmation lookups for messages with unknown submit outcome. These retries do
+    /// not terminal-fail the batch because the conservative choice is "do not resend yet".
+    /// </summary>
+    public TimeSpan AwaitingConfirmationRetryDelay { get; init; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>How many negative provider lookups are required before a message is considered safe to resend.</summary>
+    public int RequiredNegativeConfirmations { get; init; } = 2;
+
+    /// <summary>
     /// Retry delays, in seconds, by dispatch attempt. Attempts beyond the configured list use the
     /// last delay. Defaults: 30 seconds, 2 minutes, 5 minutes, then 15 minutes.
     /// </summary>

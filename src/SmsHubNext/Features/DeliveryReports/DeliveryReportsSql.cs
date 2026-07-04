@@ -4,7 +4,7 @@ internal static class DeliveryReportsSql
 {
     // Fetch the message's partition key (and prove it exists) before recording a report.
     public const string GetMessagePartition =
-        "SELECT SubmitDateJalali, MessageBatchId FROM dbo.Message WHERE Id = @MessageId;";
+        "SELECT SubmitDateJalali, MessageBatchId, DeliveryStatus FROM dbo.Message WHERE Id = @MessageId;";
 
     public const string InsertReport =
         """
@@ -20,7 +20,7 @@ internal static class DeliveryReportsSql
         UPDATE dbo.Message
         SET DeliveryStatus = @DeliveryStatus,
             DeliveredAtUtc = CASE WHEN @DeliveryStatus = @DeliveredValue THEN @ReceivedAtUtc ELSE DeliveredAtUtc END
-        WHERE Id = @MessageId;
+        WHERE Id = @MessageId AND DeliveryStatus = @PendingValue;
         """;
 
     public const string InsertBatchEventForReport =

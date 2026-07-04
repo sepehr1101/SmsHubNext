@@ -17,14 +17,14 @@ namespace SmsHubNext.Features.Inbound;
 public sealed class InboundPoller
 {
     private readonly Db _db;
-    private readonly ISmsProvider _provider;
+    private readonly SmsProviderRegistry _providers;
     private readonly InboundPollOptions _options;
     private readonly ILogger<InboundPoller> _logger;
 
-    public InboundPoller(Db db, ISmsProvider provider, InboundPollOptions options, ILogger<InboundPoller> logger)
+    public InboundPoller(Db db, SmsProviderRegistry providers, InboundPollOptions options, ILogger<InboundPoller> logger)
     {
         _db = db;
-        _provider = provider;
+        _providers = providers;
         _options = options;
         _logger = logger;
     }
@@ -35,33 +35,53 @@ public sealed class InboundPoller
     /// </summary>
     public async Task<bool> PollOnceAsync(CancellationToken cancellationToken)
     {
-        Result<IReadOnlyList<ProviderInboundMessage>> fetch = await SafeFetchAsync(cancellationToken);
-        if (fetch.IsFailure)
+        bool moreLikely = false;
+        foreach (ISmsProvider provider in _providers.Providers)
         {
-            _logger.LogWarning("Inbound fetch failed: {Error}. Retrying next cycle.", fetch.Error!.Message);
-            return false;
+            Result<IReadOnlyList<ProviderInboundMessage>> fetch = await SafeFetchAsync(provider, cancellationToken);
+            if (fetch.IsFailure)
+            {
+                _logger.LogWarning(
+                    "Inbound fetch failed for provider {Provider}: {Error}. Retrying next cycle.",
+                    provider.Name,
+                    fetch.Error!.Message);
+                continue;
+            }
+
+            IReadOnlyList<ProviderInboundMessage> inbound = fetch.Value;
+            if (inbound.Count == 0)
+                continue;
+
+            await PersistAsync(provider, inbound, cancellationToken);
+            _logger.LogDebug(
+                "Ingested {Count} inbound message(s) from provider {Provider}.",
+                inbound.Count,
+                provider.Name);
+
+            moreLikely = moreLikely || inbound.Count >= _options.BatchSize;
         }
 
-        IReadOnlyList<ProviderInboundMessage> inbound = fetch.Value;
-        if (inbound.Count == 0)
-            return false;
-
-        await PersistAsync(inbound, cancellationToken);
-        _logger.LogDebug("Ingested {Count} inbound message(s).", inbound.Count);
-
-        // A full page likely means more are waiting; ask the caller to poll again immediately.
-        return inbound.Count >= _options.BatchSize;
+        return moreLikely;
     }
 
-    private async Task PersistAsync(IReadOnlyList<ProviderInboundMessage> inbound, CancellationToken cancellationToken)
+    private async Task PersistAsync(
+        ISmsProvider provider,
+        IReadOnlyList<ProviderInboundMessage> inbound,
+        CancellationToken cancellationToken)
     {
         await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
-        byte providerId = await connection.ExecuteScalarAsync<byte>(new CommandDefinition(
-            InboundSql.ResolveProviderId, new { Code = _provider.Name }, cancellationToken: cancellationToken));
+        byte? providerId = await connection.ExecuteScalarAsync<byte?>(new CommandDefinition(
+            InboundSql.ResolveProviderId, new { Code = provider.Name }, cancellationToken: cancellationToken));
+
+        if (providerId is null)
+        {
+            _logger.LogWarning("Inbound provider {Provider} is registered in code but not present in reference data.", provider.Name);
+            return;
+        }
 
         using SqlTransaction transaction = connection.BeginTransaction();
-        using DataTable rows = BuildRows(inbound, providerId);
+        using DataTable rows = BuildRows(inbound, providerId.Value);
         await connection.BulkInsertAsync(transaction, "dbo.InboundMessage", rows, cancellationToken);
         transaction.Commit();
     }
@@ -88,16 +108,18 @@ public sealed class InboundPoller
         return table;
     }
 
-    private async Task<Result<IReadOnlyList<ProviderInboundMessage>>> SafeFetchAsync(CancellationToken cancellationToken)
+    private async Task<Result<IReadOnlyList<ProviderInboundMessage>>> SafeFetchAsync(
+        ISmsProvider provider,
+        CancellationToken cancellationToken)
     {
         try
         {
-            return await _provider.FetchInboundMessagesAsync(_options.BatchSize, cancellationToken);
+            return await provider.FetchInboundMessagesAsync(_options.BatchSize, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // A provider should not throw for expected failures; treat anything that escapes as transient.
-            _logger.LogError(ex, "Provider threw fetching inbound messages");
+            _logger.LogError(ex, "Provider {Provider} threw fetching inbound messages", provider.Name);
             return Error.Provider("inbound.provider_threw", ex.Message);
         }
     }

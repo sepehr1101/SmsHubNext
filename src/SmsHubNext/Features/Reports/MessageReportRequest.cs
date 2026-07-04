@@ -12,6 +12,16 @@ public sealed class MessageReportRequest
     public byte? MessageTypeId { get; init; }
     public int? GeoSectionId { get; init; }
 
+    public MessageReportRequest ForCustomer(short customerId) => new()
+    {
+        FromJalali = FromJalali,
+        ToJalali = ToJalali,
+        CustomerId = customerId,
+        ProviderId = ProviderId,
+        MessageTypeId = MessageTypeId,
+        GeoSectionId = GeoSectionId,
+    };
+
     public Result Validate()
     {
         if (!IsValidJalaliDate(FromJalali))

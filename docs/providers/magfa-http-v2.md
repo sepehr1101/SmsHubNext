@@ -291,6 +291,8 @@ Send-only walking skeleton. The dispatcher already submits **one message per cal
 * **`GET /balance`** — handy for an ops/health surface (optional this phase).
 * **`GET /mid/{uid}`** — Phase 3 (timeout-safe resend). When a `/send` response is lost the message
   is parked `AwaitingConfirmation`; the next dispatch cycle looks up `/mid/{Message.Id}` — a real mid
-  means Magfa already accepted it (confirm `Submitted`, no re-send), `-1` means re-send is safe.
+  means Magfa already accepted it (confirm `Submitted`, no re-send). A `-1` / "no record" answer
+  becomes safe to resend only after the awaiting-confirmation settings documented in
+  `docs/operations/application-configuration-guide.md` are satisfied.
 * **`GET /statuses`** — Phase 2 (delivery-status polling worker), maps to `DeliveryReport`.
 * **`GET /messages`** — later phase (inbound).

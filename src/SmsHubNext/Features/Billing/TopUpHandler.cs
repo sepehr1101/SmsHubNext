@@ -23,6 +23,15 @@ public sealed class TopUpHandler
             return validation.Error!;
 
         await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
+        string? reference = NormalizeReference(request.Reference);
+
+        if (reference is not null)
+        {
+            TopUpResponse? existing = await FindExistingTopUpAsync(connection, request, reference, cancellationToken);
+            if (existing is not null)
+                return existing;
+        }
+
         using SqlTransaction transaction = connection.BeginTransaction();
 
         try
@@ -57,7 +66,7 @@ public sealed class TopUpHandler
                     Type = (byte)BalanceTransactionType.TopUp,
                     request.Amount,
                     BalanceAfter = balanceAfter,
-                    request.Reference,
+                    Reference = reference,
                 },
                 transaction,
                 cancellationToken: cancellationToken));
@@ -70,5 +79,45 @@ public sealed class TopUpHandler
             transaction.Rollback();
             return Error.Validation("balances.unknown_customer", "The customer does not exist.");
         }
+        catch (SqlException ex) when (ex.IsUniqueViolation())
+        {
+            transaction.Rollback();
+            TopUpResponse? existing = reference is null
+                ? null
+                : await FindExistingTopUpAsync(connection, request, reference, cancellationToken);
+            if (existing is not null)
+                return existing;
+
+            return Error.Conflict("balances.duplicate_reference", "A top-up with this reference already exists.");
+        }
+    }
+
+    private static async Task<TopUpResponse?> FindExistingTopUpAsync(
+        SqlConnection connection,
+        TopUpRequest request,
+        string reference,
+        CancellationToken cancellationToken)
+    {
+        decimal? balanceAfter = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
+            BalancesSql.GetTopUpByReference,
+            new
+            {
+                request.CustomerId,
+                Type = (byte)BalanceTransactionType.TopUp,
+                Reference = reference,
+            },
+            cancellationToken: cancellationToken));
+
+        return balanceAfter is null
+            ? null
+            : new TopUpResponse(request.CustomerId, balanceAfter.Value, IsDuplicate: true);
+    }
+
+    private static string? NormalizeReference(string? reference)
+    {
+        if (string.IsNullOrWhiteSpace(reference))
+            return null;
+
+        return reference.Trim();
     }
 }

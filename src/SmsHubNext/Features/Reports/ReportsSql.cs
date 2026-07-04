@@ -89,4 +89,58 @@ internal static class ReportsSql
         GROUP BY m.GeoSectionId, messageGeo.SectionType, messageGeo.Code, messageGeo.Name
         ORDER BY TotalCost DESC, MessageCount DESC, GeoSectionName;
         """;
+
+    public const string ByJalaliMonth =
+        $"""
+        SELECT
+            LEFT(m.SubmitDateJalali, 7) AS JalaliMonth,
+            {StatSelect}
+        FROM dbo.Message m
+        {GeoFilterJoin}
+        {Filters}
+        GROUP BY LEFT(m.SubmitDateJalali, 7)
+        ORDER BY JalaliMonth;
+        """;
+
+    public const string ByGeoRollup =
+        $"""
+        SELECT
+            rollupGeo.Id AS GeoSectionId,
+            rollupGeo.SectionType,
+            rollupGeo.Code AS GeoSectionCode,
+            COALESCE(rollupGeo.Name, N'Unspecified') AS GeoSectionName,
+            {StatSelect}
+        FROM dbo.Message m
+        {GeoFilterJoin}
+        LEFT JOIN dbo.GeoSection rollupGeo ON messageGeo.Path LIKE rollupGeo.Path + '%'
+        {Filters}
+        GROUP BY rollupGeo.Id, rollupGeo.SectionType, rollupGeo.Code, rollupGeo.Name
+        ORDER BY rollupGeo.SectionType, TotalCost DESC, MessageCount DESC, GeoSectionName;
+        """;
+
+    public const string ByProviderMessageTypeGeo =
+        $"""
+        SELECT
+            m.ProviderId,
+            p.Code AS ProviderCode,
+            p.Name AS ProviderName,
+            m.MessageTypeId,
+            mt.Code AS MessageTypeCode,
+            mt.Name AS MessageTypeName,
+            m.GeoSectionId,
+            messageGeo.SectionType,
+            messageGeo.Code AS GeoSectionCode,
+            COALESCE(messageGeo.Name, N'Unspecified') AS GeoSectionName,
+            {StatSelect}
+        FROM dbo.Message m
+        INNER JOIN dbo.Provider p ON p.Id = m.ProviderId
+        INNER JOIN dbo.MessageType mt ON mt.Id = m.MessageTypeId
+        {GeoFilterJoin}
+        {Filters}
+        GROUP BY
+            m.ProviderId, p.Code, p.Name,
+            m.MessageTypeId, mt.Code, mt.Name,
+            m.GeoSectionId, messageGeo.SectionType, messageGeo.Code, messageGeo.Name
+        ORDER BY TotalCost DESC, MessageCount DESC, p.Name, mt.Name, GeoSectionName;
+        """;
 }

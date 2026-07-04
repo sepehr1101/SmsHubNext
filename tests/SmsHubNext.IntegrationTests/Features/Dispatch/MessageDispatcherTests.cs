@@ -159,6 +159,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         int sendCalls = 0;
         MessageDispatcher recovering = Dispatcher(
             _ => { sendCalls++; return ProviderDispatchResult.Accepted("should-not-be-used"); },
+            options: new DispatchOptions { MinAwaitingConfirmationAge = TimeSpan.Zero },
             resolve: _ => Result.Success<string?>("magfa-555"));
         Assert.True(await recovering.DispatchNextBatchAsync(CancellationToken.None));
 
@@ -172,7 +173,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_lost_send_response_with_no_provider_record_is_resent()
+    public async Task A_lost_send_response_with_no_provider_record_is_resent_after_repeated_negative_confirmation()
     {
         (long batchId, _) = await SendBatchAsync(messageCount: 1);
 
@@ -182,14 +183,31 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.True(await failing.DispatchNextBatchAsync(CancellationToken.None));
         Assert.Equal((byte)SendStatus.AwaitingConfirmation, await MessageStatusAsync(batchId));
 
-        // The provider has no record -> it was never accepted, so this cycle re-sends and accepts it.
+        // One negative lookup is not enough to resend; the conservative choice is to wait.
         int sendCalls = 0;
-        MessageDispatcher resending = Dispatcher(
+        DispatchOptions conservativeOptions = new DispatchOptions
+        {
+            MinAwaitingConfirmationAge = TimeSpan.Zero,
+            AwaitingConfirmationRetryDelay = TimeSpan.Zero,
+            RequiredNegativeConfirmations = 2,
+        };
+        MessageDispatcher firstNegative = Dispatcher(
             _ => { sendCalls++; return ProviderDispatchResult.Accepted("magfa-777"); },
+            options: conservativeOptions,
             resolve: _ => Result.Success<string?>(null));
-        Assert.True(await resending.DispatchNextBatchAsync(CancellationToken.None));
+        Assert.True(await firstNegative.DispatchNextBatchAsync(CancellationToken.None));
 
-        Assert.Equal(1, sendCalls); // re-sent exactly once
+        Assert.Equal(0, sendCalls);
+        Assert.Equal((byte)SendStatus.AwaitingConfirmation, await MessageStatusAsync(batchId));
+
+        // A repeated negative lookup after the safety window is treated as safe to resend.
+        MessageDispatcher secondNegativeThenResend = Dispatcher(
+            _ => { sendCalls++; return ProviderDispatchResult.Accepted("magfa-777"); },
+            options: conservativeOptions,
+            resolve: _ => Result.Success<string?>(null));
+        Assert.True(await secondNegativeThenResend.DispatchNextBatchAsync(CancellationToken.None));
+
+        Assert.Equal(1, sendCalls);
         Assert.Equal((byte)SendStatus.Submitted, await MessageStatusAsync(batchId));
         Assert.Equal("magfa-777", await ProviderMessageIdAsync(batchId));
     }

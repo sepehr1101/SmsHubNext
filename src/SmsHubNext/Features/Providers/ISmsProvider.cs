@@ -3,61 +3,44 @@ using SmsHubNext.Shared.Results;
 namespace SmsHubNext.Features.Providers;
 
 /// <summary>
-/// The one real abstraction seam (ARCHITECTURE.md §4): a transport to an upstream SMS provider.
-/// It both submits messages and polls their delivery status. Implementations return a
-/// <c>Result</c> — a failed result is a transport/transient error (retry), a successful result
-/// carries the provider's domain outcome. Implementations never throw for expected failures.
+/// The one real abstraction seam (ARCHITECTURE.md): a transport to an upstream SMS provider.
+/// It submits messages, reconciles uncertain submissions, polls delivery status, and fetches inbound
+/// messages. Implementations return a <c>Result</c> and never throw for expected provider failures.
 /// </summary>
 public interface ISmsProvider
 {
-    /// <summary>Stable provider key (matches <c>Provider.Code</c>), e.g. <c>magfa</c>.</summary>
+    /// <summary>Stable provider key matching <c>Provider.Code</c>, for example <c>magfa</c>.</summary>
     string Name { get; }
 
     /// <summary>
-    /// The most messages this provider accepts in one <see cref="SendBatchAsync"/> request (Magfa: 100).
-    /// The dispatcher chunks a batch's queued messages by this size — one HTTP request per chunk.
+    /// The most messages this provider accepts in one <see cref="SendBatchAsync"/> request.
     /// </summary>
     int MaxBatchSize { get; }
 
     /// <summary>
-    /// Submits up to <see cref="MaxBatchSize"/> messages in one provider request. The two result
-    /// levels are deliberately distinct so batching changes the transport only, never the per-message
-    /// domain outcome:
-    /// <list type="bullet">
-    /// <item>A failed <b>outer</b> <c>Result</c> is a whole-request transport/transient failure — none
-    /// of the messages were taken; the dispatcher re-queues the chunk and retries later.</item>
-    /// <item>A successful outer result carries exactly one <b>inner</b>
-    /// <c>Result&lt;ProviderDispatchResult&gt;</c> per input request, <b>in input order</b>. A failed
-    /// inner result is that one message's transient failure (leave it queued, retry just it); a
-    /// successful inner result is its domain outcome (accepted / rejected / out-of-credit).</item>
-    /// </list>
-    /// Implementations never throw for expected failures and always return one inner result per request.
+    /// Submits up to <see cref="MaxBatchSize"/> messages in one provider request.
+    /// A failed outer <c>Result</c> means the provider outcome is unknown; the dispatcher must keep
+    /// those messages in <c>AwaitingConfirmation</c> and reconcile by uid before any resend.
+    /// A successful outer result carries one inner result per input request, in input order.
     /// </summary>
     Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
         IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken);
 
     /// <summary>
     /// Recovers from a send whose response was lost: looks up whether the provider already accepted
-    /// the message we submitted with this id (sent as the provider's correlation id / uid). Returns
-    /// the provider message id if it was accepted, or <c>null</c> if the provider has no record of it
-    /// (safe to re-send). A failed <c>Result</c> is a transient/transport error (retry the lookup).
+    /// the message submitted with this id as correlation id / uid. Returns the provider message id if
+    /// it was accepted, or <c>null</c> if the provider has no record of it.
     /// </summary>
     Task<Result<string?>> ResolveSubmittedMessageIdAsync(long messageId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Queries the provider for the delivery status of previously-submitted messages, by their
-    /// provider message ids (the DLR-polling pipeline, Phase 2). A failed <c>Result</c> is a
-    /// transport/transient error (retry next cycle); a successful result carries one
-    /// <see cref="ProviderDeliveryReport"/> per id the provider returned a status for.
+    /// Queries the provider for delivery status by provider message id.
     /// </summary>
     Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
         IReadOnlyCollection<string> providerMessageIds, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Pulls up to <paramref name="maxCount"/> inbound (MO) messages from the provider's inbox
-    /// (Phase 4). The pull is destructive — returned messages are dequeued at the provider — so the
-    /// caller must persist them before treating them as consumed. A failed <c>Result</c> is a
-    /// transient/transport error (retry next cycle).
+    /// Pulls up to <paramref name="maxCount"/> inbound messages from the provider inbox.
     /// </summary>
     Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
         int maxCount, CancellationToken cancellationToken);

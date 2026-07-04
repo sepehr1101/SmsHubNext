@@ -109,14 +109,27 @@ public sealed class MessageDispatcher
                 continue;
             }
 
+            if (ShouldWaitBeforeConfirmationLookup(message, now, out DateTime nextLookupAtUtc))
+            {
+                await RequeueAwaitingConfirmationBatchAsync(
+                    connection,
+                    batch,
+                    now,
+                    nextLookupAtUtc,
+                    $"Message {message.Id} is awaiting confirmation; delaying lookup until {nextLookupAtUtc:O}.",
+                    cancellationToken);
+                return true;
+            }
+
             Result<string?> lookup = await SafeResolveAsync(provider, message.Id, cancellationToken);
             if (lookup.IsFailure)
             {
                 // Can't confirm right now: re-queue and retry the whole batch on a later cycle.
-                await RequeueOrFailBatchAsync(
+                await RequeueAwaitingConfirmationBatchAsync(
                     connection,
                     batch,
                     now,
+                    now + _options.AwaitingConfirmationRetryDelay,
                     $"Provider confirmation lookup failed: {lookup.Error!.Message}.",
                     cancellationToken);
                 return true;
@@ -130,6 +143,19 @@ public sealed class MessageDispatcher
             else
             {
                 // No provider record — it was never accepted, so reset to Queued and send it below.
+                int negativeConfirmations = await CountNegativeConfirmationAsync(connection, message.Id, cancellationToken);
+                if (negativeConfirmations < _options.RequiredNegativeConfirmations)
+                {
+                    await RequeueAwaitingConfirmationBatchAsync(
+                        connection,
+                        batch,
+                        now,
+                        now + _options.AwaitingConfirmationRetryDelay,
+                        $"Provider has no record for message {message.Id}; waiting for {negativeConfirmations}/{_options.RequiredNegativeConfirmations} negative confirmation(s).",
+                        cancellationToken);
+                    return true;
+                }
+
                 await connection.ExecuteAsync(new CommandDefinition(
                     DispatchSql.RequeueMessage, new { message.Id }, cancellationToken: cancellationToken));
                 toSend.Add(message);
@@ -147,6 +173,18 @@ public sealed class MessageDispatcher
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            await MarkAwaitingConfirmationAsync(connection, chunk, now, cancellationToken);
+            await InsertBatchEventAsync(
+                connection,
+                batch.Id,
+                now,
+                MessageBatchEventType.AwaitingConfirmation,
+                BatchStatus.Dispatching,
+                null,
+                null,
+                $"Marked {chunk.Length} message(s) as awaiting provider confirmation before submit.",
+                cancellationToken);
+
             List<ProviderSendRequest> requests = chunk
                 .Select(m => new ProviderSendRequest(m.Id, senderLine, m.MobileNumber, m.Body))
                 .ToList();
@@ -160,11 +198,11 @@ public sealed class MessageDispatcher
                 // cycle reconciles them via the provider rather than re-sending, then re-queue.
                 _logger.LogWarning("Transient dispatch failure on batch {BatchId}: {Error}. Re-queuing.",
                     batch.Id, batchResult.Error!.Message);
-                await MarkAwaitingConfirmationAsync(connection, chunk, cancellationToken);
-                await RequeueOrFailBatchAsync(
+                await RequeueAwaitingConfirmationBatchAsync(
                     connection,
                     batch,
                     now,
+                    now + _options.AwaitingConfirmationRetryDelay,
                     $"Provider send response was lost for {chunk.Length} message(s): {batchResult.Error.Message}.",
                     cancellationToken);
                 return true;
@@ -197,7 +235,9 @@ public sealed class MessageDispatcher
                         break;
 
                     case ProviderDispatchStatus.InsufficientCredit:
-                        held = true; // leave this message Queued; stop after applying the rest of the chunk
+                        await connection.ExecuteAsync(new CommandDefinition(
+                            DispatchSql.RequeueMessage, new { message.Id }, cancellationToken: cancellationToken));
+                        held = true;
                         break;
                 }
             }
@@ -229,11 +269,12 @@ public sealed class MessageDispatcher
         if (requeue)
         {
             // Some messages hit a per-message transient and stay Queued: re-queue so they are retried.
-            await RequeueOrFailBatchAsync(
+            await RequeueAwaitingConfirmationBatchAsync(
                 connection,
                 batch,
                 now,
-                "One or more messages had a transient provider result.",
+                now + _options.AwaitingConfirmationRetryDelay,
+                "One or more messages had an inconclusive provider result.",
                 cancellationToken);
             return true;
         }
@@ -258,24 +299,11 @@ public sealed class MessageDispatcher
     {
         if (batch.DispatchAttemptCount >= _options.MaxDispatchAttempts)
         {
-            await connection.ExecuteAsync(new CommandDefinition(
-                DispatchSql.FailBatch,
-                new
-                {
-                    batch.Id,
-                    Now = now,
-                    Reason = (byte)BatchStatusReason.DispatchRetriesExhausted,
-                },
-                cancellationToken: cancellationToken));
-
-            await InsertBatchEventAsync(
+            await FailBatchAndRefundDispatchableAsync(
                 connection,
-                batch.Id,
+                batch,
                 now,
-                MessageBatchEventType.DispatchFailed,
-                BatchStatus.DispatchFailed,
                 BatchStatusReason.DispatchRetriesExhausted,
-                null,
                 $"{detail} Dispatch retry limit exhausted after {batch.DispatchAttemptCount} attempt(s).",
                 cancellationToken);
             return;
@@ -297,33 +325,97 @@ public sealed class MessageDispatcher
             cancellationToken);
     }
 
-    private static async Task FailUnregisteredProviderBatchAsync(
+    private static async Task RequeueAwaitingConfirmationBatchAsync(
         SqlConnection connection,
         ClaimedBatch batch,
         DateTime now,
+        DateTime nextDispatchAtUtc,
         string detail,
         CancellationToken cancellationToken)
     {
-        await connection.ExecuteAsync(new CommandDefinition(
-            DispatchSql.FailBatch,
-            new
-            {
-                batch.Id,
-                Now = now,
-                Reason = (byte)BatchStatusReason.DispatchRetriesExhausted,
-            },
-            cancellationToken: cancellationToken));
-
+        await RequeueBatchAsync(connection, batch.Id, now, nextDispatchAtUtc, cancellationToken);
         await InsertBatchEventAsync(
             connection,
             batch.Id,
             now,
+            MessageBatchEventType.Requeued,
+            BatchStatus.Received,
+            null,
+            null,
+            $"{detail} Batch requeued for confirmation at {nextDispatchAtUtc:O}.",
+            cancellationToken);
+    }
+
+    private static Task FailUnregisteredProviderBatchAsync(
+        SqlConnection connection,
+        ClaimedBatch batch,
+        DateTime now,
+        string detail,
+        CancellationToken cancellationToken) =>
+        FailBatchAndRefundDispatchableAsync(
+            connection, batch, now, BatchStatusReason.DispatchRetriesExhausted, detail, cancellationToken);
+
+    private static async Task FailBatchAndRefundDispatchableAsync(
+        SqlConnection connection,
+        ClaimedBatch batch,
+        DateTime now,
+        BatchStatusReason reason,
+        string detail,
+        CancellationToken cancellationToken)
+    {
+        using SqlTransaction transaction = connection.BeginTransaction();
+
+        DispatchableMoney? refund = await connection.QuerySingleOrDefaultAsync<DispatchableMoney>(new CommandDefinition(
+            DispatchSql.GetDispatchableRefund,
+            new { BatchId = batch.Id },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        string eventDetail = detail;
+        if (refund is not null && refund.TotalCost > 0)
+        {
+            decimal? balanceAfter = await connection.ExecuteScalarAsync<decimal?>(new CommandDefinition(
+                DispatchSql.CreditBalance,
+                new { refund.CustomerId, Amount = refund.TotalCost, Now = now },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                DispatchSql.InsertRefundLedger,
+                new
+                {
+                    refund.CustomerId,
+                    Type = (byte)BalanceTransactionType.Refund,
+                    Amount = refund.TotalCost,
+                    BalanceAfter = balanceAfter ?? refund.TotalCost,
+                    MessageBatchId = batch.Id,
+                    Reference = "dispatch-failed",
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            eventDetail = $"{detail} Refunded {refund.TotalCost:0.####} IRR for {refund.MessageCount} unsubmitted message(s).";
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            DispatchSql.FailBatch,
+            new { batch.Id, Now = now, Reason = (byte)reason },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await InsertBatchEventAsync(
+            connection,
+            transaction,
+            batch.Id,
+            now,
             MessageBatchEventType.DispatchFailed,
             BatchStatus.DispatchFailed,
-            BatchStatusReason.DispatchRetriesExhausted,
+            reason,
             null,
-            detail,
+            eventDetail,
             cancellationToken);
+
+        transaction.Commit();
     }
 
     // Mark a message Submitted (from Queued or a reconciled AwaitingConfirmation) and enqueue its
@@ -337,11 +429,32 @@ public sealed class MessageDispatcher
 
     // Park a chunk's still-Queued messages as AwaitingConfirmation after a lost send response.
     private static Task MarkAwaitingConfirmationAsync(
-        SqlConnection connection, IReadOnlyList<QueuedMessage> chunk, CancellationToken cancellationToken) =>
+        SqlConnection connection, IReadOnlyList<QueuedMessage> chunk, DateTime now, CancellationToken cancellationToken) =>
         connection.ExecuteAsync(new CommandDefinition(
             DispatchSql.MarkAwaitingConfirmation,
-            new { Ids = chunk.Select(m => m.Id).ToArray() },
+            new { Ids = chunk.Select(m => m.Id).ToArray(), Now = now },
             cancellationToken: cancellationToken));
+
+    private static async Task<int> CountNegativeConfirmationAsync(
+        SqlConnection connection, long messageId, CancellationToken cancellationToken)
+    {
+        int? count = await connection.ExecuteScalarAsync<int?>(new CommandDefinition(
+            DispatchSql.CountNegativeConfirmation,
+            new { Id = messageId },
+            cancellationToken: cancellationToken));
+
+        return count ?? 0;
+    }
+
+    private bool ShouldWaitBeforeConfirmationLookup(
+        QueuedMessage message,
+        DateTime now,
+        out DateTime nextLookupAtUtc)
+    {
+        DateTime since = message.AwaitingConfirmationSinceUtc ?? now;
+        nextLookupAtUtc = since + _options.MinAwaitingConfirmationAge;
+        return nextLookupAtUtc > now;
+    }
 
     private async Task<Result<string?>> SafeResolveAsync(
         ISmsProvider provider, long messageId, CancellationToken cancellationToken)
@@ -522,7 +635,16 @@ public sealed class MessageDispatcher
         int DispatchAttemptCount);
 
     private sealed record QueuedMessage(
-        long Id, string MobileNumber, decimal TotalCost, short CustomerId, string Body, byte Status);
+        long Id,
+        string MobileNumber,
+        decimal TotalCost,
+        short CustomerId,
+        string Body,
+        byte Status,
+        DateTime? AwaitingConfirmationSinceUtc,
+        int ConfirmationLookupCount);
 
     private sealed record StatusCounts(int? Queued, int? Submitted, int? Rejected);
+
+    private sealed record DispatchableMoney(short CustomerId, long MessageCount, decimal TotalCost);
 }

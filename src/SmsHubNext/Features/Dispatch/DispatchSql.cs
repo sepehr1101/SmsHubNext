@@ -40,7 +40,15 @@ internal static class DispatchSql
     // lost — reconciled before re-sending). A resumed batch reprocesses just these rows (idempotent).
     public const string LoadDispatchableMessages =
         """
-        SELECT m.Id, m.MobileNumber, m.TotalCost, m.CustomerId, body.Body, m.Status
+        SELECT
+            m.Id,
+            m.MobileNumber,
+            m.TotalCost,
+            m.CustomerId,
+            body.Body,
+            m.Status,
+            m.AwaitingConfirmationSinceUtc,
+            m.ConfirmationLookupCount
         FROM dbo.Message m
         INNER JOIN dbo.MessageBody body ON body.Id = m.Id
         WHERE m.MessageBatchId = @BatchId AND m.Status IN (1, 6)   -- Queued, AwaitingConfirmation
@@ -55,7 +63,9 @@ internal static class DispatchSql
     public const string MarkSubmitted =
         """
         UPDATE dbo.Message
-        SET Status = 2, ProviderMessageId = @ProviderMessageId   -- Submitted
+        SET Status = 2, ProviderMessageId = @ProviderMessageId,   -- Submitted
+            AwaitingConfirmationSinceUtc = NULL,
+            ConfirmationLookupCount = 0
         WHERE Id = @Id AND Status IN (1, 6);                     -- Queued or AwaitingConfirmation
 
         INSERT INTO dbo.DeliveryReportPoll
@@ -71,8 +81,18 @@ internal static class DispatchSql
     public const string MarkAwaitingConfirmation =
         """
         UPDATE dbo.Message
-        SET Status = 6                                            -- AwaitingConfirmation
+        SET Status = 6,                                           -- AwaitingConfirmation
+            AwaitingConfirmationSinceUtc = COALESCE(AwaitingConfirmationSinceUtc, @Now),
+            ConfirmationLookupCount = CASE WHEN Status = 1 THEN 0 ELSE ConfirmationLookupCount END
         WHERE Id IN @Ids AND Status = 1;                         -- only ones still Queued
+        """;
+
+    public const string CountNegativeConfirmation =
+        """
+        UPDATE dbo.Message
+        SET ConfirmationLookupCount += 1
+        OUTPUT INSERTED.ConfirmationLookupCount
+        WHERE Id = @Id AND Status = 6;
         """;
 
     // Reconciliation found no provider record: the message was never accepted, so reset it to Queued
@@ -80,15 +100,19 @@ internal static class DispatchSql
     public const string RequeueMessage =
         """
         UPDATE dbo.Message
-        SET Status = 1                                            -- Queued
+        SET Status = 1,                                           -- Queued
+            AwaitingConfirmationSinceUtc = NULL,
+            ConfirmationLookupCount = 0
         WHERE Id = @Id AND Status = 6;                           -- AwaitingConfirmation
         """;
 
     public const string MarkRejected =
         """
         UPDATE dbo.Message
-        SET Status = 4, ProviderMessageId = @ProviderMessageId   -- Rejected
-        WHERE Id = @Id AND Status = 1;
+        SET Status = 4, ProviderMessageId = @ProviderMessageId,  -- Rejected
+            AwaitingConfirmationSinceUtc = NULL,
+            ConfirmationLookupCount = 0
+        WHERE Id = @Id AND Status IN (1, 6);
         """;
 
     // Refund a provider-rejected message: credit the balance and append the ledger entry.
@@ -100,10 +124,26 @@ internal static class DispatchSql
         WHERE CustomerId = @CustomerId;
         """;
 
+    public const string DebitBalance =
+        """
+        UPDATE dbo.CustomerBalance
+        SET Balance -= @Amount, UpdatedAtUtc = @Now
+        OUTPUT INSERTED.Balance
+        WHERE CustomerId = @CustomerId AND Balance >= @Amount;
+        """;
+
     public const string InsertRefundLedger =
         """
         INSERT INTO dbo.BalanceTransaction (CustomerId, Type, Amount, BalanceAfter, MessageBatchId, Reference)
         VALUES (@CustomerId, @Type, @Amount, @BalanceAfter, @MessageBatchId, @Reference);
+        """;
+
+    public const string GetDispatchableRefund =
+        """
+        SELECT CustomerId, COUNT_BIG(*) AS MessageCount, COALESCE(SUM(TotalCost), 0) AS TotalCost
+        FROM dbo.Message
+        WHERE MessageBatchId = @BatchId AND Status IN (1, 6)
+        GROUP BY CustomerId;
         """;
 
     public const string InsertBatchEvent =
@@ -162,6 +202,17 @@ internal static class DispatchSql
               FROM dbo.Message
               WHERE MessageBatchId = @Id AND Status IN (1, 6)
           );
+        """;
+
+    public const string GetRetryableDispatchDebit =
+        """
+        SELECT b.CustomerId, COUNT_BIG(*) AS MessageCount, COALESCE(SUM(m.TotalCost), 0) AS TotalCost
+        FROM dbo.MessageBatch b
+        INNER JOIN dbo.Message m ON m.MessageBatchId = b.Id
+        WHERE b.Id = @Id
+          AND b.Status = 7
+          AND m.Status IN (1, 6)
+        GROUP BY b.CustomerId;
         """;
 
     // The batch's message-status distribution, used to pick the terminal batch status.

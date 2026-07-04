@@ -32,3 +32,18 @@ public sealed record GeoMessageReportRow(
     string? GeoSectionCode,
     string GeoSectionName,
     MessageReportStats Stats);
+
+public sealed record JalaliMonthMessageReportRow(string JalaliMonth, MessageReportStats Stats);
+
+public sealed record ProviderMessageTypeGeoReportRow(
+    byte ProviderId,
+    string ProviderCode,
+    string ProviderName,
+    byte MessageTypeId,
+    string MessageTypeCode,
+    string MessageTypeName,
+    int? GeoSectionId,
+    byte? SectionType,
+    string? GeoSectionCode,
+    string GeoSectionName,
+    MessageReportStats Stats);

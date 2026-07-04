@@ -63,7 +63,7 @@ internal static class SendMessagesRowMapper
                 senderLineId,
                 request.MessageTypeId,
                 (object?)message.Item.GeoSectionId ?? DBNull.Value,
-                message.Item.Recipient,
+                message.NormalizedRecipient,
                 (object?)message.Item.ClientCorrelatedId ?? DBNull.Value,
                 (object?)message.Item.BillId ?? DBNull.Value,
                 (object?)message.Item.PayId ?? DBNull.Value,

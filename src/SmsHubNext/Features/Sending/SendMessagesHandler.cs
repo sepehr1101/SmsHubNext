@@ -63,8 +63,10 @@ public sealed class SendMessagesHandler
         if (senderLine.IsFailure)
             return senderLine.Error!;
 
+        byte[] requestHash = SendMessagesRequestHasher.Hash(request);
+
         Result<SendMessagesResponse?> existing = await FindExistingBatchAsync(
-            connection, request, identity.CustomerId, cancellationToken);
+            connection, request, identity.CustomerId, requestHash, cancellationToken);
         if (existing.IsFailure)
             return existing.Error!;
         if (existing.Value is not null)
@@ -74,13 +76,14 @@ public sealed class SendMessagesHandler
         if (priced.IsFailure)
             return priced.Error!;
 
-        return await PersistAsync(connection, request, identity, senderLine.Value, priced.Value, cancellationToken);
+        return await PersistAsync(connection, request, identity, senderLine.Value, priced.Value, requestHash, cancellationToken);
     }
 
     private static async Task<Result<SendMessagesResponse?>> FindExistingBatchAsync(
         SqlConnection connection,
         SendMessagesRequest request,
         short customerId,
+        byte[] requestHash,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.ClientBatchId))
@@ -91,9 +94,15 @@ public sealed class SendMessagesHandler
             new { CustomerId = customerId, request.ClientBatchId },
             cancellationToken: cancellationToken));
 
-        return existing is null
-            ? Result.Success<SendMessagesResponse?>(null)
-            : new SendMessagesResponse(existing.BatchId, existing.AcceptedCount, IsDuplicate: true);
+        if (existing is null)
+            return Result.Success<SendMessagesResponse?>(null);
+
+        if (existing.RequestHash is null || !existing.RequestHash.SequenceEqual(requestHash))
+            return Error.Conflict(
+                "sending.client_batch_payload_mismatch",
+                "A batch with this client batch id already exists, but its payload is different.");
+
+        return new SendMessagesResponse(existing.BatchId, existing.AcceptedCount, IsDuplicate: true);
     }
 
     private static async Task<Result> ValidateReferencesAsync(
@@ -174,6 +183,7 @@ public sealed class SendMessagesHandler
         Dictionary<RateLookupKey, RateRow> rateCache = new Dictionary<RateLookupKey, RateRow>();
         foreach (SendMessageItem item in request.Messages)
         {
+            string normalizedRecipient = SendMessageItem.NormalizeRecipient(item.Recipient);
             SmsSegmentInfo segments = SmsPartCalculator.Calculate(item.Text);
             RateLookupKey key = new RateLookupKey(senderLine.ProviderId, request.MessageTypeId, segments.Encoding, segments.CharacterCount);
 
@@ -196,7 +206,7 @@ public sealed class SendMessagesHandler
                 rateCache.Add(key, rate);
             }
 
-            priced.Add(new PricedMessage(item, segments, rate.TariffId, rate.PricePerSegment));
+            priced.Add(new PricedMessage(item, normalizedRecipient, segments, rate.TariffId, rate.PricePerSegment));
         }
 
         return priced;
@@ -245,6 +255,7 @@ public sealed class SendMessagesHandler
         ApiKeyIdentity identity,
         SenderLineRow senderLine,
         IReadOnlyList<PricedMessage> priced,
+        byte[] requestHash,
         CancellationToken cancellationToken)
     {
         decimal totalCost = priced.Sum(p => p.TotalCost);
@@ -265,7 +276,7 @@ public sealed class SendMessagesHandler
 
             long batchId = await InsertBatchAsync(
                 connection, transaction, request, identity, senderLine,
-                priced.Count, totalSegments, totalCost, submitDateJalali, nowUtc, cancellationToken);
+                priced.Count, totalSegments, totalCost, submitDateJalali, nowUtc, requestHash, cancellationToken);
 
             await InsertDebitLedgerAsync(
                 connection, transaction, request, identity.CustomerId, totalCost, balanceAfter.Value, batchId, cancellationToken);
@@ -290,7 +301,7 @@ public sealed class SendMessagesHandler
         {
             transaction.Rollback();
             Result<SendMessagesResponse?> existing = await FindExistingBatchAsync(
-                connection, request, identity.CustomerId, cancellationToken);
+                connection, request, identity.CustomerId, requestHash, cancellationToken);
             if (existing.IsSuccess && existing.Value is not null)
                 return existing.Value;
 
@@ -327,6 +338,7 @@ public sealed class SendMessagesHandler
         decimal totalCost,
         string submitDateJalali,
         DateTime nowUtc,
+        byte[] requestHash,
         CancellationToken cancellationToken) =>
         connection.ExecuteScalarAsync<long>(new CommandDefinition(
             SendingSql.InsertBatch,
@@ -339,6 +351,7 @@ public sealed class SendMessagesHandler
                 SenderLineId = senderLine.Id,
                 senderLine.ProviderId,
                 request.ClientBatchId,
+                RequestHash = requestHash,
                 MessageCount = messageCount,
                 SegmentCount = segmentCount,
                 TotalCost = totalCost,
@@ -430,5 +443,5 @@ public sealed class SendMessagesHandler
 
     private sealed record RateRow(int TariffId, string Currency, decimal PricePerSegment);
 
-    private sealed record ExistingBatchRow(long BatchId, int AcceptedCount);
+    private sealed record ExistingBatchRow(long BatchId, int AcceptedCount, byte[]? RequestHash);
 }

@@ -60,17 +60,24 @@ public sealed class IngestDeliveryReportHandler
             transaction,
             cancellationToken: cancellationToken));
 
-        await connection.ExecuteAsync(new CommandDefinition(
+        int updated = await connection.ExecuteAsync(new CommandDefinition(
             DeliveryReportsSql.UpdateMessageStatus,
             new
             {
                 DeliveryStatus = (byte)readModel,
                 DeliveredValue = (byte)DeliveryStatus.Delivered,
+                PendingValue = (byte)DeliveryStatus.Pending,
                 ReceivedAtUtc = receivedAtUtc,
                 request.MessageId,
             },
             transaction,
             cancellationToken: cancellationToken));
+
+        bool applied = updated == 1;
+        DeliveryStatus responseStatus = applied ? readModel : partition.DeliveryStatus;
+        string detail = applied
+            ? $"Delivery report applied for message {request.MessageId}: {readModel}."
+            : $"Delivery report recorded for message {request.MessageId}: {readModel}; read model already terminal as {partition.DeliveryStatus}.";
 
         await connection.ExecuteAsync(new CommandDefinition(
             DeliveryReportsSql.InsertBatchEventForReport,
@@ -79,14 +86,14 @@ public sealed class IngestDeliveryReportHandler
                 partition.MessageBatchId,
                 ReceivedAtUtc = receivedAtUtc,
                 EventType = (byte)MessageBatchEventType.DeliveryUpdated,
-                Detail = $"Delivery report applied for message {request.MessageId}: {readModel}.",
+                Detail = detail,
             },
             transaction,
             cancellationToken: cancellationToken));
 
         transaction.Commit();
-        return new IngestDeliveryReportResponse(reportId, readModel);
+        return new IngestDeliveryReportResponse(reportId, responseStatus, applied);
     }
 
-    private sealed record MessagePartition(string SubmitDateJalali, long MessageBatchId);
+    private sealed record MessagePartition(string SubmitDateJalali, long MessageBatchId, DeliveryStatus DeliveryStatus);
 }

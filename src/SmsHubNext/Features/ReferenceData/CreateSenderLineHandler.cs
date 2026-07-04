@@ -26,14 +26,14 @@ public sealed class CreateSenderLineHandler
         {
             short id = await connection.ExecuteScalarAsync<short>(new CommandDefinition(
                 SenderLinesSql.Insert,
-                new { request.ProviderId, request.LineNumber, request.IsSharedLine, request.IsActive },
+                new { request.ProviderId, request.LineNumber, request.IsSharedLine, request.CustomerId, request.IsActive },
                 cancellationToken: cancellationToken));
 
             return new CreateSenderLineResponse(id);
         }
-        catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown provider
+        catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown provider/customer
         {
-            return Error.Validation("sender_lines.unknown_provider", "The provider does not exist.");
+            return Error.Validation("sender_lines.unknown_reference", "The provider or customer does not exist.");
         }
     }
 }
