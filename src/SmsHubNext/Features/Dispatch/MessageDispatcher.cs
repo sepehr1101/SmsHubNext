@@ -109,9 +109,20 @@ public sealed class MessageDispatcher
                 continue;
             }
 
+            if (AwaitingConfirmationWindowExpired(message, now))
+            {
+                await HoldForManualReviewAsync(
+                    connection,
+                    batch,
+                    now,
+                    $"Message {message.Id} has been awaiting provider confirmation for longer than {_options.AwaitingConfirmationMaxAge}. Manual review is required before any resend.",
+                    cancellationToken);
+                return true;
+            }
+
             if (ShouldWaitBeforeConfirmationLookup(message, now, out DateTime nextLookupAtUtc))
             {
-                await RequeueAwaitingConfirmationBatchAsync(
+                await RequeueAwaitingConfirmationOrHoldAsync(
                     connection,
                     batch,
                     now,
@@ -125,7 +136,7 @@ public sealed class MessageDispatcher
             if (lookup.IsFailure)
             {
                 // Can't confirm right now: re-queue and retry the whole batch on a later cycle.
-                await RequeueAwaitingConfirmationBatchAsync(
+                await RequeueAwaitingConfirmationOrHoldAsync(
                     connection,
                     batch,
                     now,
@@ -146,7 +157,7 @@ public sealed class MessageDispatcher
                 int negativeConfirmations = await CountNegativeConfirmationAsync(connection, message.Id, cancellationToken);
                 if (negativeConfirmations < _options.RequiredNegativeConfirmations)
                 {
-                    await RequeueAwaitingConfirmationBatchAsync(
+                    await RequeueAwaitingConfirmationOrHoldAsync(
                         connection,
                         batch,
                         now,
@@ -198,7 +209,7 @@ public sealed class MessageDispatcher
                 // cycle reconciles them via the provider rather than re-sending, then re-queue.
                 _logger.LogWarning("Transient dispatch failure on batch {BatchId}: {Error}. Re-queuing.",
                     batch.Id, batchResult.Error!.Message);
-                await RequeueAwaitingConfirmationBatchAsync(
+                await RequeueAwaitingConfirmationOrHoldAsync(
                     connection,
                     batch,
                     now,
@@ -269,7 +280,7 @@ public sealed class MessageDispatcher
         if (requeue)
         {
             // Some messages hit a per-message transient and stay Queued: re-queue so they are retried.
-            await RequeueAwaitingConfirmationBatchAsync(
+            await RequeueAwaitingConfirmationOrHoldAsync(
                 connection,
                 batch,
                 now,
@@ -290,41 +301,6 @@ public sealed class MessageDispatcher
             DispatchSql.RevertBatchToReceived, new { Id = batchId, Now = now, NextDispatchAtUtc = nextDispatchAtUtc },
             cancellationToken: cancellationToken));
 
-    private async Task RequeueOrFailBatchAsync(
-        SqlConnection connection,
-        ClaimedBatch batch,
-        DateTime now,
-        string detail,
-        CancellationToken cancellationToken)
-    {
-        if (batch.DispatchAttemptCount >= _options.MaxDispatchAttempts)
-        {
-            await FailBatchAndRefundDispatchableAsync(
-                connection,
-                batch,
-                now,
-                BatchStatusReason.DispatchRetriesExhausted,
-                $"{detail} Dispatch retry limit exhausted after {batch.DispatchAttemptCount} attempt(s).",
-                cancellationToken);
-            return;
-        }
-
-        TimeSpan retryDelay = _options.RetryDelayForAttempt(batch.DispatchAttemptCount);
-        DateTime nextDispatchAtUtc = now + retryDelay;
-
-        await RequeueBatchAsync(connection, batch.Id, now, nextDispatchAtUtc, cancellationToken);
-        await InsertBatchEventAsync(
-            connection,
-            batch.Id,
-            now,
-            MessageBatchEventType.Requeued,
-            BatchStatus.Received,
-            null,
-            null,
-            $"{detail} Batch requeued for another dispatch attempt at {nextDispatchAtUtc:O}.",
-            cancellationToken);
-    }
-
     private static async Task RequeueAwaitingConfirmationBatchAsync(
         SqlConnection connection,
         ClaimedBatch batch,
@@ -343,6 +319,53 @@ public sealed class MessageDispatcher
             null,
             null,
             $"{detail} Batch requeued for confirmation at {nextDispatchAtUtc:O}.",
+            cancellationToken);
+    }
+
+    private async Task RequeueAwaitingConfirmationOrHoldAsync(
+        SqlConnection connection,
+        ClaimedBatch batch,
+        DateTime now,
+        DateTime nextDispatchAtUtc,
+        string detail,
+        CancellationToken cancellationToken)
+    {
+        if (batch.DispatchAttemptCount >= _options.MaxDispatchAttempts)
+        {
+            await HoldForManualReviewAsync(
+                connection,
+                batch,
+                now,
+                $"{detail} Confirmation retry limit exhausted after {batch.DispatchAttemptCount} attempt(s); manual review is required before any resend.",
+                cancellationToken);
+            return;
+        }
+
+        await RequeueAwaitingConfirmationBatchAsync(
+            connection, batch, now, nextDispatchAtUtc, detail, cancellationToken);
+    }
+
+    private static async Task HoldForManualReviewAsync(
+        SqlConnection connection,
+        ClaimedBatch batch,
+        DateTime now,
+        string detail,
+        CancellationToken cancellationToken)
+    {
+        await connection.ExecuteAsync(new CommandDefinition(
+            DispatchSql.HoldBatch,
+            new { batch.Id, Now = now, Reason = (byte)BatchStatusReason.ManualReviewRequired },
+            cancellationToken: cancellationToken));
+
+        await InsertBatchEventAsync(
+            connection,
+            batch.Id,
+            now,
+            MessageBatchEventType.Held,
+            BatchStatus.Held,
+            BatchStatusReason.ManualReviewRequired,
+            null,
+            detail,
             cancellationToken);
     }
 
@@ -454,6 +477,14 @@ public sealed class MessageDispatcher
         DateTime since = message.AwaitingConfirmationSinceUtc ?? now;
         nextLookupAtUtc = since + _options.MinAwaitingConfirmationAge;
         return nextLookupAtUtc > now;
+    }
+
+    private bool AwaitingConfirmationWindowExpired(QueuedMessage message, DateTime now)
+    {
+        if (message.AwaitingConfirmationSinceUtc is not DateTime since)
+            return false;
+
+        return since + _options.AwaitingConfirmationMaxAge <= now;
     }
 
     private async Task<Result<string?>> SafeResolveAsync(

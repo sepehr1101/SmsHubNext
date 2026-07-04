@@ -13,7 +13,7 @@ internal static class DispatchSql
             SELECT TOP (1) Id
             FROM dbo.MessageBatch WITH (READPAST, UPDLOCK, ROWLOCK)
             WHERE (Status = 1 AND (NextDispatchAtUtc IS NULL OR NextDispatchAtUtc <= @Now)) -- Received and due
-               OR (Status = 5 AND StatusChangedAtUtc <= @HeldRetryBefore)    -- Held, due for resume
+               OR (Status = 5 AND StatusReason = 1 AND StatusChangedAtUtc <= @HeldRetryBefore) -- Held for provider credit, due for resume
                OR (Status = 2 AND StatusChangedAtUtc <= @DispatchStaleBefore) -- Dispatching, lease expired
             ORDER BY Id
         )

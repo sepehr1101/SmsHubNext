@@ -73,7 +73,7 @@ public sealed class RetryDispatchHandler
                 {
                     debit.CustomerId,
                     Type = (byte)BalanceTransactionType.Debit,
-                    Amount = debit.TotalCost,
+                    Amount = -debit.TotalCost,
                     BalanceAfter = balanceAfter.Value,
                     MessageBatchId = batchId,
                     Reference = "dispatch-retry",

@@ -10,4 +10,5 @@ public enum BatchStatusReason : byte
     InsufficientProviderCredit = 1,
     InsufficientCustomerBalance = 2,
     DispatchRetriesExhausted = 3,
+    ManualReviewRequired = 4,
 }

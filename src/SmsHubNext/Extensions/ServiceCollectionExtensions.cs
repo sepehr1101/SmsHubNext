@@ -1,10 +1,12 @@
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.Dispatch;
 using SmsHubNext.Features.Inbound;
 using SmsHubNext.Features.Providers;
+using SmsHubNext.Features.Providers.Kavenegar;
 using SmsHubNext.Features.Providers.Magfa;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Shared.Database;
@@ -45,6 +47,8 @@ public static class ServiceCollectionExtensions
             };
         });
         services.AddExceptionHandler<GlobalExceptionHandler>();
+        services.AddProblemDetails();
+        services.AddApplicationDataProtection(configuration);
 
         // OpenAPI document (exposed at /openapi/v1.json in Development).
         services.AddOpenApi();
@@ -64,6 +68,26 @@ public static class ServiceCollectionExtensions
         // Health checks: a database readiness probe (more added as dependencies arrive).
         services.AddHealthChecks()
             .AddCheck<SqlServerHealthCheck>("sql-server");
+
+        return services;
+    }
+
+    private static IServiceCollection AddApplicationDataProtection(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        IDataProtectionBuilder dataProtection = services.AddDataProtection()
+            .SetApplicationName("SmsHubNext");
+
+        string? keyRingPath = configuration["DataProtection:KeyRingPath"];
+        if (!string.IsNullOrWhiteSpace(keyRingPath))
+        {
+            DirectoryInfo keyRingDirectory = Directory.CreateDirectory(keyRingPath);
+            dataProtection.PersistKeysToFileSystem(keyRingDirectory);
+
+            if (OperatingSystem.IsWindows())
+                dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
+        }
 
         return services;
     }
@@ -132,25 +156,44 @@ public static class ServiceCollectionExtensions
     // the client carries no default auth. When disabled/unconfigured the loopback impl stands in.
     private static void AddSmsProvider(IServiceCollection services, IConfiguration configuration)
     {
+        bool realProviderRegistered = false;
+
         MagfaOptions magfaOptions = configuration.GetSection(MagfaOptions.SectionName).Get<MagfaOptions>()
             ?? new MagfaOptions();
         magfaOptions.Validate();
         services.AddSingleton(magfaOptions);
 
-        if (!magfaOptions.Enabled)
+        if (magfaOptions.Enabled)
         {
-            services.AddSingleton<ISmsProvider, LoopbackSmsProvider>();
-            return;
+            services.AddSingleton<MagfaAccountResolver>();
+            services.AddHttpClient<ISmsProvider, MagfaSmsProvider>(client =>
+            {
+                client.BaseAddress = new Uri(magfaOptions.BaseUrl);
+                client.Timeout = magfaOptions.Timeout;
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            });
+            realProviderRegistered = true;
         }
 
-        services.AddSingleton<MagfaAccountResolver>();
+        KavenegarOptions kavenegarOptions = configuration.GetSection(KavenegarOptions.SectionName).Get<KavenegarOptions>()
+            ?? new KavenegarOptions();
+        kavenegarOptions.Validate();
+        services.AddSingleton(kavenegarOptions);
 
-        services.AddHttpClient<ISmsProvider, MagfaSmsProvider>(client =>
+        if (kavenegarOptions.Enabled)
         {
-            client.BaseAddress = new Uri(magfaOptions.BaseUrl);
-            client.Timeout = magfaOptions.Timeout;
-            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        });
+            services.AddSingleton<KavenegarAccountResolver>();
+            services.AddHttpClient<ISmsProvider, KavenegarSmsProvider>(client =>
+            {
+                client.BaseAddress = new Uri(kavenegarOptions.BaseUrl);
+                client.Timeout = kavenegarOptions.Timeout;
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            });
+            realProviderRegistered = true;
+        }
+
+        if (!realProviderRegistered)
+            services.AddSingleton<ISmsProvider, LoopbackSmsProvider>();
     }
 
     // Feature handlers — plain classes resolved per request. Rather than list every one (a file that
@@ -164,6 +207,7 @@ public static class ServiceCollectionExtensions
         // registered explicitly. The enforcing middleware (ApiKeyAuthenticationMiddleware) is
         // intentionally NOT added to the pipeline yet; the APIs stay open for testing. See ADR-015.
         services.AddScoped<ApiKeyAuthenticator>();
+        services.AddSingleton<ProviderCredentialProtector>();
 
         services.Scan(scan => scan
             .FromAssemblyOf<SendMessagesHandler>()

@@ -33,6 +33,12 @@ public sealed class DispatchOptions
     /// </summary>
     public TimeSpan AwaitingConfirmationRetryDelay { get; init; } = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// Maximum age for an unknown submit outcome. Past this window provider "not found" answers may
+    /// no longer prove the message was never accepted, so the batch is held for manual review.
+    /// </summary>
+    public TimeSpan AwaitingConfirmationMaxAge { get; init; } = TimeSpan.FromHours(11);
+
     /// <summary>How many negative provider lookups are required before a message is considered safe to resend.</summary>
     public int RequiredNegativeConfirmations { get; init; } = 2;
 
