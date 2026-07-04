@@ -11,6 +11,7 @@ public static class ApplicationBuilderExtensions
 {
     public static WebApplication ConfigurePipeline(this WebApplication app)
     {
+        app.UseExceptionHandler();
         app.UseSerilogRequestLogging();
 
         if (app.Environment.IsDevelopment())

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Dapper;
 using DbUp.Engine;
 using Microsoft.Data.SqlClient;
@@ -210,6 +211,60 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.Equal(1, sendCalls);
         Assert.Equal((byte)SendStatus.Submitted, await MessageStatusAsync(batchId));
         Assert.Equal("magfa-777", await ProviderMessageIdAsync(batchId));
+    }
+
+    [Fact]
+    public async Task Concurrent_dispatchers_claim_each_batch_once()
+    {
+        const int batchCount = 8;
+        List<long> batchIds = new List<long>(batchCount);
+        for (int i = 0; i < batchCount; i++)
+        {
+            (long batchId, _) = await SendBatchAsync(messageCount: 1);
+            batchIds.Add(batchId);
+        }
+
+        ConcurrentDictionary<long, int> providerSendCounts = new ConcurrentDictionary<long, int>();
+        Func<ProviderSendRequest, Result<ProviderDispatchResult>> acceptAndCount = request =>
+        {
+            providerSendCounts.AddOrUpdate(request.MessageId, 1, (_, count) => count + 1);
+            return ProviderDispatchResult.Accepted($"provider-{request.MessageId}");
+        };
+
+        TaskCompletionSource start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        List<Task<bool>> dispatchTasks = Enumerable.Range(0, batchCount)
+            .Select(async _ =>
+            {
+                await start.Task;
+                return await Dispatcher(acceptAndCount).DispatchNextBatchAsync(CancellationToken.None);
+            })
+            .ToList();
+
+        start.SetResult();
+        bool[] results = await Task.WhenAll(dispatchTasks);
+
+        Assert.Equal(batchCount, results.Count(didWork => didWork));
+        Assert.Equal(batchCount, providerSendCounts.Count);
+        Assert.All(providerSendCounts.Values, count => Assert.Equal(1, count));
+
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        int submittedMessages = await connection.ExecuteScalarAsync<int>(
+            """
+            SELECT COUNT(*)
+            FROM dbo.Message
+            WHERE MessageBatchId IN @BatchIds AND Status = @Status;
+            """,
+            new { BatchIds = batchIds, Status = (byte)SendStatus.Submitted });
+        Assert.Equal(batchCount, submittedMessages);
+
+        int completedBatches = await connection.ExecuteScalarAsync<int>(
+            """
+            SELECT COUNT(*)
+            FROM dbo.MessageBatch
+            WHERE Id IN @BatchIds AND Status = @Status;
+            """,
+            new { BatchIds = batchIds, Status = (byte)BatchStatus.DispatchCompleted });
+        Assert.Equal(batchCount, completedBatches);
     }
 
     private MessageDispatcher Dispatcher(

@@ -7,6 +7,7 @@ using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.Magfa;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Shared.Database;
+using SmsHubNext.Shared.Errors;
 
 namespace SmsHubNext.Extensions;
 
@@ -22,6 +23,15 @@ public static class ServiceCollectionExtensions
     {
         // MVC controllers (feature controllers live under Features/*; see ADR-004).
         services.AddControllers();
+        services.AddProblemDetails(options =>
+        {
+            options.CustomizeProblemDetails = context =>
+            {
+                if (!context.ProblemDetails.Extensions.ContainsKey("traceId"))
+                    context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+            };
+        });
+        services.AddExceptionHandler<GlobalExceptionHandler>();
 
         // OpenAPI document (exposed at /openapi/v1.json in Development).
         services.AddOpenApi();
