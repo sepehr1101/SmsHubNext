@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.ApiKeys;
 
 [ApiController]
 [Route("api-keys")]
-public sealed class ApiKeysController : ControllerBase
+public sealed class ApiKeysController : BaseController
 {
     private readonly IssueApiKeyHandler _issue;
     private readonly ListApiKeysHandler _list;
@@ -20,12 +21,12 @@ public sealed class ApiKeysController : ControllerBase
     /// <summary>List a customer's API keys (never returns the secret).</summary>
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] short customerId, CancellationToken cancellationToken) =>
-        (await _list.Handle(customerId, cancellationToken)).ToActionResult();
+        FromResult(await _list.Handle(customerId, cancellationToken));
 
     /// <summary>Issue a new API key. The plaintext key is returned only in this response.</summary>
     [HttpPost]
     public async Task<IActionResult> Issue(
         [FromBody] IssueApiKeyRequest request,
         CancellationToken cancellationToken) =>
-        (await _issue.Handle(request, cancellationToken)).ToActionResult(StatusCodes.Status201Created);
+        FromResult(await _issue.Handle(request, cancellationToken), StatusCodes.Status201Created);
 }

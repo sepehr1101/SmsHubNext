@@ -2,7 +2,7 @@ namespace SmsHubNext.Shared.Results;
 
 /// <summary>
 /// Category of an expected failure. Drives the HTTP status code at the edge
-/// (see <c>ResultActionResults</c> and ARCHITECTURE.md §7).
+/// (see <c>BaseController</c> and ARCHITECTURE.md §7).
 /// </summary>
 public enum ErrorType
 {

@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Mvc;
 using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.Dispatch;
@@ -8,6 +9,7 @@ using SmsHubNext.Features.Providers.Magfa;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Errors;
+using SmsHubNext.Shared.Http;
 
 namespace SmsHubNext.Extensions;
 
@@ -23,12 +25,23 @@ public static class ServiceCollectionExtensions
     {
         // MVC controllers (feature controllers live under Features/*; see ADR-004).
         services.AddControllers();
-        services.AddProblemDetails(options =>
+        services.Configure<ApiBehaviorOptions>(options =>
         {
-            options.CustomizeProblemDetails = context =>
+            options.InvalidModelStateResponseFactory = context =>
             {
-                if (!context.ProblemDetails.Extensions.ContainsKey("traceId"))
-                    context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+                List<ApiError> errors = context.ModelState
+                    .Where(entry => entry.Value?.Errors.Count > 0)
+                    .SelectMany(entry => entry.Value!.Errors.Select(error =>
+                        new ApiError(entry.Key, "validation.invalid_field", error.ErrorMessage)))
+                    .ToList();
+
+                ApiResponse<object> response = ApiResponse.Failure(
+                    "validation.failed",
+                    "The request is invalid.",
+                    context.HttpContext,
+                    errors);
+
+                return new ObjectResult(response) { StatusCode = StatusCodes.Status400BadRequest };
             };
         });
         services.AddExceptionHandler<GlobalExceptionHandler>();

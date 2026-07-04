@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.ApiKeys;
 
 [ApiController]
 [Route("api-keys/{apiKeyId:int}/ip-restrictions")]
-public sealed class ApiKeyIpRestrictionsController : ControllerBase
+public sealed class ApiKeyIpRestrictionsController : BaseController
 {
     private readonly AddIpRestrictionHandler _add;
     private readonly ListIpRestrictionsHandler _list;
@@ -20,7 +21,7 @@ public sealed class ApiKeyIpRestrictionsController : ControllerBase
     /// <summary>List an API key's allowed CIDR ranges.</summary>
     [HttpGet]
     public async Task<IActionResult> List(int apiKeyId, CancellationToken cancellationToken) =>
-        (await _list.Handle(apiKeyId, cancellationToken)).ToActionResult();
+        FromResult(await _list.Handle(apiKeyId, cancellationToken));
 
     /// <summary>Add an allowed CIDR range to an API key.</summary>
     [HttpPost]
@@ -28,5 +29,5 @@ public sealed class ApiKeyIpRestrictionsController : ControllerBase
         int apiKeyId,
         [FromBody] AddIpRestrictionRequest request,
         CancellationToken cancellationToken) =>
-        (await _add.Handle(apiKeyId, request, cancellationToken)).ToActionResult(StatusCodes.Status201Created);
+        FromResult(await _add.Handle(apiKeyId, request, cancellationToken), StatusCodes.Status201Created);
 }

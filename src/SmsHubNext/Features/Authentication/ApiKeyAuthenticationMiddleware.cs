@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.Authentication;
@@ -33,14 +33,9 @@ public sealed class ApiKeyAuthenticationMiddleware
         {
             Error error = result.Error!;
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            ProblemDetails problem = new ProblemDetails
-            {
-                Status = StatusCodes.Status401Unauthorized,
-                Title = error.Type.ToString(),
-                Detail = error.Message,
-            };
-            problem.Extensions["code"] = error.Code;
-            await context.Response.WriteAsJsonAsync(problem, context.RequestAborted);
+            await context.Response.WriteAsJsonAsync(
+                ApiResponse.Failure(error, context),
+                context.RequestAborted);
             return;
         }
 

@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using SmsHubNext.Features.Authentication;
+using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.Reports;
 
 [ApiController]
 [Route("reports/messages")]
-public sealed class ReportsController : ControllerBase
+public sealed class ReportsController : BaseController
 {
     private readonly MessageReportsHandler _handler;
     private readonly ApiKeyAuthenticator _authenticator;
@@ -73,9 +74,9 @@ public sealed class ReportsController : ControllerBase
     {
         Result<MessageReportRequest> scoped = await ScopeToApiKeyCustomer(request, cancellationToken);
         if (scoped.IsFailure)
-            return scoped.ToActionResult();
+            return FromResult(scoped);
 
-        return (await handle(scoped.Value, cancellationToken)).ToActionResult();
+        return FromResult(await handle(scoped.Value, cancellationToken));
     }
 
     private async Task<Result<MessageReportRequest>> ScopeToApiKeyCustomer(

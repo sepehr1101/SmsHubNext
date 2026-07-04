@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
+using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.Inbound;
 
 [ApiController]
 [Route("inbound-messages")]
-public sealed class InboundController : ControllerBase
+public sealed class InboundController : BaseController
 {
     private readonly ListInboundMessagesHandler _list;
 
@@ -17,5 +18,5 @@ public sealed class InboundController : ControllerBase
         [FromQuery] string? recipientNumber,
         [FromQuery] int take = 100,
         CancellationToken cancellationToken = default) =>
-        (await _list.Handle(recipientNumber, take, cancellationToken)).ToActionResult();
+        FromResult(await _list.Handle(recipientNumber, take, cancellationToken));
 }

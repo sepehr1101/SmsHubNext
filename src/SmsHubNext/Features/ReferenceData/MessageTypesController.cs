@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.ReferenceData;
 
 [ApiController]
 [Route("reference-data/message-types")]
-public sealed class MessageTypesController : ControllerBase
+public sealed class MessageTypesController : BaseController
 {
     private readonly ListMessageTypesHandler _list;
     private readonly CreateMessageTypeHandler _create;
@@ -20,12 +21,12 @@ public sealed class MessageTypesController : ControllerBase
     /// <summary>List the message-type classifications.</summary>
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken cancellationToken) =>
-        (await _list.Handle(cancellationToken)).ToActionResult();
+        FromResult(await _list.Handle(cancellationToken));
 
     /// <summary>Register a message-type classification.</summary>
     [HttpPost]
     public async Task<IActionResult> Create(
         [FromBody] CreateMessageTypeRequest request,
         CancellationToken cancellationToken) =>
-        (await _create.Handle(request, cancellationToken)).ToActionResult(StatusCodes.Status201Created);
+        FromResult(await _create.Handle(request, cancellationToken), StatusCodes.Status201Created);
 }

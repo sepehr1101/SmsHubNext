@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
+using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.Authentication;
 
 [ApiController]
 [Route("auth")]
-public sealed class AuthController : ControllerBase
+public sealed class AuthController : BaseController
 {
     private readonly ApiKeyAuthenticator _authenticator;
 
@@ -26,6 +27,6 @@ public sealed class AuthController : ControllerBase
             HttpContext.Connection.RemoteIpAddress,
             cancellationToken);
 
-        return result.ToActionResult();
+        return FromResult(result);
     }
 }

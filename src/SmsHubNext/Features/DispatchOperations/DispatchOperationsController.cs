@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
+using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.DispatchOperations;
 
 [ApiController]
 [Route("dispatch/operations")]
-public sealed class DispatchOperationsController : ControllerBase
+public sealed class DispatchOperationsController : BaseController
 {
     private readonly DispatchOperationsHandler _handler;
 
@@ -16,12 +17,12 @@ public sealed class DispatchOperationsController : ControllerBase
     public async Task<IActionResult> Summary(
         [FromQuery] DispatchOperationsRequest request,
         CancellationToken cancellationToken) =>
-        (await _handler.Summary(request, cancellationToken)).ToActionResult();
+        FromResult(await _handler.Summary(request, cancellationToken));
 
     /// <summary>Lightweight batch list for monitoring held, failed, retrying, and awaiting-confirmation work.</summary>
     [HttpGet("batches")]
     public async Task<IActionResult> Batches(
         [FromQuery] DispatchOperationsRequest request,
         CancellationToken cancellationToken) =>
-        (await _handler.Batches(request, cancellationToken)).ToActionResult();
+        FromResult(await _handler.Batches(request, cancellationToken));
 }

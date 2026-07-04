@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using SmsHubNext.Features.Authentication;
+using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.Sending;
 
 [ApiController]
 [Route("messages")]
-public sealed class SendMessagesController : ControllerBase
+public sealed class SendMessagesController : BaseController
 {
     private readonly SendMessagesHandler _handler;
     private readonly ApiKeyAuthenticator _authenticator;
@@ -28,10 +29,11 @@ public sealed class SendMessagesController : ControllerBase
     {
         Result<ApiKeyIdentity> identity = await ResolveApiKeyIdentity(cancellationToken);
         if (identity.IsFailure)
-            return identity.ToActionResult();
+            return FromResult(identity);
 
-        return (await _handler.Handle(request, identity.Value, cancellationToken))
-            .ToActionResult(StatusCodes.Status202Accepted);
+        return FromResult(
+            await _handler.Handle(request, identity.Value, cancellationToken),
+            StatusCodes.Status202Accepted);
     }
 
     private async Task<Result<ApiKeyIdentity>> ResolveApiKeyIdentity(CancellationToken cancellationToken)
