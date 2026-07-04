@@ -35,7 +35,7 @@ public sealed class ApiKeyAuthenticator
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(rawKey))
-            return Error.Unauthorized("auth.missing_key", "An API key is required.");
+            return Error.Unauthorized("auth.missing_key", UserMessages.Auth.MissingKey);
 
         byte[] keyHash = ApiKeyHasher.HashBytes(rawKey.Trim());
 
@@ -47,13 +47,13 @@ public sealed class ApiKeyAuthenticator
             cancellationToken: cancellationToken));
 
         if (key is null)
-            return Error.Unauthorized("auth.invalid_key", "The API key is not recognized.");
+            return Error.Unauthorized("auth.invalid_key", UserMessages.Auth.InvalidKey);
 
         if (!key.IsActive || key.RevokedAtUtc is not null)
-            return Error.Unauthorized("auth.inactive_key", "The API key is inactive or revoked.");
+            return Error.Unauthorized("auth.inactive_key", UserMessages.Auth.InactiveKey);
 
         if (key.ExpiresAtUtc is not null && key.ExpiresAtUtc.Value <= _clock.GetUtcNow().UtcDateTime)
-            return Error.Unauthorized("auth.expired_key", "The API key has expired.");
+            return Error.Unauthorized("auth.expired_key", UserMessages.Auth.ExpiredKey);
 
         List<string> cidrs = (await connection.QueryAsync<string>(new CommandDefinition(
             AuthenticationSql.ListRestrictions,
@@ -62,7 +62,7 @@ public sealed class ApiKeyAuthenticator
 
         // An empty allow-list means "no IP restriction"; otherwise the caller IP must match one entry.
         if (cidrs.Count > 0 && !IsAllowed(remoteIp, cidrs))
-            return Error.Unauthorized("auth.ip_not_allowed", "The caller IP is not allowed for this key.");
+            return Error.Unauthorized("auth.ip_not_allowed", UserMessages.Auth.IpNotAllowed);
 
         return new ApiKeyIdentity(key.ApiKeyId, key.CustomerId, key.KeyPrefix);
     }

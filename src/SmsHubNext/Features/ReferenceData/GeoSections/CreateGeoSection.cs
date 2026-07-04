@@ -13,13 +13,13 @@ public sealed class CreateGeoSectionRequest
     public Result Validate()
     {
         if (!Enum.IsDefined(SectionType))
-            return Error.Validation("geo.section_type_invalid", "A valid section type is required.");
+            return Error.Validation("geo.section_type_invalid", UserMessages.ReferenceData.GeoSectionTypeInvalid);
 
         if (string.IsNullOrWhiteSpace(Name))
-            return Error.Validation("geo.name_required", "A name is required.");
+            return Error.Validation("geo.name_required", UserMessages.ReferenceData.NameRequired);
 
         if (string.IsNullOrWhiteSpace(Code))
-            return Error.Validation("geo.code_required", "A code is required.");
+            return Error.Validation("geo.code_required", UserMessages.ReferenceData.CodeRequired);
 
         return Result.Success();
     }

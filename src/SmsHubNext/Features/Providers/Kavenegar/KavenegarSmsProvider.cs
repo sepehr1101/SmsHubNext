@@ -27,7 +27,7 @@ public sealed class KavenegarSmsProvider : ISmsProvider
         _logger = logger;
     }
 
-    public string Name => "kavenegar";
+    public string Name => ProviderCodes.Kavenegar;
 
     public int MaxBatchSize => _options.BatchSize;
 
@@ -47,8 +47,7 @@ public sealed class KavenegarSmsProvider : ISmsProvider
             {
                 _logger.LogError("No Kavenegar account is configured for sender line {SenderLine} (message {MessageId}).",
                     requests[i].SenderLine, requests[i].MessageId);
-                results[i] = Error.Provider("kavenegar.unknown_sender_line",
-                    $"No Kavenegar account is configured for sender line '{requests[i].SenderLine}'.");
+                results[i] = KavenegarProviderErrors.UnknownSenderLine(requests[i].SenderLine);
                 continue;
             }
 
@@ -216,17 +215,17 @@ public sealed class KavenegarSmsProvider : ISmsProvider
         }
         catch (HttpRequestException)
         {
-            return Error.Provider("kavenegar.transport", "HTTP transport error while calling Kavenegar.");
+            return Error.Provider(KavenegarErrorCodes.Transport, UserMessages.Providers.KavenegarTransport);
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return Error.Provider("kavenegar.timeout", "Kavenegar request timed out.");
+            return Error.Provider(KavenegarErrorCodes.Timeout, UserMessages.Providers.KavenegarTimeout);
         }
 
         using (response)
         {
             if (!response.IsSuccessStatusCode)
-                return Error.Provider("kavenegar.http_status", $"Kavenegar returned HTTP {(int)response.StatusCode}.");
+                return KavenegarProviderErrors.HttpStatus((int)response.StatusCode);
 
             KavenegarResponse<T>? body;
             try
@@ -235,11 +234,11 @@ public sealed class KavenegarSmsProvider : ISmsProvider
             }
             catch (JsonException ex)
             {
-                return Error.Provider("kavenegar.bad_json", $"Could not parse Kavenegar response: {ex.Message}");
+                return KavenegarProviderErrors.BadJson(ex.Message);
             }
 
             if (body is null)
-                return Error.Provider("kavenegar.empty_body", "Kavenegar returned an empty response body.");
+                return Error.Provider(KavenegarErrorCodes.EmptyBody, UserMessages.Providers.KavenegarEmptyBody);
 
             return Result.Success(body);
         }
@@ -281,7 +280,7 @@ public sealed class KavenegarSmsProvider : ISmsProvider
             if (entry is null)
             {
                 _logger.LogWarning("Kavenegar returned no result for message {MessageId}; will retry.", request.MessageId);
-                results.Add(Error.Provider("kavenegar.missing_result", "Kavenegar returned no result for this message."));
+                results.Add(Error.Provider(KavenegarErrorCodes.MissingResult, UserMessages.Providers.KavenegarMissingResult));
                 continue;
             }
 
@@ -297,7 +296,7 @@ public sealed class KavenegarSmsProvider : ISmsProvider
         if (KavenegarStatusCodes.IsAcceptedSendStatus(entry.Status))
         {
             if (entry.MessageId is null)
-                return Error.Provider("kavenegar.missing_id", "Kavenegar accepted the message but returned no id.");
+                return Error.Provider(KavenegarErrorCodes.MissingId, UserMessages.Providers.KavenegarMissingId);
             return ProviderDispatchResult.Accepted(entry.MessageId.Value.ToString(), entry.Status);
         }
 
@@ -305,21 +304,15 @@ public sealed class KavenegarSmsProvider : ISmsProvider
             return ProviderDispatchResult.InsufficientCredit(entry.Status);
 
         if (KavenegarStatusCodes.IsRejectedSendStatus(entry.Status))
-            return ProviderDispatchResult.Rejected(entry.Status, $"Kavenegar status {entry.Status}.");
+            return ProviderDispatchResult.Rejected(entry.Status, UserMessages.Providers.KavenegarRejectedStatus(entry.Status));
 
         return Error.Provider(
-            "kavenegar.message_status",
-            $"Kavenegar message {request.MessageId} returned unhandled status {entry.Status}.");
+            KavenegarErrorCodes.MessageStatus,
+            UserMessages.Providers.KavenegarMessageStatus(request.MessageId, entry.Status));
     }
 
     private static Error RequestError(string method, KavenegarReturn requestReturn)
     {
-        string code = requestReturn.Status == KavenegarStatusCodes.TemporaryUnavailable
-            ? "kavenegar.temporary_unavailable"
-            : "kavenegar.request_status";
-
-        return Error.Provider(
-            code,
-            $"Kavenegar {method} returned status {requestReturn.Status}: {requestReturn.Message}");
+        return KavenegarProviderErrors.RequestStatus(method, requestReturn);
     }
 }

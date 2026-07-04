@@ -22,6 +22,6 @@ public sealed class SmsProviderRegistry
 
         return Error.Provider(
             "providers.not_registered",
-            $"No SMS provider implementation is registered for provider '{providerCode}'.");
+            UserMessages.Providers.NotRegistered(providerCode));
     }
 }

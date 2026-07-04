@@ -11,10 +11,10 @@ public sealed class IssueApiKeyRequest
     public Result Validate()
     {
         if (CustomerId <= 0)
-            return Error.Validation("api_keys.customer_required", "A valid customer id is required.");
+            return Error.Validation("api_keys.customer_required", UserMessages.ApiKeys.CustomerRequired);
 
         if (string.IsNullOrWhiteSpace(Name))
-            return Error.Validation("api_keys.name_required", "A key name is required.");
+            return Error.Validation("api_keys.name_required", UserMessages.ApiKeys.NameRequired);
 
         return Result.Success();
     }

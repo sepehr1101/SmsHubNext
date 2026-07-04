@@ -37,18 +37,18 @@ public sealed class SendMessagesRequest
     public Result Validate()
     {
         if (string.IsNullOrWhiteSpace(SenderLine))
-            return Error.Validation("sending.sender_line_required", "A sender line is required.");
+            return Error.Validation("sending.sender_line_required", UserMessages.Sending.SenderLineRequired);
 
         if (MessageTypeId == 0)
-            return Error.Validation("sending.message_type_required", "A message type id is required.");
+            return Error.Validation("sending.message_type_required", UserMessages.Sending.MessageTypeRequired);
 
         if (Messages.Count == 0)
-            return Error.Validation("sending.messages_required", "At least one message is required.");
+            return Error.Validation("sending.messages_required", UserMessages.Sending.MessagesRequired);
 
         if (Messages.Count > MaxMessages)
             return Error.Validation(
                 "sending.too_many_messages",
-                $"A request may contain at most {MaxMessages} messages.");
+                UserMessages.Sending.TooManyMessagesLimit(MaxMessages));
 
         for (int index = 0; index < Messages.Count; index++)
         {
@@ -57,17 +57,17 @@ public sealed class SendMessagesRequest
             if (string.IsNullOrWhiteSpace(message.Recipient))
                 return Error.Validation(
                     "sending.recipient_required",
-                    $"Message at index {index} is missing a recipient.");
+                    UserMessages.Sending.MissingRecipient(index));
 
             if (!SendMessageItem.IsValidRecipient(message.Recipient))
                 return Error.Validation(
                     "sending.recipient_invalid",
-                    $"Message at index {index} has an invalid Iranian mobile number.");
+                    UserMessages.Sending.InvalidRecipient(index));
 
             if (string.IsNullOrWhiteSpace(message.Text))
                 return Error.Validation(
                     "sending.text_required",
-                    $"Message at index {index} is missing text.");
+                    UserMessages.Sending.MissingText(index));
         }
 
         return Result.Success();

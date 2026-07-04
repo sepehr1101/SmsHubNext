@@ -22,7 +22,7 @@ public sealed class ListBatchEventsHandler
             cancellationToken: cancellationToken));
 
         if (!exists)
-            return Error.NotFound("batches.not_found", "The batch does not exist.");
+            return Error.NotFound("batches.not_found", UserMessages.Batches.NotFound);
 
         IEnumerable<BatchEvent> rows = await connection.QueryAsync<BatchEvent>(new CommandDefinition(
             BatchesSql.ListEvents,

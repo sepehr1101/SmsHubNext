@@ -12,13 +12,13 @@ public sealed class CreateProviderRequest
     public Result Validate()
     {
         if (string.IsNullOrWhiteSpace(Name))
-            return Error.Validation("providers.name_required", "A provider name is required.");
+            return Error.Validation("providers.name_required", UserMessages.ReferenceData.ProviderNameRequired);
 
         if (string.IsNullOrWhiteSpace(Code))
-            return Error.Validation("providers.code_required", "A provider code is required.");
+            return Error.Validation("providers.code_required", UserMessages.ReferenceData.ProviderCodeRequired);
 
         if (string.IsNullOrWhiteSpace(BaseUrl))
-            return Error.Validation("providers.base_url_required", "A base URL is required.");
+            return Error.Validation("providers.base_url_required", UserMessages.ReferenceData.BaseUrlRequired);
 
         return Result.Success();
     }

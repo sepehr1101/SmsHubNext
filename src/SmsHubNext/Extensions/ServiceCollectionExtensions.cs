@@ -12,6 +12,7 @@ using SmsHubNext.Features.Sending;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Errors;
 using SmsHubNext.Shared.Http;
+using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Extensions;
 
@@ -39,7 +40,7 @@ public static class ServiceCollectionExtensions
 
                 ApiResponse<object> response = ApiResponse.Failure(
                     "validation.failed",
-                    "The request is invalid.",
+                    UserMessages.Common.RequestInvalid,
                     context.HttpContext,
                     errors);
 

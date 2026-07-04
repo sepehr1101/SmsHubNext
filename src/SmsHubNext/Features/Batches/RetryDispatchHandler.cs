@@ -22,7 +22,7 @@ public sealed class RetryDispatchHandler
     public async Task<Result<RetryDispatchResponse>> Handle(long batchId, CancellationToken cancellationToken)
     {
         if (batchId <= 0)
-            return Error.Validation("batches.invalid_id", "A valid batch id is required.");
+            return Error.Validation("batches.invalid_id", UserMessages.Batches.InvalidId);
 
         DateTime now = _clock.GetUtcNow().UtcDateTime;
         await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
@@ -44,11 +44,11 @@ public sealed class RetryDispatchHandler
                 cancellationToken: cancellationToken));
 
             if (batch is null)
-                return Error.NotFound("batches.not_found", "The batch does not exist.");
+                return Error.NotFound("batches.not_found", UserMessages.Batches.NotFound);
 
             return Error.Conflict(
                 "batches.retry_not_allowed",
-                "Only dispatch-failed batches with queued or awaiting-confirmation messages can be retried.");
+                UserMessages.Batches.RetryNotAllowed);
         }
 
         if (debit.TotalCost > 0)
@@ -64,7 +64,7 @@ public sealed class RetryDispatchHandler
                 transaction.Rollback();
                 return Error.Validation(
                     "batches.insufficient_balance_for_retry",
-                    "The customer balance is not sufficient to retry this failed dispatch.");
+                    UserMessages.Batches.InsufficientBalanceForRetry);
             }
 
             await connection.ExecuteAsync(new CommandDefinition(
@@ -98,11 +98,11 @@ public sealed class RetryDispatchHandler
                 cancellationToken: cancellationToken));
 
             if (batch is null)
-                return Error.NotFound("batches.not_found", "The batch does not exist.");
+                return Error.NotFound("batches.not_found", UserMessages.Batches.NotFound);
 
             return Error.Conflict(
                 "batches.retry_not_allowed",
-                "Only dispatch-failed batches with queued or awaiting-confirmation messages can be retried.");
+                UserMessages.Batches.RetryNotAllowed);
         }
 
         await connection.ExecuteAsync(new CommandDefinition(

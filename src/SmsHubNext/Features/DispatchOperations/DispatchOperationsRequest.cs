@@ -20,25 +20,25 @@ public sealed class DispatchOperationsRequest
     public Result Validate(bool includePaging)
     {
         if (FromJalali is not null && !IsValidJalaliDate(FromJalali))
-            return Error.Validation("dispatch_operations.from_jalali_invalid", "fromJalali must be in yyyy/MM/dd format.");
+            return Error.Validation("dispatch_operations.from_jalali_invalid", UserMessages.DispatchOperations.FromJalaliInvalid);
 
         if (ToJalali is not null && !IsValidJalaliDate(ToJalali))
-            return Error.Validation("dispatch_operations.to_jalali_invalid", "toJalali must be in yyyy/MM/dd format.");
+            return Error.Validation("dispatch_operations.to_jalali_invalid", UserMessages.DispatchOperations.ToJalaliInvalid);
 
         if (FromJalali is not null && ToJalali is not null && string.CompareOrdinal(FromJalali, ToJalali) > 0)
-            return Error.Validation("dispatch_operations.invalid_range", "fromJalali must be before or equal to toJalali.");
+            return Error.Validation("dispatch_operations.invalid_range", UserMessages.DispatchOperations.InvalidRange);
 
         if (CustomerId <= 0)
-            return Error.Validation("dispatch_operations.customer_invalid", "customerId must be positive when supplied.");
+            return Error.Validation("dispatch_operations.customer_invalid", UserMessages.DispatchOperations.CustomerInvalid);
 
         if (ProviderId == 0)
-            return Error.Validation("dispatch_operations.provider_invalid", "providerId must be positive when supplied.");
+            return Error.Validation("dispatch_operations.provider_invalid", UserMessages.DispatchOperations.ProviderInvalid);
 
         if (includePaging && Page <= 0)
-            return Error.Validation("dispatch_operations.page_invalid", "page must be positive.");
+            return Error.Validation("dispatch_operations.page_invalid", UserMessages.DispatchOperations.PageInvalid);
 
         if (includePaging && (Take <= 0 || Take > 200))
-            return Error.Validation("dispatch_operations.take_invalid", "take must be between 1 and 200.");
+            return Error.Validation("dispatch_operations.take_invalid", UserMessages.DispatchOperations.TakeInvalid);
 
         return Result.Success();
     }

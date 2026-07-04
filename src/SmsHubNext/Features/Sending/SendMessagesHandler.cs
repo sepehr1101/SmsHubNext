@@ -100,7 +100,7 @@ public sealed class SendMessagesHandler
         if (existing.RequestHash is null || !existing.RequestHash.SequenceEqual(requestHash))
             return Error.Conflict(
                 "sending.client_batch_payload_mismatch",
-                "A batch with this client batch id already exists, but its payload is different.");
+                UserMessages.Sending.ClientBatchPayloadMismatch);
 
         return new SendMessagesResponse(existing.BatchId, existing.AcceptedCount, IsDuplicate: true);
     }
@@ -117,7 +117,7 @@ public sealed class SendMessagesHandler
             cancellationToken: cancellationToken));
 
         if (!customerExists)
-            return Error.NotFound("sending.unknown_customer", "The authenticated customer does not exist or is inactive.");
+            return Error.NotFound("sending.unknown_customer", UserMessages.Sending.UnknownCustomer);
 
         bool apiKeyBelongsToCustomer = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
             SendingSql.ApiKeyBelongsToCustomer,
@@ -125,7 +125,7 @@ public sealed class SendMessagesHandler
             cancellationToken: cancellationToken));
 
         if (!apiKeyBelongsToCustomer)
-            return Error.Validation("sending.api_key_customer_mismatch", "The API key does not belong to the authenticated customer.");
+            return Error.Validation("sending.api_key_customer_mismatch", UserMessages.Sending.ApiKeyCustomerMismatch);
 
         bool messageTypeExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
             SendingSql.MessageTypeExists,
@@ -133,7 +133,7 @@ public sealed class SendMessagesHandler
             cancellationToken: cancellationToken));
 
         if (!messageTypeExists)
-            return Error.NotFound("sending.unknown_message_type", "The message type does not exist.");
+            return Error.NotFound("sending.unknown_message_type", UserMessages.Sending.UnknownMessageType);
 
         int[] geoSectionIds = request.Messages
             .Where(message => message.GeoSectionId is not null)
@@ -150,7 +150,7 @@ public sealed class SendMessagesHandler
             cancellationToken: cancellationToken));
 
         if (existingGeoSections != geoSectionIds.Length)
-            return Error.NotFound("sending.unknown_geo_section", "One or more geo sections do not exist or are inactive.");
+            return Error.NotFound("sending.unknown_geo_section", UserMessages.Sending.UnknownGeoSection);
 
         return Result.Success();
     }
@@ -165,11 +165,11 @@ public sealed class SendMessagesHandler
             cancellationToken: cancellationToken));
 
         if (senderLine is null)
-            return Error.NotFound("sending.unknown_sender_line", "The sender line does not exist.");
+            return Error.NotFound("sending.unknown_sender_line", UserMessages.Sending.UnknownSenderLine);
         if (!senderLine.IsActive)
-            return Error.Validation("sending.inactive_sender_line", "The sender line is not active.");
+            return Error.Validation("sending.inactive_sender_line", UserMessages.Sending.InactiveSenderLine);
         if (!senderLine.IsSharedLine && senderLine.CustomerId is not null && senderLine.CustomerId != customerId)
-            return Error.Validation("sending.sender_line_not_allowed", "The sender line is not assigned to the authenticated customer.");
+            return Error.Validation("sending.sender_line_not_allowed", UserMessages.Sending.SenderLineNotAllowed);
 
         return senderLine;
     }
@@ -239,12 +239,12 @@ public sealed class SendMessagesHandler
         {
             return Error.NotFound(
                 "sending.no_active_tariff",
-                "No active tariff matches the sender line provider, message type, and SMS encoding.");
+                UserMessages.Sending.NoActiveTariff);
         }
 
         return Error.NotFound(
             "sending.no_tariff_rate_band",
-            "An active tariff exists, but no tariff rate band covers the message character count.");
+            UserMessages.Sending.NoTariffRateBand);
     }
 
     // Persist atomically: debit the balance, then write the batch header, the ledger entry, and the
@@ -295,7 +295,7 @@ public sealed class SendMessagesHandler
             transaction.Rollback();
             return Error.Validation(
                 "sending.unknown_reference",
-                "The customer, API key, message type, or geo section does not exist.");
+                UserMessages.Sending.UnknownReference);
         }
         catch (SqlException ex) when (ex.IsUniqueViolation())
         {
@@ -305,7 +305,7 @@ public sealed class SendMessagesHandler
             if (existing.IsSuccess && existing.Value is not null)
                 return existing.Value;
 
-            return Error.Conflict("sending.duplicate_client_batch_id", "A batch with this client batch id already exists.");
+            return Error.Conflict("sending.duplicate_client_batch_id", UserMessages.Sending.DuplicateClientBatchId);
         }
     }
 
@@ -321,7 +321,7 @@ public sealed class SendMessagesHandler
             cancellationToken: cancellationToken));
 
         if (balanceAfter is null)
-            return Error.Validation("sending.insufficient_balance", "The customer's prepaid balance is insufficient for this batch.");
+            return Error.Validation("sending.insufficient_balance", UserMessages.Sending.InsufficientBalance);
 
         return balanceAfter.Value;
     }

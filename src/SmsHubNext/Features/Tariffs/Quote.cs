@@ -12,10 +12,10 @@ public sealed class QuoteRequest
     public Result Validate()
     {
         if (ProviderId == 0)
-            return Error.Validation("tariffs.provider_required", "A provider id is required.");
+            return Error.Validation("tariffs.provider_required", UserMessages.Tariffs.ProviderRequired);
 
         if (string.IsNullOrWhiteSpace(Text))
-            return Error.Validation("tariffs.text_required", "Message text is required.");
+            return Error.Validation("tariffs.text_required", UserMessages.Tariffs.TextRequired);
 
         return Result.Success();
     }

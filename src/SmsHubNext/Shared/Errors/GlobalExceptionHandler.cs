@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Http;
+using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Shared.Errors;
 
@@ -56,27 +57,27 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
         BadHttpRequestException badRequest => new ExceptionProblem(
             badRequest.StatusCode,
             "http.bad_request",
-            "The request could not be processed."),
+            UserMessages.Common.BadRequest),
 
         TimeoutException => new ExceptionProblem(
             StatusCodes.Status503ServiceUnavailable,
             "server.timeout",
-            "The service timed out while processing the request."),
+            UserMessages.Common.Timeout),
 
         SqlException => new ExceptionProblem(
             StatusCodes.Status503ServiceUnavailable,
             "database.unavailable",
-            "The database is temporarily unavailable."),
+            UserMessages.Common.DatabaseUnavailable),
 
         TaskCanceledException => new ExceptionProblem(
             StatusCodes.Status503ServiceUnavailable,
             "server.operation_cancelled",
-            "The operation was cancelled before it completed."),
+            UserMessages.Common.OperationCancelled),
 
         _ => new ExceptionProblem(
             StatusCodes.Status500InternalServerError,
             "server.unhandled_exception",
-            "An unexpected error occurred."),
+            UserMessages.Common.UnexpectedError),
     };
 
     private void LogException(ExceptionProblem problem, Exception exception, HttpContext httpContext)

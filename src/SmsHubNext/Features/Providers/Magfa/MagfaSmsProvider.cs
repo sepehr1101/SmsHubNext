@@ -50,7 +50,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
         _logger = logger;
     }
 
-    public string Name => "magfa";
+    public string Name => ProviderCodes.Magfa;
 
     public int MaxBatchSize => _options.BatchSize;
 
@@ -73,8 +73,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
             {
                 _logger.LogError("No Magfa account is configured for sender line {SenderLine} (message {MessageId}).",
                     requests[i].SenderLine, requests[i].MessageId);
-                results[i] = Error.Provider("magfa.unknown_sender_line",
-                    $"No Magfa account is configured for sender line '{requests[i].SenderLine}'.");
+                results[i] = MagfaProviderErrors.UnknownSenderLine(requests[i].SenderLine);
                 continue;
             }
 
@@ -123,7 +122,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
             if (body.Status != MagfaStatusCodes.Success)
             {
                 _logger.LogError("Magfa /mid returned request-level status {Status}.", body.Status);
-                return Error.Provider("magfa.mid_request_status", $"Magfa request-level status {body.Status}.");
+                return MagfaProviderErrors.RequestStatus(MagfaErrorCodes.MidRequestStatus, body.Status);
             }
 
             // mid >= 0 means this account has a record (already accepted); -1 means it doesn't.
@@ -157,7 +156,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
             if (body.Status != MagfaStatusCodes.Success)
             {
                 _logger.LogError("Magfa /statuses returned request-level status {Status}.", body.Status);
-                return Error.Provider("magfa.statuses_request_status", $"Magfa request-level status {body.Status}.");
+                return MagfaProviderErrors.RequestStatus(MagfaErrorCodes.StatusesRequestStatus, body.Status);
             }
 
             reports.AddRange(body.Dlrs.Select(dlr => new ProviderDeliveryReport(
@@ -186,7 +185,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
             if (body.Status != MagfaStatusCodes.Success)
             {
                 _logger.LogError("Magfa /messages returned request-level status {Status}.", body.Status);
-                return Error.Provider("magfa.messages_request_status", $"Magfa request-level status {body.Status}.");
+                return MagfaProviderErrors.RequestStatus(MagfaErrorCodes.MessagesRequestStatus, body.Status);
             }
 
             inbound.AddRange(body.Messages.Select(m =>
@@ -240,17 +239,17 @@ public sealed class MagfaSmsProvider : ISmsProvider
         }
         catch (HttpRequestException ex)
         {
-            return Error.Provider("magfa.transport", $"HTTP transport error: {ex.Message}");
+            return MagfaProviderErrors.Transport(ex.Message);
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            return Error.Provider("magfa.timeout", $"Request timed out: {ex.Message}");
+            return MagfaProviderErrors.Timeout(ex.Message);
         }
 
         using (response)
         {
             if (!response.IsSuccessStatusCode)
-                return Error.Provider("magfa.http_status", $"Magfa returned HTTP {(int)response.StatusCode}.");
+                return MagfaProviderErrors.HttpStatus((int)response.StatusCode);
 
             T? body;
             try
@@ -259,11 +258,11 @@ public sealed class MagfaSmsProvider : ISmsProvider
             }
             catch (JsonException ex)
             {
-                return Error.Provider("magfa.bad_json", $"Could not parse Magfa response: {ex.Message}");
+                return MagfaProviderErrors.BadJson(ex.Message);
             }
 
             return body is null
-                ? Error.Provider("magfa.empty_body", "Magfa returned an empty response body.")
+                ? Error.Provider(MagfaErrorCodes.EmptyBody, UserMessages.Providers.MagfaEmptyBody)
                 : Result.Success(body);
         }
     }
@@ -289,7 +288,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
         // chunk and surface loudly so a misconfiguration is fixed rather than charged.
         _logger.LogError("Magfa rejected the send request ({Count} message(s)) with request-level status {Status}.",
             requests.Count, response.Status);
-        return Error.Provider("magfa.request_status", $"Magfa request-level status {response.Status}.");
+        return MagfaProviderErrors.RequestStatus(MagfaErrorCodes.RequestStatus, response.Status);
     }
 
     /// <summary>
@@ -321,7 +320,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
             if (sent is null)
             {
                 _logger.LogWarning("Magfa returned no result for message {MessageId}; will retry.", request.MessageId);
-                results.Add(Error.Provider("magfa.missing_result", "Magfa returned no result for this message."));
+                results.Add(Error.Provider(MagfaErrorCodes.MissingResult, UserMessages.Providers.MagfaMissingResult));
             }
             else
             {
@@ -340,17 +339,17 @@ public sealed class MagfaSmsProvider : ISmsProvider
         {
             case MagfaDisposition.Accepted:
                 if (message.Id is null)
-                    return Error.Provider("magfa.missing_id", "Magfa accepted the message but returned no id.");
+                    return Error.Provider(MagfaErrorCodes.MissingId, UserMessages.Providers.MagfaMissingId);
                 return ProviderDispatchResult.Accepted(message.Id.Value.ToString(), message.Status);
 
             case MagfaDisposition.InsufficientCredit:
                 return ProviderDispatchResult.InsufficientCredit(message.Status);
 
             case MagfaDisposition.Rejected:
-                return ProviderDispatchResult.Rejected(message.Status, $"Magfa status {message.Status}.");
+                return ProviderDispatchResult.Rejected(message.Status, UserMessages.Providers.MagfaRejectedStatus(message.Status));
 
             case MagfaDisposition.Transient:
-                return Error.Provider("magfa.message_status", $"Magfa message status {message.Status}.");
+                return Error.Provider(MagfaErrorCodes.MessageStatus, UserMessages.Providers.MagfaMessageStatus(message.Status));
 
             // A per-message configuration fault (e.g. invalid sender/encoding) will never succeed on
             // retry, so it is treated as a rejection (unsendable ⇒ refund), logged as a likely config issue.
@@ -358,7 +357,9 @@ public sealed class MagfaSmsProvider : ISmsProvider
                 _logger.LogWarning(
                     "Magfa refused message {MessageId} with status {Status} (likely a configuration issue); rejecting.",
                     request.MessageId, message.Status);
-                return ProviderDispatchResult.Rejected(message.Status, $"Magfa status {message.Status} (configuration).");
+                return ProviderDispatchResult.Rejected(
+                    message.Status,
+                    UserMessages.Providers.MagfaRejectedConfigurationStatus(message.Status));
         }
     }
 }

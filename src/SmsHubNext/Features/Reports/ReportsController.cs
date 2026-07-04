@@ -97,7 +97,7 @@ public sealed class ReportsController : BaseController
         if (request.CustomerId is not null && request.CustomerId != identity.Value.CustomerId)
             return Error.Validation(
                 "reports.customer_mismatch",
-                "The requested customer does not match the authenticated API key.");
+                UserMessages.Reports.CustomerMismatch);
 
         return request.ForCustomer(identity.Value.CustomerId);
     }

@@ -33,7 +33,7 @@ public sealed class CreateSenderLineHandler
         }
         catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown provider/customer
         {
-            return Error.Validation("sender_lines.unknown_reference", "The provider or customer does not exist.");
+            return Error.Validation("sender_lines.unknown_reference", UserMessages.ReferenceData.SenderLineUnknownReference);
         }
     }
 }

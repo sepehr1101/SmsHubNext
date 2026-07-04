@@ -21,16 +21,16 @@ public sealed class CreateSenderLineRequest
     public Result Validate()
     {
         if (ProviderId == 0)
-            return Error.Validation("sender_lines.provider_required", "A provider id is required.");
+            return Error.Validation("sender_lines.provider_required", UserMessages.ReferenceData.ProviderRequired);
 
         if (string.IsNullOrWhiteSpace(LineNumber))
-            return Error.Validation("sender_lines.line_number_required", "A line number is required.");
+            return Error.Validation("sender_lines.line_number_required", UserMessages.ReferenceData.LineNumberRequired);
 
         if (CustomerId <= 0)
-            return Error.Validation("sender_lines.invalid_customer", "A customer id must be positive when provided.");
+            return Error.Validation("sender_lines.invalid_customer", UserMessages.ReferenceData.InvalidCustomer);
 
         if (IsSharedLine && CustomerId is not null)
-            return Error.Validation("sender_lines.shared_line_has_owner", "A shared sender line cannot be assigned to one customer.");
+            return Error.Validation("sender_lines.shared_line_has_owner", UserMessages.ReferenceData.SharedLineHasOwner);
 
         return Result.Success();
     }

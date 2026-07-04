@@ -39,7 +39,7 @@ public sealed class QuoteHandler
             cancellationToken: cancellationToken));
 
         if (row is null)
-            return Error.NotFound("tariffs.no_rate", "No active tariff rate matches the request.");
+            return Error.NotFound("tariffs.no_rate", UserMessages.Tariffs.NoRate);
 
         decimal totalCost = segments.SegmentCount * row.PricePerSegment;
 

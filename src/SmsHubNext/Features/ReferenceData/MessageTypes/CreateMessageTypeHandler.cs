@@ -34,7 +34,7 @@ public sealed class CreateMessageTypeHandler
         }
         catch (SqlException ex) when (ex.IsUniqueViolation()) // duplicate Id (PK) or Code
         {
-            return Error.Conflict("message_types.exists", "A message type with this id or code already exists.");
+            return Error.Conflict("message_types.exists", UserMessages.ReferenceData.MessageTypeExists);
         }
     }
 }

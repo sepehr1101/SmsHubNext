@@ -120,7 +120,7 @@ public sealed class InboundPoller
         {
             // A provider should not throw for expected failures; treat anything that escapes as transient.
             _logger.LogError(ex, "Provider {Provider} threw fetching inbound messages", provider.Name);
-            return Error.Provider("inbound.provider_threw", ex.Message);
+            return Error.Provider("inbound.provider_threw", UserMessages.Providers.ProviderThrew);
         }
     }
 }

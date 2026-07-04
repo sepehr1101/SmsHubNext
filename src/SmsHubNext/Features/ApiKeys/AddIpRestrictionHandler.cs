@@ -33,7 +33,7 @@ public sealed class AddIpRestrictionHandler
         }
         catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown API key
         {
-            return Error.Validation("api_keys.unknown_key", "The API key does not exist.");
+            return Error.Validation("api_keys.unknown_key", UserMessages.ApiKeys.UnknownKey);
         }
     }
 }

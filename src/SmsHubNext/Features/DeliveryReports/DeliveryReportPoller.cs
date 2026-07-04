@@ -191,7 +191,7 @@ public sealed class DeliveryReportPoller
         {
             // A provider should not throw for expected failures; treat anything that escapes as transient.
             _logger.LogError(ex, "Provider threw fetching delivery reports");
-            return Error.Provider("dlr.provider_threw", ex.Message);
+            return Error.Provider("dlr.provider_threw", UserMessages.Providers.ProviderThrew);
         }
     }
 

@@ -24,10 +24,10 @@ public sealed class IngestDeliveryReportRequest
     public Result Validate()
     {
         if (MessageId <= 0)
-            return Error.Validation("delivery_reports.message_required", "A valid message id is required.");
+            return Error.Validation("delivery_reports.message_required", UserMessages.DeliveryReports.MessageRequired);
 
         if (!Enum.IsDefined(Status))
-            return Error.Validation("delivery_reports.invalid_status", "The normalized status is not recognized.");
+            return Error.Validation("delivery_reports.invalid_status", UserMessages.DeliveryReports.InvalidStatus);
 
         return Result.Success();
     }

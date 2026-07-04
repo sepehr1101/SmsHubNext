@@ -20,13 +20,13 @@ public sealed class CreateMessageTypeRequest
     public Result Validate()
     {
         if (Id == 0)
-            return Error.Validation("message_types.id_required", "A non-zero message type id is required.");
+            return Error.Validation("message_types.id_required", UserMessages.ReferenceData.MessageTypeIdRequired);
 
         if (string.IsNullOrWhiteSpace(Name))
-            return Error.Validation("message_types.name_required", "A name is required.");
+            return Error.Validation("message_types.name_required", UserMessages.ReferenceData.NameRequired);
 
         if (string.IsNullOrWhiteSpace(Code))
-            return Error.Validation("message_types.code_required", "A code is required.");
+            return Error.Validation("message_types.code_required", UserMessages.ReferenceData.CodeRequired);
 
         return Result.Success();
     }

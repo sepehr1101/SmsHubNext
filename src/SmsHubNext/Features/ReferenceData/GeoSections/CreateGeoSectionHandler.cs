@@ -35,7 +35,7 @@ public sealed class CreateGeoSectionHandler
 
             // Early return disposes the transaction, which rolls it back.
             if (path is null)
-                return Error.Validation("geo.unknown_parent", "The parent section does not exist.");
+                return Error.Validation("geo.unknown_parent", UserMessages.ReferenceData.GeoUnknownParent);
 
             parentPath = path;
         }

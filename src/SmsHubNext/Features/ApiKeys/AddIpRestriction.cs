@@ -10,7 +10,7 @@ public sealed class AddIpRestrictionRequest
     public Result Validate()
     {
         if (string.IsNullOrWhiteSpace(Cidr))
-            return Error.Validation("api_keys.cidr_required", "A CIDR range is required.");
+            return Error.Validation("api_keys.cidr_required", UserMessages.ApiKeys.CidrRequired);
 
         return Result.Success();
     }

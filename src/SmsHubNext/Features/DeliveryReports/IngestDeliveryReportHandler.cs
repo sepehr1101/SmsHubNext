@@ -40,7 +40,7 @@ public sealed class IngestDeliveryReportHandler
             cancellationToken: cancellationToken));
 
         if (partition is null)
-            return Error.NotFound("delivery_reports.unknown_message", "The message does not exist.");
+            return Error.NotFound("delivery_reports.unknown_message", UserMessages.DeliveryReports.UnknownMessage);
 
         DeliveryStatus readModel = request.Status.ToDeliveryStatus();
         DateTime receivedAtUtc = _clock.GetUtcNow().UtcDateTime;

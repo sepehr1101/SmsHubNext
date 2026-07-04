@@ -32,7 +32,7 @@ public sealed class CreateCustomerHandler
         }
         catch (SqlException ex) when (ex.IsUniqueViolation()) // duplicate Code
         {
-            return Error.Conflict("customers.code_exists", "A customer with this code already exists.");
+            return Error.Conflict("customers.code_exists", UserMessages.ReferenceData.CustomerCodeExists);
         }
     }
 }

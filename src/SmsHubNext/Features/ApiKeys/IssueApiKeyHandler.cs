@@ -41,7 +41,7 @@ public sealed class IssueApiKeyHandler
         }
         catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown customer
         {
-            return Error.Validation("api_keys.unknown_customer", "The customer does not exist.");
+            return Error.Validation("api_keys.unknown_customer", UserMessages.ApiKeys.UnknownCustomer);
         }
     }
 

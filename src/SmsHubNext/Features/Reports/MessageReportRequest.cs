@@ -25,25 +25,25 @@ public sealed class MessageReportRequest
     public Result Validate()
     {
         if (!IsValidJalaliDate(FromJalali))
-            return Error.Validation("reports.from_jalali_invalid", "fromJalali must be in yyyy/MM/dd format.");
+            return Error.Validation("reports.from_jalali_invalid", UserMessages.Reports.FromJalaliInvalid);
 
         if (!IsValidJalaliDate(ToJalali))
-            return Error.Validation("reports.to_jalali_invalid", "toJalali must be in yyyy/MM/dd format.");
+            return Error.Validation("reports.to_jalali_invalid", UserMessages.Reports.ToJalaliInvalid);
 
         if (string.CompareOrdinal(FromJalali, ToJalali) > 0)
-            return Error.Validation("reports.invalid_range", "fromJalali must be before or equal to toJalali.");
+            return Error.Validation("reports.invalid_range", UserMessages.Reports.InvalidRange);
 
         if (CustomerId <= 0)
-            return Error.Validation("reports.customer_invalid", "customerId must be positive when supplied.");
+            return Error.Validation("reports.customer_invalid", UserMessages.Reports.CustomerInvalid);
 
         if (ProviderId == 0)
-            return Error.Validation("reports.provider_invalid", "providerId must be positive when supplied.");
+            return Error.Validation("reports.provider_invalid", UserMessages.Reports.ProviderInvalid);
 
         if (MessageTypeId == 0)
-            return Error.Validation("reports.message_type_invalid", "messageTypeId must be positive when supplied.");
+            return Error.Validation("reports.message_type_invalid", UserMessages.Reports.MessageTypeInvalid);
 
         if (GeoSectionId <= 0)
-            return Error.Validation("reports.geo_section_invalid", "geoSectionId must be positive when supplied.");
+            return Error.Validation("reports.geo_section_invalid", UserMessages.Reports.GeoSectionInvalid);
 
         return Result.Success();
     }

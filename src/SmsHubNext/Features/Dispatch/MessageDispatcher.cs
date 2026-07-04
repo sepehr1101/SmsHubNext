@@ -498,7 +498,7 @@ public sealed class MessageDispatcher
         {
             // A provider should not throw for expected failures; treat anything that escapes as transient.
             _logger.LogError(ex, "Provider threw resolving message {MessageId}", messageId);
-            return Error.Provider("dispatch.provider_threw", ex.Message);
+            return Error.Provider("dispatch.provider_threw", UserMessages.Providers.ProviderThrew);
         }
     }
 
@@ -514,7 +514,7 @@ public sealed class MessageDispatcher
         {
             // A provider should not throw for expected failures; treat anything that escapes as transient.
             _logger.LogError(ex, "Provider threw dispatching {Count} message(s)", requests.Count);
-            return Error.Provider("dispatch.provider_threw", ex.Message);
+            return Error.Provider("dispatch.provider_threw", UserMessages.Providers.ProviderThrew);
         }
     }
 

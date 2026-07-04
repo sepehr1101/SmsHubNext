@@ -32,7 +32,7 @@ public sealed class CreateProviderHandler
         }
         catch (SqlException ex) when (ex.IsUniqueViolation()) // duplicate Code
         {
-            return Error.Conflict("providers.code_exists", "A provider with this code already exists.");
+            return Error.Conflict("providers.code_exists", UserMessages.ReferenceData.ProviderCodeExists);
         }
     }
 }

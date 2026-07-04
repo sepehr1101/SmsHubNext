@@ -27,7 +27,7 @@ public sealed class ListBatchMessagesHandler
 
         IReadOnlyList<BatchMessage> messages = rows.AsList();
         return messages.Count == 0
-            ? Error.NotFound("batches.not_found", "The batch does not exist.")
+            ? Error.NotFound("batches.not_found", UserMessages.Batches.NotFound)
             : Result.Success(messages);
     }
 }

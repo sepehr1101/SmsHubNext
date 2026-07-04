@@ -22,7 +22,7 @@ public sealed class GetBatchHandler
             cancellationToken: cancellationToken));
 
         return batch is null
-            ? Error.NotFound("batches.not_found", "The batch does not exist.")
+            ? Error.NotFound("batches.not_found", UserMessages.Batches.NotFound)
             : batch;
     }
 }

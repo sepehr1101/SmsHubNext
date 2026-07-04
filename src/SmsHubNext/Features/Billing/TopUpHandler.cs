@@ -77,7 +77,7 @@ public sealed class TopUpHandler
         catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown customer
         {
             transaction.Rollback();
-            return Error.Validation("balances.unknown_customer", "The customer does not exist.");
+            return Error.Validation("balances.unknown_customer", UserMessages.Balances.UnknownCustomer);
         }
         catch (SqlException ex) when (ex.IsUniqueViolation())
         {
@@ -88,7 +88,7 @@ public sealed class TopUpHandler
             if (existing is not null)
                 return existing;
 
-            return Error.Conflict("balances.duplicate_reference", "A top-up with this reference already exists.");
+            return Error.Conflict("balances.duplicate_reference", UserMessages.Balances.DuplicateReference);
         }
     }
 

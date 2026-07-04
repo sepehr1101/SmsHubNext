@@ -10,10 +10,10 @@ public sealed class CreateCustomerRequest
     public Result Validate()
     {
         if (string.IsNullOrWhiteSpace(Name))
-            return Error.Validation("customers.name_required", "A customer name is required.");
+            return Error.Validation("customers.name_required", UserMessages.ReferenceData.CustomerNameRequired);
 
         if (string.IsNullOrWhiteSpace(Code))
-            return Error.Validation("customers.code_required", "A customer code is required.");
+            return Error.Validation("customers.code_required", UserMessages.ReferenceData.CustomerCodeRequired);
 
         return Result.Success();
     }

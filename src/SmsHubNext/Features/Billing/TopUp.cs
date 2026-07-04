@@ -11,13 +11,13 @@ public sealed class TopUpRequest
     public Result Validate()
     {
         if (CustomerId <= 0)
-            return Error.Validation("balances.customer_required", "A valid customer id is required.");
+            return Error.Validation("balances.customer_required", UserMessages.Balances.CustomerRequired);
 
         if (Amount <= 0)
-            return Error.Validation("balances.amount_positive", "Top-up amount must be positive.");
+            return Error.Validation("balances.amount_positive", UserMessages.Balances.AmountPositive);
 
         if (Reference?.Length > 100)
-            return Error.Validation("balances.reference_too_long", "The top-up reference may contain at most 100 characters.");
+            return Error.Validation("balances.reference_too_long", UserMessages.Balances.ReferenceTooLong);
 
         return Result.Success();
     }
