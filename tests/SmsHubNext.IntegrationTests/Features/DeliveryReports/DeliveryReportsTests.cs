@@ -87,7 +87,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_latest_report_wins_in_the_read_model_and_history_keeps_both()
+    public async Task The_first_terminal_report_wins_in_the_read_model_and_history_keeps_both()
     {
         long messageId = await SendOneAndGetMessageIdAsync();
         IngestDeliveryReportHandler handler = new IngestDeliveryReportHandler(_db, TimeProvider.System);
@@ -99,10 +99,11 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
             new IngestDeliveryReportRequest { MessageId = messageId, Status = DeliveryReportStatus.Delivered, RawStatusCode = 1 },
             CancellationToken.None);
 
-        Assert.Equal(DeliveryStatus.Delivered, second.Value.DeliveryStatus);
+        Assert.Equal(DeliveryStatus.Undelivered, second.Value.DeliveryStatus);
+        Assert.False(second.Value.AppliedToReadModel);
 
         BatchMessage message = await SingleMessageAsync(messageId);
-        Assert.Equal(DeliveryStatus.Delivered, message.DeliveryStatus);
+        Assert.Equal(DeliveryStatus.Undelivered, message.DeliveryStatus);
 
         Result<IReadOnlyList<DeliveryReport>> history = await new ListDeliveryReportsHandler(_db).Handle(messageId, CancellationToken.None);
         Assert.Equal(2, history.Value.Count);

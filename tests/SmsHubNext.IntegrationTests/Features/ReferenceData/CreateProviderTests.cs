@@ -34,13 +34,13 @@ public sealed class CreateProviderTests : IAsyncLifetime
     public async Task Creates_a_provider_then_lists_it()
     {
         Result<CreateProviderResponse> created = await new CreateProviderHandler(_db).Handle(
-            new CreateProviderRequest { Name = "Kavenegar", Code = "kavenegar", BaseUrl = "https://api.kavenegar.com" },
+            new CreateProviderRequest { Name = "Test Provider", Code = $"provider-{Guid.NewGuid():N}", BaseUrl = "https://api.example.test" },
             CancellationToken.None);
         Assert.True(created.IsSuccess);
-        Assert.True(created.Value.Id > 1); // Magfa is seeded at Id 1
+        Assert.True(created.Value.Id > 2); // Magfa and Kavenegar are seeded
 
         Result<IReadOnlyList<Provider>> listed = await new ListProvidersHandler(_db).Handle(CancellationToken.None);
         Assert.True(listed.IsSuccess);
-        Assert.Contains(listed.Value, p => p.Code == "kavenegar");
+        Assert.Contains(listed.Value, p => p.Name == "Test Provider");
     }
 }

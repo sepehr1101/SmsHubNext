@@ -131,6 +131,8 @@ public static class UserMessages
         public const string NameRequired = "A name is required.";
         public const string CodeRequired = "A code is required.";
         public const string SenderLineUnknownReference = "The provider or customer does not exist.";
+        public const string SenderLineUnknownProvider = "The provider does not exist.";
+        public const string SenderLineUnknownCustomer = "The customer does not exist.";
         public const string ProviderRequired = "A provider id is required.";
         public const string LineNumberRequired = "A line number is required.";
         public const string InvalidCustomer = "A customer id must be positive when provided.";

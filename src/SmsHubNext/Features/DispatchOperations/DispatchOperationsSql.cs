@@ -26,17 +26,20 @@ internal static class DispatchOperationsSql
             COUNT_BIG(*) AS BatchCount,
             COALESCE(SUM(CAST(b.MessageCount AS BIGINT)), 0) AS MessageCount,
             COALESCE(SUM(b.TotalCost), 0) AS TotalCost,
-            SUM(CASE WHEN b.Status = 1 AND (b.NextDispatchAtUtc IS NULL OR b.NextDispatchAtUtc <= @Now) THEN 1 ELSE 0 END) AS DueBatchCount,
-            SUM(CASE WHEN b.Status = 1 AND b.NextDispatchAtUtc > @Now THEN 1 ELSE 0 END) AS ScheduledRetryBatchCount,
-            SUM(CASE WHEN EXISTS (
-                SELECT 1 FROM dbo.Message awaiting WHERE awaiting.MessageBatchId = b.Id AND awaiting.Status = 6
-            ) THEN 1 ELSE 0 END) AS AwaitingConfirmationBatchCount,
-            SUM(CASE WHEN b.Status = 5 THEN 1 ELSE 0 END) AS HeldBatchCount,
-            SUM(CASE WHEN b.Status = 7 THEN 1 ELSE 0 END) AS DispatchFailedBatchCount,
+            COALESCE(SUM(CASE WHEN b.Status = 1 AND (b.NextDispatchAtUtc IS NULL OR b.NextDispatchAtUtc <= @Now) THEN CAST(1 AS BIGINT) ELSE CAST(0 AS BIGINT) END), 0) AS DueBatchCount,
+            COALESCE(SUM(CASE WHEN b.Status = 1 AND b.NextDispatchAtUtc > @Now THEN CAST(1 AS BIGINT) ELSE CAST(0 AS BIGINT) END), 0) AS ScheduledRetryBatchCount,
+            COALESCE(SUM(CASE WHEN awaiting.MessageCount > 0 THEN CAST(1 AS BIGINT) ELSE CAST(0 AS BIGINT) END), 0) AS AwaitingConfirmationBatchCount,
+            COALESCE(SUM(CASE WHEN b.Status = 5 THEN CAST(1 AS BIGINT) ELSE CAST(0 AS BIGINT) END), 0) AS HeldBatchCount,
+            COALESCE(SUM(CASE WHEN b.Status = 7 THEN CAST(1 AS BIGINT) ELSE CAST(0 AS BIGINT) END), 0) AS DispatchFailedBatchCount,
             COALESCE(MAX(b.DispatchAttemptCount), 0) AS MaxDispatchAttemptCount,
             MIN(CASE WHEN b.Status IN (1, 2, 5) THEN b.ReceivedAtUtc END) AS OldestOpenBatchReceivedAtUtc,
             MIN(CASE WHEN b.Status = 1 AND (b.NextDispatchAtUtc IS NULL OR b.NextDispatchAtUtc <= @Now) THEN b.ReceivedAtUtc END) AS OldestDueBatchReceivedAtUtc
         FROM dbo.MessageBatch b
+        OUTER APPLY (
+            SELECT COUNT_BIG(*) AS MessageCount
+            FROM dbo.Message awaiting
+            WHERE awaiting.MessageBatchId = b.Id AND awaiting.Status = 6
+        ) awaiting
         {Filters};
         """;
 
@@ -104,9 +107,9 @@ internal static class DispatchOperationsSql
         INNER JOIN dbo.Provider p ON p.Id = b.ProviderId
         OUTER APPLY (
             SELECT
-                COALESCE(SUM(CASE WHEN m.Status = 1 THEN 1 ELSE 0 END), 0) AS QueuedMessageCount,
-                COALESCE(SUM(CASE WHEN m.Status = 6 THEN 1 ELSE 0 END), 0) AS AwaitingConfirmationMessageCount,
-                COALESCE(SUM(CASE WHEN m.Status = 4 THEN 1 ELSE 0 END), 0) AS RejectedMessageCount
+                COALESCE(SUM(CASE WHEN m.Status = 1 THEN CAST(1 AS BIGINT) ELSE CAST(0 AS BIGINT) END), 0) AS QueuedMessageCount,
+                COALESCE(SUM(CASE WHEN m.Status = 6 THEN CAST(1 AS BIGINT) ELSE CAST(0 AS BIGINT) END), 0) AS AwaitingConfirmationMessageCount,
+                COALESCE(SUM(CASE WHEN m.Status = 4 THEN CAST(1 AS BIGINT) ELSE CAST(0 AS BIGINT) END), 0) AS RejectedMessageCount
             FROM dbo.Message m
             WHERE m.MessageBatchId = b.Id
         ) messageCounts

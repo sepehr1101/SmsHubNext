@@ -71,9 +71,19 @@ public sealed class DeliveryReportPoller
         List<TerminalApply> applies = new List<TerminalApply>(rows.Count);
         HashSet<long> seen = new HashSet<long>(rows.Count);
 
-        if (rows.Count > 0)
+        foreach (PollRow row in rows)
         {
-            foreach (IGrouping<byte, PollRow> providerGroup in rows.GroupBy(row => row.ProviderId))
+            if (row.DispatchedAtUtc <= windowStart && seen.Add(row.MessageId))
+                applies.Add(TerminalApply.For(row, DeliveryReportStatus.Expired, rawStatusCode: 0, now));
+        }
+
+        List<PollRow> activeRows = rows
+            .Where(row => !seen.Contains(row.MessageId))
+            .ToList();
+
+        if (activeRows.Count > 0)
+        {
+            foreach (IGrouping<byte, PollRow> providerGroup in activeRows.GroupBy(row => row.ProviderId))
             {
                 string providerCode = await connection.QuerySingleAsync<string>(new CommandDefinition(
                     DeliveryReportsSql.GetProviderCode,
@@ -108,12 +118,6 @@ public sealed class DeliveryReportPoller
 
                     if (byProviderMessageId.TryGetValue(report.ProviderMessageId, out PollRow? row) && seen.Add(row.MessageId))
                         applies.Add(TerminalApply.For(row, report.Status.Value, report.RawStatusCode, now));
-                }
-
-                foreach (PollRow row in providerRows)
-                {
-                    if (row.DispatchedAtUtc <= windowStart && seen.Add(row.MessageId))
-                        applies.Add(TerminalApply.For(row, DeliveryReportStatus.Expired, rawStatusCode: 0, now));
                 }
             }
         }

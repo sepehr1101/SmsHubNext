@@ -20,6 +20,11 @@ public static class SqlServerErrors
     /// <summary>True when the exception is a foreign-key/CHECK conflict (a missing referenced row).</summary>
     public static bool IsConstraintConflict(this SqlException ex) => ex.Number == ConstraintConflict;
 
+    /// <summary>True when the exception is a conflict raised by a known named constraint.</summary>
+    public static bool IsConstraintConflict(this SqlException ex, string constraintName) =>
+        ex.IsConstraintConflict() &&
+        ex.Message.Contains(constraintName, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>True when the exception is a duplicate-key violation on a unique index or constraint.</summary>
     public static bool IsUniqueViolation(this SqlException ex) =>
         ex.Number is DuplicateUniqueIndex or DuplicateUniqueConstraint;

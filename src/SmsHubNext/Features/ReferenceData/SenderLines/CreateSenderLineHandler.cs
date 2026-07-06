@@ -31,7 +31,15 @@ public sealed class CreateSenderLineHandler
 
             return new CreateSenderLineResponse(id);
         }
-        catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown provider/customer
+        catch (SqlException ex) when (ex.IsConstraintConflict("FK_SenderLine_Provider"))
+        {
+            return Error.Validation("sender_lines.unknown_provider", UserMessages.ReferenceData.SenderLineUnknownProvider);
+        }
+        catch (SqlException ex) when (ex.IsConstraintConflict("FK_SenderLine_Customer"))
+        {
+            return Error.Validation("sender_lines.unknown_customer", UserMessages.ReferenceData.SenderLineUnknownCustomer);
+        }
+        catch (SqlException ex) when (ex.IsConstraintConflict())
         {
             return Error.Validation("sender_lines.unknown_reference", UserMessages.ReferenceData.SenderLineUnknownReference);
         }

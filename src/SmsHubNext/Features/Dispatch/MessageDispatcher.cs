@@ -213,7 +213,7 @@ public sealed class MessageDispatcher
                     connection,
                     batch,
                     now,
-                    now + _options.AwaitingConfirmationRetryDelay,
+                    now,
                     $"Provider send response was lost for {chunk.Length} message(s): {batchResult.Error.Message}.",
                     cancellationToken);
                 return true;
