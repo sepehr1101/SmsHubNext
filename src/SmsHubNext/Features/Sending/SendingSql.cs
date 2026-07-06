@@ -5,9 +5,18 @@ internal static class SendingSql
     // Resolve the requested sender line to its keys; only active lines may send.
     public const string ResolveSenderLine =
         """
-        SELECT Id, ProviderId, IsSharedLine, CustomerId, IsActive
-        FROM dbo.SenderLine
-        WHERE LineNumber = @LineNumber;
+        SELECT
+            sl.Id,
+            sl.ProviderId,
+            sl.IsSharedLine,
+            sl.CustomerId,
+            sl.IsActive,
+            sl.ProviderAccountId,
+            pa.IsActive AS ProviderAccountIsActive,
+            DATALENGTH(pa.SecretEncrypted) AS SecretLength
+        FROM dbo.SenderLine sl
+        LEFT JOIN dbo.ProviderAccount pa ON pa.Id = sl.ProviderAccountId
+        WHERE sl.LineNumber = @LineNumber;
         """;
 
     public const string CustomerExists =

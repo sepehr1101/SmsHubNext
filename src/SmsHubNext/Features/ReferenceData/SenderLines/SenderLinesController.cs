@@ -11,11 +11,16 @@ public sealed class SenderLinesController : BaseController
 {
     private readonly ListSenderLinesHandler _list;
     private readonly CreateSenderLineHandler _create;
+    private readonly AssignProviderAccountHandler _assignProviderAccount;
 
-    public SenderLinesController(ListSenderLinesHandler list, CreateSenderLineHandler create)
+    public SenderLinesController(
+        ListSenderLinesHandler list,
+        CreateSenderLineHandler create,
+        AssignProviderAccountHandler assignProviderAccount)
     {
         _list = list;
         _create = create;
+        _assignProviderAccount = assignProviderAccount;
     }
 
     /// <summary>List the sending lines.</summary>
@@ -29,4 +34,12 @@ public sealed class SenderLinesController : BaseController
         [FromBody] CreateSenderLineRequest request,
         CancellationToken cancellationToken) =>
         FromResult(await _create.Handle(request, cancellationToken), StatusCodes.Status201Created);
+
+    /// <summary>Change or clear the provider account that owns a sending line.</summary>
+    [HttpPut("{id:short}/provider-account")]
+    public async Task<IActionResult> AssignProviderAccount(
+        short id,
+        [FromBody] AssignProviderAccountRequest request,
+        CancellationToken cancellationToken) =>
+        FromResult(await _assignProviderAccount.Handle(id, request, cancellationToken));
 }

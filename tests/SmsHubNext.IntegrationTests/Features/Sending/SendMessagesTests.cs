@@ -39,6 +39,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
     [Fact]
     public async Task Persists_the_batch_debits_the_balance_and_queues_each_message()
     {
+        await ProviderAccountTestData.AssignActiveMagfaAccountToSeededLineAsync(_db);
         short customerId = await CreateCustomerAsync("sender");
         await TopUpAsync(customerId, 10000m);
         ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
@@ -108,6 +109,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
     [Fact]
     public async Task Rejects_the_batch_when_the_balance_is_insufficient()
     {
+        await ProviderAccountTestData.AssignActiveMagfaAccountToSeededLineAsync(_db);
         short customerId = await CreateCustomerAsync("broke");
         await TopUpAsync(customerId, 500m); // less than the 1000 IRR a single segment costs
         ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
@@ -157,6 +159,54 @@ public sealed class SendMessagesTests : IAsyncLifetime
 
         Assert.True(result.IsFailure);
         Assert.Equal(ErrorType.NotFound, result.Error!.Type);
+    }
+
+    [Fact]
+    public async Task Rejects_sender_line_without_provider_account_credentials()
+    {
+        short customerId = await CreateCustomerAsync("no-creds");
+        await TopUpAsync(customerId, 10000m);
+        ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
+
+        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
+            new SendMessagesRequest
+            {
+                CustomerId = customerId,
+                SenderLine = "30001234",
+                MessageTypeId = 1,
+                Messages = [new SendMessageItem { Recipient = "989120000005", Text = "Hello" }],
+            },
+            identity,
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        Assert.Equal("sending.provider_credentials_required", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task Rejects_sender_line_with_inactive_provider_account()
+    {
+        int providerAccountId = await ProviderAccountTestData.CreateMagfaAccountAsync(_db, isActive: false);
+        await ProviderAccountTestData.AssignSenderLineAsync(_db, "30001234", providerAccountId);
+        short customerId = await CreateCustomerAsync("inactive-creds");
+        await TopUpAsync(customerId, 10000m);
+        ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
+
+        Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
+            new SendMessagesRequest
+            {
+                CustomerId = customerId,
+                SenderLine = "30001234",
+                MessageTypeId = 1,
+                Messages = [new SendMessageItem { Recipient = "989120000006", Text = "Hello" }],
+            },
+            identity,
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        Assert.Equal("sending.provider_account_inactive", result.Error.Code);
     }
 
     private async Task<short> CreateCustomerAsync(string code)

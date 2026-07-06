@@ -64,6 +64,11 @@ public static class UserMessages
         public const string UnknownSenderLine = "The sender line does not exist.";
         public const string InactiveSenderLine = "The sender line is not active.";
         public const string SenderLineNotAllowed = "The sender line is not assigned to the authenticated customer.";
+        public const string ProviderCredentialsRequired =
+            "The sender line has no provider account credentials configured.";
+        public const string ProviderAccountInactive = "The sender line's provider account is inactive.";
+        public const string ProviderSecretRequired =
+            "The sender line's provider account is missing its encrypted secret.";
         public const string NoActiveTariff =
             "No active tariff matches the sender line provider, message type, and SMS encoding.";
         public const string NoTariffRateBand =
@@ -134,11 +139,16 @@ public static class UserMessages
         public const string SenderLineUnknownProvider = "The provider does not exist.";
         public const string SenderLineUnknownCustomer = "The customer does not exist.";
         public const string ProviderRequired = "A provider id is required.";
+        public const string InvalidSenderLine = "A sender line id must be positive.";
+        public const string SenderLineNotFound = "The sender line does not exist.";
         public const string LineNumberRequired = "A line number is required.";
         public const string InvalidCustomer = "A customer id must be positive when provided.";
         public const string InvalidProviderAccount = "A provider account id must be positive when provided.";
         public const string SharedLineHasOwner = "A shared sender line cannot be assigned to one customer.";
         public const string SenderLineUnknownProviderAccount = "The provider account does not exist.";
+        public const string ProviderAccountProviderMismatch =
+            "The provider account must belong to the same provider as the sender line.";
+        public const string InactiveProviderAccount = "The provider account is inactive.";
         public const string GeoSectionTypeInvalid = "A valid section type is required.";
         public const string CustomerCodeExists = "A customer with this code already exists.";
         public const string GeoUnknownParent = "The parent section does not exist.";

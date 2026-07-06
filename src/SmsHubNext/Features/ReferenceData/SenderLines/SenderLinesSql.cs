@@ -11,4 +11,25 @@ internal static class SenderLinesSql
         OUTPUT INSERTED.Id
         VALUES (@ProviderId, @LineNumber, @IsSharedLine, @CustomerId, @ProviderAccountId, @IsActive);
         """;
+
+    public const string GetBinding =
+        """
+        SELECT Id, ProviderId
+        FROM dbo.SenderLine
+        WHERE Id = @Id;
+        """;
+
+    public const string GetProviderAccountBinding =
+        """
+        SELECT ProviderId, IsActive
+        FROM dbo.ProviderAccount
+        WHERE Id = @ProviderAccountId;
+        """;
+
+    public const string AssignProviderAccount =
+        """
+        UPDATE dbo.SenderLine
+        SET ProviderAccountId = @ProviderAccountId
+        WHERE Id = @Id;
+        """;
 }

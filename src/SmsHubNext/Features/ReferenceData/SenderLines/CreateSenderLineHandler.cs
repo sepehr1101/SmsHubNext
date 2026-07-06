@@ -22,6 +22,17 @@ public sealed class CreateSenderLineHandler
 
         await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
+        if (request.ProviderAccountId is int providerAccountId)
+        {
+            Result accountValidation = await SenderLineProviderAccountRules.Validate(
+                connection,
+                request.ProviderId,
+                providerAccountId,
+                cancellationToken);
+            if (accountValidation.IsFailure)
+                return accountValidation.Error!;
+        }
+
         try
         {
             short id = await connection.ExecuteScalarAsync<short>(new CommandDefinition(

@@ -170,6 +170,12 @@ public sealed class SendMessagesHandler
             return Error.Validation("sending.inactive_sender_line", UserMessages.Sending.InactiveSenderLine);
         if (!senderLine.IsSharedLine && senderLine.CustomerId is not null && senderLine.CustomerId != customerId)
             return Error.Validation("sending.sender_line_not_allowed", UserMessages.Sending.SenderLineNotAllowed);
+        if (senderLine.ProviderAccountId is null)
+            return Error.Validation("sending.provider_credentials_required", UserMessages.Sending.ProviderCredentialsRequired);
+        if (senderLine.ProviderAccountIsActive != true)
+            return Error.Validation("sending.provider_account_inactive", UserMessages.Sending.ProviderAccountInactive);
+        if (senderLine.SecretLength is null or <= 0)
+            return Error.Validation("sending.provider_secret_required", UserMessages.Sending.ProviderSecretRequired);
 
         return senderLine;
     }
@@ -438,8 +444,6 @@ public sealed class SendMessagesHandler
         using DataTable bodyRows = SendMessagesRowMapper.BuildBodyRows(messageIds, priced);
         await connection.BulkInsertAsync(transaction, SendMessagesRowMapper.MessageBodyTable, bodyRows, cancellationToken);
     }
-
-    private sealed record SenderLineRow(short Id, byte ProviderId, bool IsSharedLine, short? CustomerId, bool IsActive);
 
     private sealed record RateRow(int TariffId, string Currency, decimal PricePerSegment);
 

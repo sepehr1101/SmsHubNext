@@ -106,7 +106,88 @@ public sealed class ProviderAccountsTests : IAsyncLifetime
         Assert.Equal(account.Value.Id, line.ProviderAccountId);
     }
 
+    [Fact]
+    public async Task Sender_line_provider_account_can_be_changed_after_creation()
+    {
+        Result<CreateProviderAccountResponse> account = await CreateMagfaAccount("password-1");
+        Assert.True(account.IsSuccess, account.Error?.Message);
+        Result<CreateSenderLineResponse> senderLine = await CreateMagfaSenderLine("30007771", providerAccountId: null);
+        Assert.True(senderLine.IsSuccess, senderLine.Error?.Message);
+
+        Result assigned = await new AssignProviderAccountHandler(_db).Handle(
+            senderLine.Value.Id,
+            new AssignProviderAccountRequest { ProviderAccountId = account.Value.Id },
+            CancellationToken.None);
+
+        Assert.True(assigned.IsSuccess, assigned.Error?.Message);
+        Result<IReadOnlyList<SenderLine>> listed = await new ListSenderLinesHandler(_db).Handle(CancellationToken.None);
+        Assert.True(listed.IsSuccess, listed.Error?.Message);
+        SenderLine line = Assert.Single(listed.Value, item => item.Id == senderLine.Value.Id);
+        Assert.Equal(account.Value.Id, line.ProviderAccountId);
+    }
+
+    [Fact]
+    public async Task Sender_line_provider_account_can_be_cleared()
+    {
+        Result<CreateProviderAccountResponse> account = await CreateMagfaAccount("password-1");
+        Assert.True(account.IsSuccess, account.Error?.Message);
+        Result<CreateSenderLineResponse> senderLine = await CreateMagfaSenderLine("30007774", account.Value.Id);
+        Assert.True(senderLine.IsSuccess, senderLine.Error?.Message);
+
+        Result cleared = await new AssignProviderAccountHandler(_db).Handle(
+            senderLine.Value.Id,
+            new AssignProviderAccountRequest { ProviderAccountId = null },
+            CancellationToken.None);
+
+        Assert.True(cleared.IsSuccess, cleared.Error?.Message);
+        Result<IReadOnlyList<SenderLine>> listed = await new ListSenderLinesHandler(_db).Handle(CancellationToken.None);
+        Assert.True(listed.IsSuccess, listed.Error?.Message);
+        SenderLine line = Assert.Single(listed.Value, item => item.Id == senderLine.Value.Id);
+        Assert.Null(line.ProviderAccountId);
+    }
+
+    [Fact]
+    public async Task Sender_line_rejects_provider_account_from_another_provider()
+    {
+        Result<CreateProviderAccountResponse> account = await CreateKavenegarAccount("api-key-1");
+        Assert.True(account.IsSuccess, account.Error?.Message);
+
+        Result<CreateSenderLineResponse> senderLine = await CreateMagfaSenderLine("30007772", providerAccountId: null);
+        Assert.True(senderLine.IsSuccess, senderLine.Error?.Message);
+
+        Result assigned = await new AssignProviderAccountHandler(_db).Handle(
+            senderLine.Value.Id,
+            new AssignProviderAccountRequest { ProviderAccountId = account.Value.Id },
+            CancellationToken.None);
+
+        Assert.True(assigned.IsFailure);
+        Assert.Equal(ErrorType.Validation, assigned.Error!.Type);
+        Assert.Equal("sender_lines.provider_account_provider_mismatch", assigned.Error.Code);
+    }
+
+    [Fact]
+    public async Task Sender_line_rejects_inactive_provider_account()
+    {
+        Result<CreateProviderAccountResponse> account = await CreateMagfaAccount("password-1", isActive: false);
+        Assert.True(account.IsSuccess, account.Error?.Message);
+
+        Result<CreateSenderLineResponse> senderLine = await CreateMagfaSenderLine("30007773", providerAccountId: null);
+        Assert.True(senderLine.IsSuccess, senderLine.Error?.Message);
+
+        Result assigned = await new AssignProviderAccountHandler(_db).Handle(
+            senderLine.Value.Id,
+            new AssignProviderAccountRequest { ProviderAccountId = account.Value.Id },
+            CancellationToken.None);
+
+        Assert.True(assigned.IsFailure);
+        Assert.Equal(ErrorType.Validation, assigned.Error!.Type);
+        Assert.Equal("sender_lines.inactive_provider_account", assigned.Error.Code);
+    }
+
     private async Task<Result<CreateProviderAccountResponse>> CreateMagfaAccount(string secret) =>
+        await CreateMagfaAccount(secret, isActive: true);
+
+    private async Task<Result<CreateProviderAccountResponse>> CreateMagfaAccount(string secret, bool isActive) =>
         await new CreateProviderAccountHandler(_db, _secretProtector).Handle(
             new CreateProviderAccountRequest
             {
@@ -119,6 +200,32 @@ public sealed class ProviderAccountsTests : IAsyncLifetime
                     ["domain"] = "domain",
                 },
                 Secret = secret,
+                IsActive = isActive,
+            },
+            CancellationToken.None);
+
+    private async Task<Result<CreateProviderAccountResponse>> CreateKavenegarAccount(string secret) =>
+        await new CreateProviderAccountHandler(_db, _secretProtector).Handle(
+            new CreateProviderAccountRequest
+            {
+                ProviderCode = "kavenegar",
+                DisplayName = "Kavenegar Main Account",
+                AuthType = ProviderAccountAuthTypes.ApiKey,
+                Settings = new Dictionary<string, string>(),
+                Secret = secret,
+            },
+            CancellationToken.None);
+
+    private async Task<Result<CreateSenderLineResponse>> CreateMagfaSenderLine(
+        string lineNumber,
+        int? providerAccountId) =>
+        await new CreateSenderLineHandler(_db).Handle(
+            new CreateSenderLineRequest
+            {
+                ProviderId = 1,
+                LineNumber = lineNumber,
+                IsSharedLine = true,
+                ProviderAccountId = providerAccountId,
             },
             CancellationToken.None);
 
