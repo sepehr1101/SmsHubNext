@@ -240,20 +240,20 @@ public sealed class KavenegarSmsProviderTests : IDisposable
         KavenegarOptions options = new()
         {
             BatchSize = 200,
-            Accounts =
-            [
-                new KavenegarAccount
-                {
-                    ApiKey = "test-key",
-                    SenderLines = ["10004346"],
-                    InboundLines = ["10004346"],
-                },
-            ],
         };
+        IReadOnlyList<KavenegarAccount> accounts =
+        [
+            new KavenegarAccount
+            {
+                ApiKey = "test-key",
+                SenderLines = ["10004346"],
+                InboundLines = ["10004346"],
+            },
+        ];
 
         return new KavenegarSmsProvider(
             httpClient,
-            new KavenegarAccountResolver(options),
+            new KavenegarAccountResolver(accounts),
             options,
             NullLogger<KavenegarSmsProvider>.Instance);
     }

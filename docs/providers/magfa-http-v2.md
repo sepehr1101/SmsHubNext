@@ -62,12 +62,10 @@ Header          =  Authorization: Basic base64("USERNAME/DOMAIN:PASSWORD")
 Magfa also supports an optional **source-IP allow-list** in the panel; requests from
 unlisted IPs are rejected with status `29`.
 
-> Three credential parts to carry in config: **username**, **domain**, **password** — held
-> **per account** under `Providers:Magfa:Accounts`, each listing the **sender lines** it owns, so
-> different lines can authenticate against different Magfa accounts. Sending selects the account by
-> the message's sender line; the `Authorization` header is set per request. Secrets stay out of
-> source control: `appsettings.json` carries placeholders, real credentials go in the gitignored
-> `appsettings.{Environment}.local.json` (see `appsettings.Development.local.json.example`).
+> Three credential parts are stored per `ProviderAccount`: **username** and **domain** in
+> `SettingsJson`, and the **password** in `SecretEncrypted`. Sender lines point to the account that
+> owns them, so different lines can authenticate against different Magfa accounts. Sending selects
+> the account by the message's sender line; the `Authorization` header is set per request.
 
 ---
 

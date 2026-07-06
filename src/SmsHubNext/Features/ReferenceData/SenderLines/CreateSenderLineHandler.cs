@@ -26,7 +26,15 @@ public sealed class CreateSenderLineHandler
         {
             short id = await connection.ExecuteScalarAsync<short>(new CommandDefinition(
                 SenderLinesSql.Insert,
-                new { request.ProviderId, request.LineNumber, request.IsSharedLine, request.CustomerId, request.IsActive },
+                new
+                {
+                    request.ProviderId,
+                    request.LineNumber,
+                    request.IsSharedLine,
+                    request.CustomerId,
+                    request.ProviderAccountId,
+                    request.IsActive,
+                },
                 cancellationToken: cancellationToken));
 
             return new CreateSenderLineResponse(id);
@@ -38,6 +46,10 @@ public sealed class CreateSenderLineHandler
         catch (SqlException ex) when (ex.IsConstraintConflict("FK_SenderLine_Customer"))
         {
             return Error.Validation("sender_lines.unknown_customer", UserMessages.ReferenceData.SenderLineUnknownCustomer);
+        }
+        catch (SqlException ex) when (ex.IsConstraintConflict("FK_SenderLine_ProviderAccount"))
+        {
+            return Error.Validation("sender_lines.unknown_provider_account", UserMessages.ReferenceData.SenderLineUnknownProviderAccount);
         }
         catch (SqlException ex) when (ex.IsConstraintConflict())
         {

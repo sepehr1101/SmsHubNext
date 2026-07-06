@@ -418,19 +418,19 @@ public sealed class MagfaSmsProviderTests : IDisposable
         MagfaOptions options = new()
         {
             BatchSize = 100,
-            Accounts =
-            [
-                new MagfaAccount
-                {
-                    Username = "user",
-                    Domain = "domain",
-                    Password = "secret",
-                    SenderLines = ["30001234"],
-                },
-            ],
         };
+        IReadOnlyList<MagfaAccount> accounts =
+        [
+            new MagfaAccount
+            {
+                Username = "user",
+                Domain = "domain",
+                Password = "secret",
+                SenderLines = ["30001234"],
+            },
+        ];
         return new MagfaSmsProvider(
-            httpClient, new MagfaAccountResolver(options), options, NullLogger<MagfaSmsProvider>.Instance);
+            httpClient, new MagfaAccountResolver(accounts), options, NullLogger<MagfaSmsProvider>.Instance);
     }
 
     private static string ExpectedBasicToken =>

@@ -33,7 +33,7 @@ This is a small-to-medium **monolithic backend service** that should **stay simp
 | 5 | **Result pattern for expected failures; exceptions for the unexpected** | Predictable control flow + one Result→HTTP mapping at the edge. |
 | 6 | **Hosting: Windows + IIS, in-process background work** | One deployable; resumable outbox tolerates app-pool recycles. |
 | 7 | **Reliable dispatch via SQL-backed jobs; transport is swappable (built-in BackgroundService), not baked in** | Feature job-logic stays scheduler-agnostic. |
-| 8 | **Secrets: provider credentials encrypted in SQL Server** (`ProviderCredential`) | App-side Data Protection (DPAPI key, outside the DB). |
+| 8 | **Secrets: provider account credentials encrypted in SQL Server** (`ProviderAccount`) | App-side Data Protection (DPAPI key, outside the DB). |
 | 9 | **Migrations: DbUp** · **Logging: Serilog (no OpenTelemetry)** · **Result: hand-rolled** | Least ceremony; forward-only raw SQL; structured logs without OTel weight. |
 
 ---
@@ -176,7 +176,7 @@ No external job scheduler is required. The application depends only on the built
 ## 10. Runtime, deployment & infrastructure
 
 - **Hosting:** **Windows + IIS** (ASP.NET Core Module → Kestrel), co-located with SQL Server. SQL auth prefers **Integrated Security** where available.
-- **Secrets:** provider credentials **encrypted in SQL Server** (`ProviderCredential`, ciphertext only), decrypted in-app via **ASP.NET Core Data Protection** with the key ring **protected by Windows DPAPI** — key lives **outside** the DB. Connection string plaintext in `appsettings.json` **for now** (temporary; hardening path = SQL **Always Encrypted** + protected config).
+- **Secrets:** provider account secrets **encrypted in SQL Server** (`ProviderAccount.SecretEncrypted`, ciphertext only), decrypted in-app via **ASP.NET Core Data Protection** with the key ring **protected by Windows DPAPI** — key lives **outside** the DB. Non-sensitive provider settings live in `ProviderAccount.SettingsJson`. Connection string plaintext in `appsettings.json` **for now** (temporary; hardening path = SQL **Always Encrypted** + protected config).
 - **Migrations:** **DbUp** — ordered, forward-only raw-SQL scripts run at deploy; partitioning/columnstore DDL is hand-written.
 - **Logging:** **Serilog** (structured) → console + rolling file (+ Seq optional, Windows Event Log for service errors). **OpenTelemetry intentionally omitted** (simpler is better) — add tracing later only if a real need appears. ASP.NET Core **health checks** for IIS probes.
 - **Resilience:** Polly via `Microsoft.Extensions.Http.Resilience` on the Magfa `HttpClient`.
@@ -196,7 +196,7 @@ No external job scheduler is required. The application depends only on the built
 | Database | SQL Server (2019+) |
 | Background jobs | ASP.NET Core BackgroundService |
 | Migrations | **DbUp** (forward-only raw SQL) |
-| Secrets | `ProviderCredential` (encrypted) via ASP.NET **Data Protection** (DPAPI) |
+| Secrets | `ProviderAccount.SecretEncrypted` via ASP.NET **Data Protection** (DPAPI) |
 | Validation | **plain in-feature code** (no framework) |
 | Result | **hand-rolled** |
 | Time | BCL **`TimeProvider`** |

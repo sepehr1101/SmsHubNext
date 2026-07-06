@@ -208,7 +208,7 @@ public static class ServiceCollectionExtensions
         // registered explicitly. The enforcing middleware (ApiKeyAuthenticationMiddleware) is
         // intentionally NOT added to the pipeline yet; the APIs stay open for testing. See ADR-015.
         services.AddScoped<ApiKeyAuthenticator>();
-        services.AddSingleton<ProviderCredentialProtector>();
+        services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
 
         services.Scan(scan => scan
             .FromAssemblyOf<SendMessagesHandler>()

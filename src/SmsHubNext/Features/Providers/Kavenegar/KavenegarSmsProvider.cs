@@ -42,7 +42,7 @@ public sealed class KavenegarSmsProvider : ISmsProvider
 
         for (int i = 0; i < requests.Count; i++)
         {
-            KavenegarAccount? account = _accounts.Resolve(requests[i].SenderLine);
+            KavenegarAccount? account = await _accounts.ResolveAsync(requests[i].SenderLine, cancellationToken);
             if (account is null)
             {
                 _logger.LogError("No Kavenegar account is configured for sender line {SenderLine} (message {MessageId}).",
@@ -83,7 +83,8 @@ public sealed class KavenegarSmsProvider : ISmsProvider
     {
         // Recovery starts from our local id. Kavenegar Select needs provider messageid, so the
         // duplicate-send guard is statuslocalmessageid; Select is only useful after this recovers an id.
-        foreach (KavenegarAccount account in _accounts.Accounts)
+        IReadOnlyList<KavenegarAccount> accounts = await _accounts.GetAccountsAsync(cancellationToken);
+        foreach (KavenegarAccount account in accounts)
         {
             Result<KavenegarResponse<IReadOnlyList<KavenegarMessageEntry>>> response =
                 await ExecuteAsync<IReadOnlyList<KavenegarMessageEntry>>(
@@ -115,7 +116,8 @@ public sealed class KavenegarSmsProvider : ISmsProvider
 
         List<ProviderDeliveryReport> reports = new List<ProviderDeliveryReport>(providerMessageIds.Count);
 
-        foreach (KavenegarAccount account in _accounts.Accounts)
+        IReadOnlyList<KavenegarAccount> accounts = await _accounts.GetAccountsAsync(cancellationToken);
+        foreach (KavenegarAccount account in accounts)
         {
             foreach (string[] chunk in providerMessageIds.Chunk(KavenegarOptions.MaxStatusesPerRequest))
             {
@@ -151,7 +153,8 @@ public sealed class KavenegarSmsProvider : ISmsProvider
     {
         List<ProviderInboundMessage> inbound = new List<ProviderInboundMessage>();
 
-        foreach (KavenegarAccount account in _accounts.Accounts)
+        IReadOnlyList<KavenegarAccount> accounts = await _accounts.GetAccountsAsync(cancellationToken);
+        foreach (KavenegarAccount account in accounts)
         {
             foreach (string line in account.InboundLines.Take(Math.Max(maxCount, 0)))
             {

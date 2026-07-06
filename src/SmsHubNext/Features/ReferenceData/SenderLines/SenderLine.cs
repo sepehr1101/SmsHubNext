@@ -7,4 +7,5 @@ public sealed record SenderLine(
     string LineNumber,
     bool IsSharedLine,
     short? CustomerId,
+    int? ProviderAccountId,
     bool IsActive);

@@ -15,6 +15,8 @@ public sealed class CreateSenderLineRequest
 
     public short? CustomerId { get; init; }
 
+    public int? ProviderAccountId { get; init; }
+
     /// <summary>New lines are active by default; set false to register a line that cannot yet send.</summary>
     public bool IsActive { get; init; } = true;
 
@@ -31,6 +33,9 @@ public sealed class CreateSenderLineRequest
 
         if (IsSharedLine && CustomerId is not null)
             return Error.Validation("sender_lines.shared_line_has_owner", UserMessages.ReferenceData.SharedLineHasOwner);
+
+        if (ProviderAccountId <= 0)
+            return Error.Validation("sender_lines.invalid_provider_account", UserMessages.ReferenceData.InvalidProviderAccount);
 
         return Result.Success();
     }

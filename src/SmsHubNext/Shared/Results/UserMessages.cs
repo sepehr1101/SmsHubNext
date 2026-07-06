@@ -136,7 +136,9 @@ public static class UserMessages
         public const string ProviderRequired = "A provider id is required.";
         public const string LineNumberRequired = "A line number is required.";
         public const string InvalidCustomer = "A customer id must be positive when provided.";
+        public const string InvalidProviderAccount = "A provider account id must be positive when provided.";
         public const string SharedLineHasOwner = "A shared sender line cannot be assigned to one customer.";
+        public const string SenderLineUnknownProviderAccount = "The provider account does not exist.";
         public const string GeoSectionTypeInvalid = "A valid section type is required.";
         public const string CustomerCodeExists = "A customer with this code already exists.";
         public const string GeoUnknownParent = "The parent section does not exist.";
@@ -186,5 +188,20 @@ public static class UserMessages
             $"Kavenegar {method} returned status {status}: {message}";
 
         public const string ProviderThrew = "The SMS provider failed unexpectedly.";
+    }
+
+    public static class ProviderAccounts
+    {
+        public const string ProviderCodeRequired = "A provider code is required.";
+        public const string DisplayNameRequired = "A display name is required.";
+        public const string AuthTypeRequired = "An authentication type is required.";
+        public const string SecretRequired = "A secret is required.";
+        public const string InvalidId = "A valid provider account id is required.";
+        public const string NotFound = "The provider account does not exist.";
+        public const string UnknownProvider = "The provider does not exist.";
+        public const string UnsupportedProvider = "This provider is not supported for account validation.";
+        public const string InvalidAuthType = "The authentication type is not valid for this provider.";
+        public const string MagfaUsernameRequired = "Magfa account settings must include a username.";
+        public const string MagfaDomainRequired = "Magfa account settings must include a domain.";
     }
 }

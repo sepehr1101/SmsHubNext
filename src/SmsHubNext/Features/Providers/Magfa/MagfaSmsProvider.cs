@@ -68,7 +68,7 @@ public sealed class MagfaSmsProvider : ISmsProvider
 
         for (int i = 0; i < requests.Count; i++)
         {
-            MagfaAccount? account = _accounts.Resolve(requests[i].SenderLine);
+            MagfaAccount? account = await _accounts.ResolveAsync(requests[i].SenderLine, cancellationToken);
             if (account is null)
             {
                 _logger.LogError("No Magfa account is configured for sender line {SenderLine} (message {MessageId}).",
@@ -111,7 +111,8 @@ public sealed class MagfaSmsProvider : ISmsProvider
         // GET /mid/{uid} — the uid we sent is the message id (reference §6). The uid is account-scoped
         // and we have no sender line here, so ask each account until one has a record for it; an account
         // that never sent it answers mid -1 (treated as "no record"), so a clean miss is "safe to re-send".
-        foreach (MagfaAccount account in _accounts.Accounts)
+        IReadOnlyList<MagfaAccount> accounts = await _accounts.GetAccountsAsync(cancellationToken);
+        foreach (MagfaAccount account in accounts)
         {
             Result<MagfaMidResponse> response = await ExecuteAsync<MagfaMidResponse>(
                 () => CreateGetRequest(account, MidPath + messageId), cancellationToken);
@@ -145,7 +146,8 @@ public sealed class MagfaSmsProvider : ISmsProvider
         string idsPath = StatusesPath + string.Join(',', providerMessageIds);
         List<ProviderDeliveryReport> reports = new List<ProviderDeliveryReport>(providerMessageIds.Count);
 
-        foreach (MagfaAccount account in _accounts.Accounts)
+        IReadOnlyList<MagfaAccount> accounts = await _accounts.GetAccountsAsync(cancellationToken);
+        foreach (MagfaAccount account in accounts)
         {
             Result<MagfaStatusesResponse> response = await ExecuteAsync<MagfaStatusesResponse>(
                 () => CreateGetRequest(account, idsPath), cancellationToken);
@@ -174,7 +176,8 @@ public sealed class MagfaSmsProvider : ISmsProvider
         string path = MessagesPath + maxCount;
         List<ProviderInboundMessage> inbound = new List<ProviderInboundMessage>();
 
-        foreach (MagfaAccount account in _accounts.Accounts)
+        IReadOnlyList<MagfaAccount> accounts = await _accounts.GetAccountsAsync(cancellationToken);
+        foreach (MagfaAccount account in accounts)
         {
             Result<MagfaMessagesResponse> response = await ExecuteAsync<MagfaMessagesResponse>(
                 () => CreateGetRequest(account, path), cancellationToken);
