@@ -28,15 +28,17 @@ public sealed class QuoteTests : IAsyncLifetime
     public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
 
     [Fact]
-    public async Task Prices_a_gsm7_message_against_the_seeded_tariff()
+    public async Task Prices_a_gsm7_message_against_a_configured_tariff()
     {
+        int tariffId = await ProviderAccountTestData.EnsureGsm7TariffAsync(_db);
+
         Result<CostQuote> result = await new QuoteHandler(_db)
             .Handle(new QuoteRequest { ProviderId = 1, Text = "Hello" }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(SmsEncoding.Gsm7, result.Value.Encoding);
         Assert.Equal(1, result.Value.SegmentCount);
-        Assert.Equal(1, result.Value.TariffId);
+        Assert.Equal(tariffId, result.Value.TariffId);
         Assert.Equal(1000.0000m, result.Value.UnitPrice);
         Assert.Equal(1000.0000m, result.Value.TotalCost);
     }
@@ -44,7 +46,9 @@ public sealed class QuoteTests : IAsyncLifetime
     [Fact]
     public async Task Returns_not_found_when_no_tariff_matches_the_encoding()
     {
-        // Persian text is UCS-2; only a GSM-7 tariff is seeded.
+        await ProviderAccountTestData.EnsureGsm7TariffAsync(_db);
+
+        // Persian text is UCS-2; this test only configures a GSM-7 tariff.
         Result<CostQuote> result = await new QuoteHandler(_db)
             .Handle(new QuoteRequest { ProviderId = 1, Text = "سلام" }, CancellationToken.None);
 

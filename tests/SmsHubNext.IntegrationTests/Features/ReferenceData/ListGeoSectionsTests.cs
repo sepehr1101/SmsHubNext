@@ -32,15 +32,36 @@ public sealed class ListGeoSectionsTests : IAsyncLifetime
     public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
 
     [Fact]
-    public async Task Returns_the_seeded_sections()
+    public async Task Returns_created_sections()
     {
+        Result<CreateGeoSectionResponse> province = await new CreateGeoSectionHandler(_db).Handle(
+            new CreateGeoSectionRequest
+            {
+                SectionType = GeoSectionType.Province,
+                Name = "Tehran",
+                Code = "THR",
+            },
+            CancellationToken.None);
+        Assert.True(province.IsSuccess, province.Error?.Message);
+
+        Result<CreateGeoSectionResponse> city = await new CreateGeoSectionHandler(_db).Handle(
+            new CreateGeoSectionRequest
+            {
+                ParentGeoSectionId = province.Value.Id,
+                SectionType = GeoSectionType.City,
+                Name = "Tehran",
+                Code = "THR-01",
+            },
+            CancellationToken.None);
+        Assert.True(city.IsSuccess, city.Error?.Message);
+
         Result<IReadOnlyList<GeoSection>> result = await new ListGeoSectionsHandler(_db).Handle(CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(4, result.Value.Count);
+        Assert.Equal(2, result.Value.Count);
         Assert.Contains(result.Value, s =>
             s.Code == "THR" && s.SectionType == GeoSectionType.Province && s.ParentGeoSectionId == null);
         Assert.Contains(result.Value, s =>
-            s.Code == "THR-01" && s.SectionType == GeoSectionType.City && s.ParentGeoSectionId == 1);
+            s.Code == "THR-01" && s.SectionType == GeoSectionType.City && s.ParentGeoSectionId == province.Value.Id);
     }
 }

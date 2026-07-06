@@ -14,12 +14,3 @@ GO
 
 CREATE NONCLUSTERED INDEX IX_SenderLine_LineNumber ON dbo.SenderLine (LineNumber);
 GO
-
--- Seed a few Magfa lines (ProviderId 1): shared (3000.../4040...) and dedicated (1000...).
-SET IDENTITY_INSERT dbo.SenderLine ON;
-INSERT INTO dbo.SenderLine (Id, ProviderId, LineNumber, IsSharedLine, IsActive) VALUES
-    (1, 1, '30001234', 1, 1),
-    (2, 1, '10001234', 0, 1),
-    (3, 1, '40401234', 1, 1);
-SET IDENTITY_INSERT dbo.SenderLine OFF;
-GO

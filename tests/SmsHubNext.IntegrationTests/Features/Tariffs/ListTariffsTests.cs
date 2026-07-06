@@ -28,8 +28,10 @@ public sealed class ListTariffsTests : IAsyncLifetime
     public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
 
     [Fact]
-    public async Task Returns_the_seeded_tariff_with_its_rates()
+    public async Task Returns_configured_tariff_with_its_rates()
     {
+        await ProviderAccountTestData.EnsureGsm7TariffAsync(_db);
+
         Result<IReadOnlyList<TariffResponse>> result = await new ListTariffsHandler(_db).Handle(CancellationToken.None);
 
         Assert.True(result.IsSuccess);

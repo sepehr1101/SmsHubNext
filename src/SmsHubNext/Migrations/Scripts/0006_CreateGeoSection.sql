@@ -19,13 +19,3 @@ GO
 
 CREATE NONCLUSTERED INDEX IX_GeoSection_Path ON dbo.GeoSection (Path);
 GO
-
--- Seed two provinces with one city each (stable Ids so Path/parent stay consistent).
-SET IDENTITY_INSERT dbo.GeoSection ON;
-INSERT INTO dbo.GeoSection (Id, ParentGeoSectionId, SectionType, Name, Code, Path, IsActive) VALUES
-    (1, NULL, 1, N'Tehran',  'THR',    '/1/',   1),
-    (2, NULL, 1, N'Isfahan', 'ESF',    '/2/',   1),
-    (3, 1,    2, N'Tehran',  'THR-01', '/1/3/', 1),
-    (4, 2,    2, N'Isfahan', 'ESF-01', '/2/4/', 1);
-SET IDENTITY_INSERT dbo.GeoSection OFF;
-GO

@@ -33,12 +33,11 @@ public sealed class CreateSenderLineTests : IAsyncLifetime
     [Fact]
     public async Task Creates_a_sender_line_then_lists_it()
     {
-        // Magfa is seeded at ProviderId 1.
         Result<CreateSenderLineResponse> created = await new CreateSenderLineHandler(_db).Handle(
             new CreateSenderLineRequest { ProviderId = 1, LineNumber = "30009999", IsSharedLine = true },
             CancellationToken.None);
         Assert.True(created.IsSuccess, created.Error?.Message);
-        Assert.True(created.Value.Id > 3); // three lines are seeded
+        Assert.True(created.Value.Id > 0);
 
         Result<IReadOnlyList<SenderLine>> listed = await new ListSenderLinesHandler(_db).Handle(CancellationToken.None);
         Assert.True(listed.IsSuccess);

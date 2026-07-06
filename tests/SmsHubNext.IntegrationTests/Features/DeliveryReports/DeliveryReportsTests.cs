@@ -137,7 +137,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
 
     private async Task<long> SendOneAndGetMessageIdAsync()
     {
-        await ProviderAccountTestData.AssignActiveMagfaAccountToSeededLineAsync(_db);
+        await ProviderAccountTestData.AssignActiveMagfaAccountToDefaultTestLineAsync(_db);
         Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(new CreateCustomerRequest { Name = "dlr", Code = $"dlr-{Guid.NewGuid():N}" }, CancellationToken.None);
         short customerId = customer.Value.Id;

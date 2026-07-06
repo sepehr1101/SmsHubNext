@@ -34,11 +34,20 @@ public sealed class CreateGeoSectionTests : IAsyncLifetime
     [Fact]
     public async Task Creates_a_child_with_a_materialized_path()
     {
-        // Seeded province Tehran has Id 1 and Path '/1/'.
+        Result<CreateGeoSectionResponse> province = await new CreateGeoSectionHandler(_db).Handle(
+            new CreateGeoSectionRequest
+            {
+                SectionType = GeoSectionType.Province,
+                Name = "Tehran",
+                Code = "THR",
+            },
+            CancellationToken.None);
+        Assert.True(province.IsSuccess, province.Error?.Message);
+
         Result<CreateGeoSectionResponse> created = await new CreateGeoSectionHandler(_db).Handle(
             new CreateGeoSectionRequest
             {
-                ParentGeoSectionId = 1,
+                ParentGeoSectionId = province.Value.Id,
                 SectionType = GeoSectionType.City,
                 Name = "Rey",
                 Code = "THR-REY",
@@ -46,7 +55,7 @@ public sealed class CreateGeoSectionTests : IAsyncLifetime
             CancellationToken.None);
 
         Assert.True(created.IsSuccess);
-        Assert.StartsWith("/1/", created.Value.Path);
+        Assert.StartsWith($"/{province.Value.Id}/", created.Value.Path);
         Assert.EndsWith($"/{created.Value.Id}/", created.Value.Path);
     }
 

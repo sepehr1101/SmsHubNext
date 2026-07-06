@@ -12,7 +12,7 @@ using Xunit;
 
 namespace SmsHubNext.IntegrationTests.Features.ReferenceData;
 
-/// <summary>Migrates a real SQL Server (Testcontainers) and reads the seeded sender lines.</summary>
+/// <summary>Migrates a real SQL Server (Testcontainers) and reads configured sender lines.</summary>
 public sealed class ListSenderLinesTests : IAsyncLifetime
 {
     private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
@@ -32,15 +32,17 @@ public sealed class ListSenderLinesTests : IAsyncLifetime
     public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
 
     [Fact]
-    public async Task Returns_the_seeded_sender_lines()
+    public async Task Returns_configured_sender_lines()
     {
+        await ProviderAccountTestData.EnsureSenderLineAsync(_db, "30001234");
+
         ListSenderLinesHandler handler = new ListSenderLinesHandler(_db);
 
         Result<IReadOnlyList<SenderLine>> result = await handler.Handle(CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(3, result.Value.Count);
+        SenderLine senderLine = Assert.Single(result.Value);
+        Assert.Equal("30001234", senderLine.LineNumber);
         Assert.All(result.Value, line => Assert.Equal((byte)1, line.ProviderId));
-        Assert.Contains(result.Value, line => line.LineNumber == "10001234" && !line.IsSharedLine);
     }
 }

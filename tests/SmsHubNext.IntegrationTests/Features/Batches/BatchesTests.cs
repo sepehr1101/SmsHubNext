@@ -84,7 +84,7 @@ public sealed class BatchesTests : IAsyncLifetime
 
     private async Task<long> SendBatchAsync()
     {
-        await ProviderAccountTestData.AssignActiveMagfaAccountToSeededLineAsync(_db);
+        await ProviderAccountTestData.AssignActiveMagfaAccountToDefaultTestLineAsync(_db);
         Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(new CreateCustomerRequest { Name = "batch-reader", Code = "batch-reader" }, CancellationToken.None);
         short customerId = customer.Value.Id;

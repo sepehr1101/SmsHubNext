@@ -74,7 +74,7 @@ public sealed class DispatchOperationsTests : IAsyncLifetime
 
     private async Task<long> SendBatchAsync()
     {
-        await ProviderAccountTestData.AssignActiveMagfaAccountToSeededLineAsync(_db);
+        await ProviderAccountTestData.AssignActiveMagfaAccountToDefaultTestLineAsync(_db);
         Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(
                 new CreateCustomerRequest { Name = "dispatch-ops", Code = $"dispatch-ops-{Guid.NewGuid():N}" },

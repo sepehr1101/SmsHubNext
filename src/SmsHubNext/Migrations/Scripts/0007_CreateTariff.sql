@@ -31,14 +31,3 @@ CREATE TABLE dbo.TariffRate
     CONSTRAINT FK_TariffRate_Tariff FOREIGN KEY (TariffId) REFERENCES dbo.Tariff (Id)
 );
 GO
-
--- Seed a GSM-7 tariff for Magfa (all message types) with a flat per-segment price.
-SET IDENTITY_INSERT dbo.Tariff ON;
-INSERT INTO dbo.Tariff (Id, ProviderId, MessageTypeId, Encoding, EffectiveFromUtc, EffectiveToUtc, Currency, IsActive) VALUES
-    (1, 1, NULL, 0, '2025-01-01T00:00:00', NULL, 'IRR', 1);
-SET IDENTITY_INSERT dbo.Tariff OFF;
-GO
-
-INSERT INTO dbo.TariffRate (TariffId, MinChars, MaxChars, PricePerSegment) VALUES
-    (1, 0, NULL, 1000.0000);
-GO
