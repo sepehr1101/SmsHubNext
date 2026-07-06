@@ -1,6 +1,11 @@
 using System.Net.Http.Headers;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.IdentityModel.Tokens;
 using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.Dispatch;
@@ -27,7 +32,13 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         // MVC controllers (feature controllers live under Features/*; see ADR-004).
-        services.AddControllers();
+        services.AddControllers(options =>
+        {
+            AuthorizationPolicy authenticatedUsers = new AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
+                .Build();
+            options.Filters.Add(new AuthorizeFilter(authenticatedUsers));
+        });
         services.Configure<ApiBehaviorOptions>(options =>
         {
             options.InvalidModelStateResponseFactory = context =>
@@ -50,6 +61,7 @@ public static class ServiceCollectionExtensions
         services.AddExceptionHandler<GlobalExceptionHandler>();
         services.AddProblemDetails();
         services.AddApplicationDataProtection(configuration);
+        services.AddJwtBearerAuthentication(configuration);
 
         // OpenAPI document (exposed at /openapi/v1.json in Development).
         services.AddOpenApi();
@@ -89,6 +101,40 @@ public static class ServiceCollectionExtensions
             if (OperatingSystem.IsWindows())
                 dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
         }
+
+        return services;
+    }
+
+    private static IServiceCollection AddJwtBearerAuthentication(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        BearerTokenOptions options = configuration.GetSection(BearerTokenOptions.SectionName).Get<BearerTokenOptions>()
+            ?? new BearerTokenOptions();
+        options.Validate();
+        services.AddSingleton(options);
+
+        byte[] signingKey = Encoding.UTF8.GetBytes(options.Key);
+        services
+            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(jwtOptions =>
+            {
+                jwtOptions.RequireHttpsMetadata = true;
+                jwtOptions.SaveToken = false;
+                jwtOptions.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(signingKey),
+                    ValidateIssuer = true,
+                    ValidIssuer = options.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = options.Audience,
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromMinutes(1),
+                };
+            });
+
+        services.AddAuthorization();
 
         return services;
     }

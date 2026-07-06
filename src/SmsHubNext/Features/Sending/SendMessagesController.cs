@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SmsHubNext.Features.Authentication;
 using SmsHubNext.Shared.Http;
@@ -25,6 +26,7 @@ public sealed class SendMessagesController : BaseController
     /// (resolved here so attribution works even while the middleware stays off for testing).
     /// </remarks>
     [HttpPost]
+    [AllowAnonymous]
     public async Task<IActionResult> Send([FromBody] SendMessagesRequest request, CancellationToken cancellationToken)
     {
         Result<ApiKeyIdentity> identity = await ResolveApiKeyIdentity(cancellationToken);

@@ -49,6 +49,8 @@ public static class ApplicationBuilderExtensions
         // APIs stay open for testing. To turn it on for every endpoint downstream, add
         //     app.UseApiKeyAuthentication();
         // here, just before MapControllers. The resolver is testable now via /auth/whoami.
+        app.UseAuthentication();
+        app.UseAuthorization();
 
         app.MapControllers();
         app.MapHealthChecks("/health");

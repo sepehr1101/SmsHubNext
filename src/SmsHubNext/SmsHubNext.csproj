@@ -22,6 +22,7 @@
   <ItemGroup>
     <!-- OpenAPI document generation + Scalar API reference UI (served in Development) -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />
     <!-- Data access: hand-written SQL (ADR-002, ADR-003) -->
