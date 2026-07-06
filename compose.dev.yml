@@ -1,0 +1,15 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: smshubnext-sql-dev
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${SMSHUBNEXT_SQL_PASSWORD:-SmsHubNext_dev_2026!}
+    ports:
+      - "14333:1433"
+    volumes:
+      - smshubnext_sql_data:/var/opt/mssql
+
+volumes:
+  smshubnext_sql_data:

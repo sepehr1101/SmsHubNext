@@ -12,6 +12,13 @@ The actual configuration file is `src/SmsHubNext/appsettings.json` plus any envi
 4. Record operational changes in the deployment/change log, especially values that affect retry, duplicate-prevention, provider credentials, or polling behavior.
 5. Prefer conservative dispatch settings in production. Sending a message late is usually safer than sending it twice.
 
+## Local Development Database
+
+For local development, use `compose.dev.yml` from the repository root to run SQL Server on `localhost,14333`.
+The application reads the gitignored `src/SmsHubNext/appsettings.Development.local.json` after the committed settings, so local connection strings and provider credentials can be changed without touching source-controlled defaults.
+
+The committed `src/SmsHubNext/appsettings.Development.local.json.example` matches the default compose password. If `SMSHUBNEXT_SQL_PASSWORD` is changed for Docker Compose, update the local connection string to the same value.
+
 ## Dispatch Settings
 
 The `Dispatch` section controls the background worker that submits queued messages to the SMS provider.
