@@ -17,7 +17,7 @@ The actual configuration file is `src/SmsHubNext/appsettings.json` plus any envi
 For local development, use `compose.dev.yml` from the repository root to run SQL Server on `localhost,14333`.
 The application reads the gitignored `src/SmsHubNext/appsettings.Development.local.json` after the committed settings, so local connection strings and provider credentials can be changed without touching source-controlled defaults.
 
-The committed `src/SmsHubNext/appsettings.Development.local.json.example` matches the default compose password. If `SMSHUBNEXT_SQL_PASSWORD` is changed for Docker Compose, update the local connection string to the same value.
+If `SMSHUBNEXT_SQL_PASSWORD` is changed for Docker Compose, update the local connection string in `src/SmsHubNext/appsettings.Development.local.json` to the same value.
 
 ## Dispatch Settings
 

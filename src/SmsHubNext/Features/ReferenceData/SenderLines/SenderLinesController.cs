@@ -36,7 +36,7 @@ public sealed class SenderLinesController : BaseController
         FromResult(await _create.Handle(request, cancellationToken), StatusCodes.Status201Created);
 
     /// <summary>Change or clear the provider account that owns a sending line.</summary>
-    [HttpPut("{id:short}/provider-account")]
+    [HttpPut("{id:int:range(1,32767)}/provider-account")]
     public async Task<IActionResult> AssignProviderAccount(
         short id,
         [FromBody] AssignProviderAccountRequest request,

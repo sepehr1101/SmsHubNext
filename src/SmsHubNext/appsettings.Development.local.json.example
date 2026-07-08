@@ -1,5 +1,0 @@
-{
-  "ConnectionStrings": {
-    "SmsHubNext": "Server=localhost,14333;Database=SmsHubNext;User Id=sa;Password=SmsHubNext_dev_2026!;Application Name=SmsHubNext;MultipleActiveResultSets=True;TrustServerCertificate=True;Encrypt=False"
-  }
-}
