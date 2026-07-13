@@ -15,8 +15,14 @@ internal static class SendingSql
             pa.IsActive AS ProviderAccountIsActive,
             DATALENGTH(pa.SecretEncrypted) AS SecretLength
         FROM dbo.SenderLine sl
-        LEFT JOIN dbo.ProviderAccount pa ON pa.Id = sl.ProviderAccountId
-        WHERE sl.LineNumber = @LineNumber;
+        INNER JOIN dbo.Provider p ON p.Id = sl.ProviderId
+        LEFT JOIN dbo.ProviderAccount pa
+            ON pa.Id = sl.ProviderAccountId
+           AND pa.DeletedAtUtc IS NULL
+        WHERE sl.LineNumber = @LineNumber
+          AND sl.DeletedAtUtc IS NULL
+          AND p.IsActive = 1
+          AND p.DeletedAtUtc IS NULL;
         """;
 
     public const string CustomerExists =
@@ -24,7 +30,7 @@ internal static class SendingSql
         SELECT CAST(CASE WHEN EXISTS (
             SELECT 1
             FROM dbo.Customer
-            WHERE Id = @CustomerId AND IsActive = 1
+            WHERE Id = @CustomerId AND IsActive = 1 AND DeletedAtUtc IS NULL
         ) THEN 1 ELSE 0 END AS bit);
         """;
 
@@ -42,7 +48,7 @@ internal static class SendingSql
         SELECT CAST(CASE WHEN EXISTS (
             SELECT 1
             FROM dbo.MessageType
-            WHERE Id = @MessageTypeId
+            WHERE Id = @MessageTypeId AND IsActive = 1 AND DeletedAtUtc IS NULL
         ) THEN 1 ELSE 0 END AS bit);
         """;
 
@@ -50,7 +56,7 @@ internal static class SendingSql
         """
         SELECT COUNT_BIG(*)
         FROM dbo.GeoSection
-        WHERE Id IN @GeoSectionIds AND IsActive = 1;
+        WHERE Id IN @GeoSectionIds AND IsActive = 1 AND DeletedAtUtc IS NULL;
         """;
 
     public const string GetExistingBatchByClientBatchId =

@@ -74,10 +74,16 @@ public sealed class KavenegarAccountResolver
             sl.LineNumber
         FROM dbo.ProviderAccount pa
         INNER JOIN dbo.Provider p ON p.Id = pa.ProviderId
-        LEFT JOIN dbo.SenderLine sl ON sl.ProviderAccountId = pa.Id AND sl.IsActive = 1
+        LEFT JOIN dbo.SenderLine sl
+            ON sl.ProviderAccountId = pa.Id
+           AND sl.IsActive = 1
+           AND sl.DeletedAtUtc IS NULL
         WHERE p.Code = @ProviderCode
+          AND p.IsActive = 1
+          AND p.DeletedAtUtc IS NULL
           AND pa.AuthType = @AuthType
           AND pa.IsActive = 1
+          AND pa.DeletedAtUtc IS NULL
         ORDER BY pa.Id, sl.LineNumber;
         """;
 

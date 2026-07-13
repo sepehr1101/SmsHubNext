@@ -12,4 +12,5 @@ public sealed record ApiKey(
     bool IsActive,
     DateTime? ExpiresAtUtc,
     DateTime? RevokedAtUtc,
+    int? RevokedByApiKeyId,
     DateTime CreatedAtUtc);

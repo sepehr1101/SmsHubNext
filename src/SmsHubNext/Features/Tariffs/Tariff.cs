@@ -12,3 +12,10 @@ public sealed record Tariff(
     DateTime? EffectiveToUtc,
     string Currency,
     bool IsActive);
+
+internal sealed record TariffLifecycleRow(
+    int Id,
+    byte ProviderId,
+    byte? MessageTypeId,
+    SmsEncoding Encoding,
+    DateTime EffectiveFromUtc);

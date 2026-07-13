@@ -31,13 +31,16 @@ public sealed class IssueApiKeyHandler
 
         try
         {
-            int id = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            int? id = await connection.ExecuteScalarAsync<int?>(new CommandDefinition(
                 ApiKeysSql.Insert,
                 new { request.CustomerId, request.Name, KeyPrefix = keyPrefix, KeyHash = keyHash, request.ExpiresAtUtc },
                 cancellationToken: cancellationToken));
 
             // The plaintext secret is returned once here and never persisted.
-            return new IssueApiKeyResponse(id, keyPrefix, secret);
+            if (id is null)
+                return Error.Validation("api_keys.unknown_customer", UserMessages.ApiKeys.UnknownCustomer);
+
+            return new IssueApiKeyResponse(id.Value, keyPrefix, secret);
         }
         catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown customer
         {

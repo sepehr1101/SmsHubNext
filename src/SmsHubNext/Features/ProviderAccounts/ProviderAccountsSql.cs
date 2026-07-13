@@ -17,6 +17,7 @@ internal static class ProviderAccountsSql
             pa.UpdatedAtUtc
         FROM dbo.ProviderAccount pa
         INNER JOIN dbo.Provider p ON p.Id = pa.ProviderId
+        WHERE p.DeletedAtUtc IS NULL AND pa.DeletedAtUtc IS NULL
         ORDER BY pa.Id;
         """;
 
@@ -35,7 +36,7 @@ internal static class ProviderAccountsSql
             pa.UpdatedAtUtc
         FROM dbo.ProviderAccount pa
         INNER JOIN dbo.Provider p ON p.Id = pa.ProviderId
-        WHERE pa.Id = @Id;
+        WHERE pa.Id = @Id AND p.DeletedAtUtc IS NULL AND pa.DeletedAtUtc IS NULL;
         """;
 
     public const string Insert =
@@ -45,7 +46,7 @@ internal static class ProviderAccountsSql
         OUTPUT INSERTED.Id
         SELECT p.Id, @DisplayName, @AuthType, @SettingsJson, @SecretEncrypted, @IsActive
         FROM dbo.Provider p
-        WHERE p.Code = @ProviderCode;
+        WHERE p.Code = @ProviderCode AND p.DeletedAtUtc IS NULL;
         """;
 
     public const string UpdateWithSecret =
@@ -61,7 +62,7 @@ internal static class ProviderAccountsSql
             UpdatedAtUtc = SYSUTCDATETIME()
         FROM dbo.ProviderAccount pa
         INNER JOIN dbo.Provider p ON p.Code = @ProviderCode
-        WHERE pa.Id = @Id;
+        WHERE pa.Id = @Id AND p.DeletedAtUtc IS NULL AND pa.DeletedAtUtc IS NULL;
         """;
 
     public const string UpdateWithoutSecret =
@@ -76,6 +77,16 @@ internal static class ProviderAccountsSql
             UpdatedAtUtc = SYSUTCDATETIME()
         FROM dbo.ProviderAccount pa
         INNER JOIN dbo.Provider p ON p.Code = @ProviderCode
-        WHERE pa.Id = @Id;
+        WHERE pa.Id = @Id AND p.DeletedAtUtc IS NULL AND pa.DeletedAtUtc IS NULL;
+        """;
+
+    public const string SoftDelete =
+        """
+        UPDATE dbo.ProviderAccount
+        SET IsActive = 0,
+            UpdatedAtUtc = SYSUTCDATETIME(),
+            DeletedAtUtc = SYSUTCDATETIME(),
+            DeletedByApiKeyId = @DeletedByApiKeyId
+        WHERE Id = @Id AND DeletedAtUtc IS NULL;
         """;
 }
