@@ -32,6 +32,11 @@ public static class UserMessages
         public const string NameRequired = "A key name is required.";
         public const string UnknownKey = "The API key does not exist.";
         public const string CidrRequired = "A CIDR range is required.";
+        public const string InvalidId = "A valid API key or restriction id is required.";
+        public const string NotFound = "The API key does not exist.";
+        public const string RevokedCannotChange = "A revoked API key cannot be changed.";
+        public const string AlreadyRevoked = "The API key has already been revoked.";
+        public const string IpRestrictionNotFound = "The IP restriction does not exist.";
     }
 
     public static class Balances
@@ -120,6 +125,19 @@ public static class UserMessages
         public const string NoRate = "No active tariff rate matches the request.";
         public const string ProviderRequired = "A provider id is required.";
         public const string TextRequired = "Message text is required.";
+        public const string EncodingInvalid = "The SMS encoding is invalid.";
+        public const string EffectiveFromRequired = "An effective-from UTC instant is required.";
+        public const string EffectiveRangeInvalid = "The effective-to instant must be after effective-from.";
+        public const string RatesRequired = "At least one tariff rate is required.";
+        public const string RateRangesInvalid =
+            "Tariff rate ranges must be contiguous from character 1 and end with an unbounded range.";
+        public const string RatePriceInvalid = "Every tariff rate price must be positive.";
+        public const string UnknownProvider = "The provider does not exist.";
+        public const string UnknownMessageType = "The message type does not exist.";
+        public const string EffectiveRangeOverlap =
+            "An active tariff already covers this provider, message type, encoding, and time range.";
+        public const string InvalidId = "A valid tariff id is required.";
+        public const string NotFound = "The tariff does not exist.";
     }
 
     public static class DeliveryReports
@@ -158,6 +176,15 @@ public static class UserMessages
         public const string ProviderNameRequired = "A provider name is required.";
         public const string ProviderCodeRequired = "A provider code is required.";
         public const string BaseUrlRequired = "A base URL is required.";
+        public const string CustomerNotFound = "The customer does not exist.";
+        public const string InvalidProvider = "A provider id is required.";
+        public const string ProviderNotFound = "The provider does not exist.";
+        public const string InvalidMessageType = "A message type id is required.";
+        public const string MessageTypeNotFound = "The message type does not exist.";
+        public const string InvalidGeoSection = "A geographic section id must be positive.";
+        public const string GeoSectionNotFound = "The geographic section does not exist.";
+        public const string GeoSectionHasActiveChildren =
+            "A geographic section with non-deleted children cannot be deleted.";
     }
 
     public static class Providers

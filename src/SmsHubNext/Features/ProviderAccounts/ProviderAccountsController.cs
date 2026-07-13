@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using SmsHubNext.Features.Authentication;
 using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
@@ -13,17 +14,20 @@ public sealed class ProviderAccountsController : BaseController
     private readonly GetProviderAccountHandler _get;
     private readonly CreateProviderAccountHandler _create;
     private readonly UpdateProviderAccountHandler _update;
+    private readonly DeleteProviderAccountHandler _delete;
 
     public ProviderAccountsController(
         ListProviderAccountsHandler list,
         GetProviderAccountHandler get,
         CreateProviderAccountHandler create,
-        UpdateProviderAccountHandler update)
+        UpdateProviderAccountHandler update,
+        DeleteProviderAccountHandler delete)
     {
         _list = list;
         _get = get;
         _create = create;
         _update = update;
+        _delete = delete;
     }
 
     [HttpGet]
@@ -46,4 +50,12 @@ public sealed class ProviderAccountsController : BaseController
         [FromBody] UpdateProviderAccountRequest request,
         CancellationToken cancellationToken) =>
         FromResult(await _update.Handle(id, request, cancellationToken));
+
+    /// <summary>Soft-delete an account while retaining encrypted configuration for audit.</summary>
+    [HttpDelete("{id:int:min(1)}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken) =>
+        FromResult(await _delete.Handle(
+            id,
+            HttpContext.GetApiKeyIdentity()!.ApiKeyId,
+            cancellationToken));
 }

@@ -24,12 +24,15 @@ public sealed class AddIpRestrictionHandler
 
         try
         {
-            int id = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            int? id = await connection.ExecuteScalarAsync<int?>(new CommandDefinition(
                 ApiKeyIpRestrictionsSql.Insert,
                 new { ApiKeyId = apiKeyId, request.Cidr, request.Description },
                 cancellationToken: cancellationToken));
 
-            return new ApiKeyIpRestriction(id, apiKeyId, request.Cidr, request.Description);
+            if (id is null)
+                return Error.Validation("api_keys.unknown_key", UserMessages.ApiKeys.UnknownKey);
+
+            return new ApiKeyIpRestriction(id.Value, apiKeyId, request.Cidr, request.Description);
         }
         catch (SqlException ex) when (ex.IsConstraintConflict()) // unknown API key
         {

@@ -22,6 +22,23 @@ public sealed class CreateSenderLineHandler
 
         await using SqlConnection connection = await _db.OpenConnectionAsync(cancellationToken);
 
+        bool providerExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            SenderLinesSql.ProviderExists,
+            new { request.ProviderId },
+            cancellationToken: cancellationToken));
+        if (!providerExists)
+            return Error.Validation("sender_lines.unknown_provider", UserMessages.ReferenceData.SenderLineUnknownProvider);
+
+        if (request.CustomerId is short customerId)
+        {
+            bool customerExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+                SenderLinesSql.CustomerExists,
+                new { CustomerId = customerId },
+                cancellationToken: cancellationToken));
+            if (!customerExists)
+                return Error.Validation("sender_lines.unknown_customer", UserMessages.ReferenceData.SenderLineUnknownCustomer);
+        }
+
         if (request.ProviderAccountId is int providerAccountId)
         {
             Result accountValidation = await SenderLineProviderAccountRules.Validate(
@@ -35,7 +52,7 @@ public sealed class CreateSenderLineHandler
 
         try
         {
-            short id = await connection.ExecuteScalarAsync<short>(new CommandDefinition(
+            short? id = await connection.ExecuteScalarAsync<short?>(new CommandDefinition(
                 SenderLinesSql.Insert,
                 new
                 {
@@ -48,7 +65,10 @@ public sealed class CreateSenderLineHandler
                 },
                 cancellationToken: cancellationToken));
 
-            return new CreateSenderLineResponse(id);
+            if (id is null)
+                return Error.Validation("sender_lines.unknown_reference", UserMessages.ReferenceData.SenderLineUnknownReference);
+
+            return new CreateSenderLineResponse(id.Value);
         }
         catch (SqlException ex) when (ex.IsConstraintConflict("FK_SenderLine_Provider"))
         {

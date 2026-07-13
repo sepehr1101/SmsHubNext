@@ -169,6 +169,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 
 > Notation: `PK` primary key, `FK` foreign key, `CIX` clustered index, `NCIX` nonclustered index. SQL Server types. Money = `DECIMAL(19,4)` (IRR). Phone numbers ASCII → `VARCHAR`; Persian text → `NVARCHAR`. **PK is always `Id`; FKs are `<Table>Id`.**
 
+**Reference-data lifecycle.** `Customer`, `Provider`, `SenderLine`, `MessageType`, and `GeoSection` use soft deletion: `DeletedAtUtc` is the deletion marker and `DeletedByApiKeyId` identifies the authenticated API key that performed it. Both columns are null on a live row and non-null on a deleted row (enforced by a check constraint). Live configuration/auth/send queries exclude deleted rows, while historical facts and reports may still join them so old messages retain their labels. Deletion also clears `IsActive`; stable provider/message-type keys and all deleted business codes remain reserved rather than being reused. A `GeoSection` can be deleted only after all of its children have been deleted.
+
 ### 4.1 `Customer`
 | Column | Type | Notes |
 |---|---|---|
@@ -177,6 +179,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `Code` | `VARCHAR(50)` | external/business code; `NCIX` unique |
 | `IsActive` | `BIT` | |
 | `CreatedAtUtc` | `DATETIME2(3)` | |
+| `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |
+| `DeletedByApiKeyId` | `INT` | nullable **FK** → `ApiKey`; deletion actor |
 
 **Why:** Tenancy is the isolation/reporting boundary. A `SMALLINT` key is the cheapest FK to repeat ~10⁹ times. *Alternative:* customer name on the fact — rejected (text duplication at scale).
 
@@ -191,6 +195,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `IsActive` | `BIT` | |
 | `ExpiresAtUtc` | `DATETIME2(3)` | nullable — optional expiry |
 | `RevokedAtUtc` | `DATETIME2(3)` | nullable — set on revocation (row kept for audit) |
+| `RevokedByApiKeyId` | `INT` | nullable self-**FK** → `ApiKey`; key that performed revocation |
 | `LastUsedAtUtc` | `DATETIME2(3)` | nullable — updated coarsely/async |
 | `CreatedAtUtc` | `DATETIME2(3)` | |
 
@@ -205,6 +210,9 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `ApiKeyId` | `INT` | **FK** → `ApiKey`; `NCIX` |
 | `Cidr` | `VARCHAR(43)` | allowed source range (IPv4/IPv6 CIDR) |
 | `Description` | `NVARCHAR(100)` | nullable |
+| `UpdatedAtUtc` | `DATETIME2(3)` | last configuration change |
+| `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |
+| `DeletedByApiKeyId` | `INT` | nullable **FK** → `ApiKey`; deletion actor |
 
 **Why (optional):** customers reach the platform over **specific networks** (internet and/or intranet gateway — the same dual-path reality behind `Provider.BaseUrl`/`FallbackBaseUrl`). Binding a key to known CIDRs is cheap defense-in-depth. Child table (multiple ranges per key); omitted for unrestricted keys. *Alternative:* a delimited column — rejected (not queryable).
 
@@ -217,6 +225,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `BaseUrl` | `VARCHAR(300)` | primary API endpoint (e.g. public-internet gateway) |
 | `FallbackBaseUrl` | `VARCHAR(300)` | secondary endpoint over a different network path (e.g. intranet); nullable |
 | `IsActive` | `BIT` | |
+| `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |
+| `DeletedByApiKeyId` | `INT` | nullable **FK** → `ApiKey`; deletion actor |
 
 **Why:** Tiny → `TINYINT`. **Endpoints live here (provider info), account credentials do not** — the same provider is reached over internet **and** intranet with failover (runtime data, not `appsettings`); account auth data lives **encrypted** in `ProviderAccount` (§4.17), not in plaintext here. *Deferred:* a child `ProviderEndpoint` for ≥3 paths (§9). *Alternative:* provider string on the fact — rejected (bytes × 10⁹, no FK).
 
@@ -229,6 +239,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `ProviderAccountId` | `INT` | nullable **FK** → `ProviderAccount`; the account that owns this line |
 | `IsSharedLine` | `BIT` | shared (public) vs. dedicated (private) |
 | `IsActive` | `BIT` | |
+| `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |
+| `DeletedByApiKeyId` | `INT` | nullable **FK** → `ApiKey`; deletion actor |
 
 **Why:** Lines have distinct pricing/reachability and belong to a provider. Surrogate `SMALLINT` keeps the fact FK small. Shared-vs-dedicated is **binary** → a `BIT`. *Alternative:* raw line string per message — rejected.
 
@@ -238,6 +250,9 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `Id` | `TINYINT` | **PK** (seeded), `CIX` |
 | `Name` | `NVARCHAR(80)` | "OTP", "Transactional", "Bulk", "Water Bill", … |
 | `Code` | `VARCHAR(50)` | `NCIX` |
+| `IsActive` | `BIT` | whether the classification can be used for new messages |
+| `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |
+| `DeletedByApiKeyId` | `INT` | nullable **FK** → `ApiKey`; deletion actor |
 
 **Why:** The **single classification axis** — delivery class + business purpose (former `BusinessCategory`, merged). Global + `TINYINT`. *Future (additive):* nullable `CustomerId` and/or widen to `SMALLINT`. *Alternatives:* separate `BusinessCategory` (extra table/key/join); `BIT IsOtp` (not extensible) — rejected.
 
@@ -251,6 +266,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `Code` | `VARCHAR(20)` | `NCIX` |
 | `Path` | `VARCHAR(900)` | materialized ancestor path, e.g. `/12/450/8123/`; `NCIX` for subtree filters |
 | `IsActive` | `BIT` | |
+| `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |
+| `DeletedByApiKeyId` | `INT` | nullable **FK** → `ApiKey`; deletion actor |
 
 **Why one self-referencing table instead of three:** a strict hierarchy as an **adjacency list** collapses three tables into one while preserving rollups; deeper levels are inserts. The denormalized **`Path`** makes "everything under Tehran province" a sargable `Path LIKE '/<TehranId>/%'`. The fact stores one `GeoSectionId`; reports roll up via the small tree. *Alternatives:* three tables (superseded); flat tag (no rollups); `HIERARCHYID` (valid; `Path` for portability).
 
@@ -265,6 +282,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `EffectiveToUtc` | `DATETIME2(3)` | nullable = open-ended |
 | `Currency` | `CHAR(3)` | `IRR` |
 | `IsActive` | `BIT` | |
+| `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |
+| `DeletedByApiKeyId` | `INT` | nullable **FK** → `ApiKey`; deletion actor |
 | | | `NCIX (ProviderId, MessageTypeId, Encoding, EffectiveFromUtc)` |
 
 ### 4.9 `TariffRate` (per-segment detail)
@@ -277,6 +296,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `PricePerSegment` | `DECIMAL(19,4)` | |
 
 **Why two tables:** header = validity + applicability; detail = price banding by character range. *Alternatives:* one wide row (inflexible); price in config (must be auditable data). **Never used at report time** — price is frozen onto the message (§6).
+
+**Tariff mutation rules:** price axes and bands (`ProviderId`, `MessageTypeId`, `Encoding`, `EffectiveFromUtc`, `Currency`, and `TariffRate` rows) are immutable after creation. A price change creates a new version; the old version may only be closed/deactivated through `EffectiveToUtc`/`IsActive`. Active versions for the same exact axes cannot overlap. Deletion is logical and hides the version from live listing/resolution while preserving `Message.TariffId` history and frozen message prices.
 
 ### 4.10 `Message` — the fact + delivery read model (most-scrutinized table)
 | Column | Type | Notes |
@@ -430,6 +451,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `IsActive` | `BIT` | whether this account can be used |
 | `CreatedAtUtc` | `DATETIME2(3)` | |
 | `UpdatedAtUtc` | `DATETIME2(3)` | |
+| `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |
+| `DeletedByApiKeyId` | `INT` | nullable **FK** → `ApiKey`; deletion actor |
 
 **Why it exists / how it's protected:** providers have different auth shapes, so fixed columns like username/domain/password/api-key do not belong on the account row. Non-sensitive shape-specific values live in `SettingsJson`; the one sensitive value lives in `SecretEncrypted`. For Magfa, `AuthType = UsernamePasswordDomain`, settings contain `username` and `domain`, and the encrypted secret is the password. For Kavenegar, `AuthType = ApiKey`, settings can be `{}`, and the encrypted secret is the API key. The app encrypts/decrypts via **ASP.NET Core Data Protection**, whose key ring is **protected by Windows DPAPI (machine-scoped)** — so the encryption key lives **outside** the database and a stolen connection string alone cannot decrypt the secrets. SQL Server only ever sees ciphertext. API reads never return plaintext or ciphertext secrets.
 
