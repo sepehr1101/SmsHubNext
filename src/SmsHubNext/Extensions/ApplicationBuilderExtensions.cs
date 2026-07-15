@@ -1,5 +1,6 @@
 using Scalar.AspNetCore;
 using Serilog;
+using SmsHubNext.Features.Landing;
 
 namespace SmsHubNext.Extensions;
 
@@ -14,23 +15,31 @@ public static class ApplicationBuilderExtensions
         app.UseExceptionHandler();
         app.UseSerilogRequestLogging();
 
-        if (app.Environment.IsDevelopment())
+        bool openApiEnabled = app.Configuration.GetValue("OpenApi:Enabled", true);
+        if (openApiEnabled)
         {
             app.MapOpenApi();
             // Scalar API reference UI, rendering the OpenAPI document above.
             app.MapScalarApiReference();
         }
 
-        // Root: a quick liveness/landing response listing the useful endpoints.
-        app.MapGet("/", () => new
+        // Human-friendly production landing page. The machine-readable service
+        // metadata remains available separately for diagnostics and tooling.
+        app.MapGet("/", () => ServiceLandingPage.Render(openApiEnabled)).ExcludeFromDescription();
+        app.MapGet("/service-info", () => new
         {
             service = "SmsHubNext",
             status = "ok",
+            documentation = openApiEnabled
+                ? new
+                {
+                    openApi = "/openapi/v1.json",
+                    scalar = "/scalar/v1",
+                }
+                : null,
             endpoints = new
             {
                 health = "/health",
-                openApi = "/openapi/v1.json",
-                scalar = "/scalar/v1",
                 messageTypes = "/reference-data/message-types",
                 providers = "/reference-data/providers",
                 senderLines = "/reference-data/sender-lines",
@@ -43,7 +52,7 @@ public static class ApplicationBuilderExtensions
                 whoami = "/auth/whoami",
                 dispatchOperations = "/dispatch/operations/summary",
             },
-        });
+        }).ExcludeFromDescription();
 
         // API-key enforcement is implemented but intentionally inactive (ADR-015): the
         // APIs stay open for testing. To turn it on for every endpoint downstream, add

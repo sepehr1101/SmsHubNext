@@ -175,13 +175,13 @@ No external job scheduler is required. The application depends only on the built
 
 ## 10. Runtime, deployment & infrastructure
 
-- **Hosting:** **Windows + IIS** (ASP.NET Core Module → Kestrel), co-located with SQL Server. SQL auth prefers **Integrated Security** where available.
+- **Hosting:** **Windows + IIS** (ASP.NET Core Module → Kestrel). SQL Server may be local or remote; the installer only tests the supplied connection and never searches for or installs SQL Server. SQL Authentication is the simple-install default; Integrated Security remains an advanced option where the runtime IIS identity has already been granted access.
 - **Secrets:** provider account secrets **encrypted in SQL Server** (`ProviderAccount.SecretEncrypted`, ciphertext only), decrypted in-app via **ASP.NET Core Data Protection** with the key ring **protected by Windows DPAPI** — key lives **outside** the DB. Non-sensitive provider settings live in `ProviderAccount.SettingsJson`. Connection string plaintext in `appsettings.json` **for now** (temporary; hardening path = SQL **Always Encrypted** + protected config).
 - **Migrations:** **DbUp** — ordered, forward-only raw-SQL scripts run at deploy; partitioning/columnstore DDL is hand-written.
 - **Logging:** **Serilog** (structured) → console + rolling file (+ Seq optional, Windows Event Log for service errors). **OpenTelemetry intentionally omitted** (simpler is better) — add tracing later only if a real need appears. ASP.NET Core **health checks** for IIS probes.
 - **Resilience:** Polly via `Microsoft.Extensions.Http.Resilience` on the Magfa `HttpClient`.
 - **Auth:** API key in header; built-in ASP.NET **rate limiter** keyed by API key.
-- **API docs:** **OpenAPI** document (built-in `Microsoft.AspNetCore.OpenApi`) at `/openapi/v1.json`, rendered by **Scalar** at `/scalar/v1` — **Development only** (not exposed in production).
+- **API docs:** **OpenAPI** document (built-in `Microsoft.AspNetCore.OpenApi`) at `/openapi/v1.json`, rendered by **Scalar** at `/scalar/v1`. Runtime exposure is controlled by `OpenApi:Enabled` and defaults to enabled for this small open-source project. Production `/` is a lightweight Persian service landing page; the machine-readable landing payload lives at `/service-info`.
 
 ---
 
@@ -202,7 +202,7 @@ No external job scheduler is required. The application depends only on the built
 | Time | BCL **`TimeProvider`** |
 | Resilience | Polly (`Microsoft.Extensions.Http.Resilience`) |
 | Logging | **Serilog** → console + rolling file (Seq optional) · health checks · **no OpenTelemetry** |
-| API docs | **OpenAPI** (`Microsoft.AspNetCore.OpenApi`) + **Scalar** UI · Development only |
+| API docs | **OpenAPI** (`Microsoft.AspNetCore.OpenApi`) + **Scalar** UI · controlled by `OpenApi:Enabled` (default `true`); production root serves a lightweight Persian status/endpoint landing page |
 | Tests | xUnit · Testcontainers (SQL Server) · WireMock.Net (Magfa) |
 
 ---

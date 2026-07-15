@@ -1,6 +1,6 @@
 # راهنمای عملیاتی استقرار SmsHubNext
 
-این فایل چک‌لیست کوتاه اجرای publish، انتقال artifact و smoke test بعد از استقرار است. راهنمای کامل راه‌اندازی دیتابیس و داده‌های اولیه در `docs/operations/first-deployment-fa.md` قرار دارد.
+این فایل چک‌لیست مسیر دستی publish، انتقال artifact و smoke test است. برای مسیر پیشنهادی کاربران غیرفنی از [اینستالر ویندوز](windows-installer-fa.md) استفاده کنید. راه‌اندازی داده‌های اولیه در `first-deployment-fa.md` قرار دارد.
 
 ## 1. ساخت artifact
 

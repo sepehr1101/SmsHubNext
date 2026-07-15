@@ -63,7 +63,7 @@ public static class ServiceCollectionExtensions
         services.AddApplicationDataProtection(configuration);
         services.AddJwtBearerAuthentication(configuration);
 
-        // OpenAPI document (exposed at /openapi/v1.json in Development).
+        // OpenAPI document (runtime exposure is controlled by OpenApi:Enabled).
         services.AddOpenApi();
 
         // Database access (concrete, no interface — see ARCHITECTURE.md §5).
