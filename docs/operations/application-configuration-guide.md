@@ -19,6 +19,10 @@ The application reads the gitignored `src/SmsHubNext/appsettings.Development.loc
 
 If `SMSHUBNEXT_SQL_PASSWORD` is changed for Docker Compose, update the local connection string in `src/SmsHubNext/appsettings.Development.local.json` to the same value.
 
+## API Documentation
+
+`OpenApi:Enabled` controls both the OpenAPI JSON endpoint at `/openapi/v1.json` and the Scalar UI at `/scalar/v1`. It defaults to `true` so backend and React development can use the deployed IIS instance directly. Set it to `false` in `appsettings.Production.json` and restart the application if documentation should be hidden for a deployment. The landing-page documentation button follows the same setting.
+
 ## Dispatch Settings
 
 The `Dispatch` section controls the background worker that submits queued messages to the SMS provider.

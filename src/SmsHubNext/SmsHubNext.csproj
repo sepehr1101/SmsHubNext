@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- OpenAPI document generation + Scalar API reference UI (served in Development) -->
+    <!-- OpenAPI document generation + configurable Scalar API reference UI -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.OpenApi" />
