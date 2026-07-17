@@ -19,11 +19,15 @@ public sealed class SqlServerHealthCheckTests : IAsyncLifetime
     [Fact]
     public async Task Reports_healthy_when_sql_server_is_reachable()
     {
-        SqlServerHealthCheck check = new SqlServerHealthCheck(new Db(_sqlServer.GetConnectionString()));
+        SqlServerHealthCheck check = new SqlServerHealthCheck(
+            new Db(_sqlServer.GetConnectionString()),
+            TimeProvider.System);
 
         HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
 
         Assert.Equal(HealthStatus.Healthy, result.Status);
+        Assert.Equal("ONLINE", result.Data["databaseStatus"]);
+        Assert.Equal("READ_WRITE", result.Data["updateability"]);
     }
 }
 
@@ -37,7 +41,7 @@ public sealed class SqlServerHealthCheckUnreachableTests
     {
         Db db = new Db(
             "Server=localhost,1;Database=none;User Id=sa;Password=x;Connect Timeout=1;TrustServerCertificate=True");
-        SqlServerHealthCheck check = new SqlServerHealthCheck(db);
+        SqlServerHealthCheck check = new SqlServerHealthCheck(db, TimeProvider.System);
 
         HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
 

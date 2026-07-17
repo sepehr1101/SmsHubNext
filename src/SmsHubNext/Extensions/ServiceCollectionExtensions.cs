@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,6 +17,7 @@ using SmsHubNext.Features.Providers.Magfa;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Errors;
+using SmsHubNext.Shared.Health;
 using SmsHubNext.Shared.Http;
 using SmsHubNext.Shared.Results;
 
@@ -62,6 +64,7 @@ public static class ServiceCollectionExtensions
         services.AddProblemDetails();
         services.AddApplicationDataProtection(configuration);
         services.AddJwtBearerAuthentication(configuration);
+        services.AddApplicationCors(configuration);
 
         // OpenAPI document (runtime exposure is controlled by OpenApi:Enabled).
         services.AddOpenApi();
@@ -77,10 +80,55 @@ public static class ServiceCollectionExtensions
         services.AddBackgroundDispatch(configuration);
         services.AddDeliveryReportPolling(configuration);
         services.AddInboundPolling(configuration);
+        services.AddApplicationHealthChecks();
 
-        // Health checks: a database readiness probe (more added as dependencies arrive).
+        return services;
+    }
+
+    private static IServiceCollection AddApplicationHealthChecks(this IServiceCollection services)
+    {
+        string[] readyTags = [HealthCheckTags.Ready];
+
+        services.AddSingleton<BackgroundWorkerHealthMonitor>();
+        services.AddSingleton<HealthResponseWriter>();
+
         services.AddHealthChecks()
-            .AddCheck<SqlServerHealthCheck>("sql-server");
+            .AddCheck<SqlServerHealthCheck>(
+                "sql-server",
+                tags: readyTags,
+                timeout: TimeSpan.FromSeconds(5))
+            .AddCheck<StorageHealthCheck>(
+                "storage",
+                tags: readyTags,
+                timeout: TimeSpan.FromSeconds(2))
+            .AddCheck<ProcessMemoryHealthCheck>(
+                "process-memory",
+                tags: readyTags,
+                timeout: TimeSpan.FromSeconds(1))
+            .AddCheck<ProviderSecretsHealthCheck>(
+                "provider-secrets",
+                tags: readyTags,
+                timeout: TimeSpan.FromSeconds(5))
+            .AddCheck<BackgroundWorkersHealthCheck>(
+                "background-workers",
+                tags: readyTags,
+                timeout: TimeSpan.FromSeconds(1));
+
+        return services;
+    }
+
+    private static IServiceCollection AddApplicationCors(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ApplicationCorsOptions options = configuration
+            .GetSection(ApplicationCorsOptions.SectionName)
+            .Get<ApplicationCorsOptions>() ?? new ApplicationCorsOptions();
+        CorsPolicy policy = ApplicationCorsPolicy.Create(options);
+        services.AddSingleton(options);
+
+        services.AddCors(corsOptions =>
+            corsOptions.AddPolicy(ApplicationCorsOptions.PolicyName, policy));
 
         return services;
     }

@@ -2,8 +2,11 @@ using Dapper;
 using DbUp.Engine;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using SmsHubNext.Features.ProviderAccounts;
 using SmsHubNext.Features.Providers;
+using SmsHubNext.Features.Providers.Kavenegar;
+using SmsHubNext.Features.Providers.Magfa;
 using SmsHubNext.Features.ReferenceData.SenderLines;
 using SmsHubNext.IntegrationTests.Shared;
 using SmsHubNext.Shared.Database;
@@ -51,6 +54,39 @@ public sealed class ProviderAccountsTests : IAsyncLifetime
         Assert.Equal("domain", read.Value.Settings["domain"]);
         Assert.True(read.Value.HasSecret);
         Assert.True(read.Value.IsActive);
+    }
+
+    [Fact]
+    public async Task Provider_secret_health_reports_healthy_for_decryptable_active_account()
+    {
+        Result<CreateProviderAccountResponse> created = await CreateMagfaAccount("password-1");
+        Assert.True(created.IsSuccess, created.Error?.Message);
+        ProviderSecretsHealthCheck check = new(
+            _db,
+            _secretProtector,
+            new MagfaOptions { Enabled = true },
+            new KavenegarOptions());
+
+        HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+    }
+
+    [Fact]
+    public async Task Provider_secret_health_reports_degraded_for_lost_or_wrong_key_ring()
+    {
+        Result<CreateProviderAccountResponse> created = await CreateMagfaAccount("password-1");
+        Assert.True(created.IsSuccess, created.Error?.Message);
+        ISecretProtector wrongProtector = new DataProtectionSecretProtector(new EphemeralDataProtectionProvider());
+        ProviderSecretsHealthCheck check = new(
+            _db,
+            wrongProtector,
+            new MagfaOptions { Enabled = true },
+            new KavenegarOptions());
+
+        HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Degraded, result.Status);
     }
 
     [Fact]

@@ -232,6 +232,16 @@ try {
     Assert-InstallerTest `
         -Condition ($innoScript.Contains("'-Action EnsureServices'")) `
         -Message 'Installer preparation must recover stopped IIS services before files are deployed.'
+    Assert-InstallerTest `
+        -Condition ($deployIisScript.Contains("processModel.idleTimeout -Value ([TimeSpan]::Zero)")) `
+        -Message 'The application pool must not idle while SQL-backed background workers are active.'
+    Assert-InstallerTest `
+        -Condition ($deployIisScript.Contains("applicationDefaults.preloadEnabled -Value `$true")) `
+        -Message 'The IIS site must preload after startup or recycle so background workers resume promptly.'
+    $enableIisScript = [System.IO.File]::ReadAllText((Join-Path $installerRoot 'scripts\Enable-Iis.ps1'))
+    Assert-InstallerTest `
+        -Condition ($enableIisScript.Contains("'Web-AppInit'") -and $enableIisScript.Contains("'IIS-ApplicationInit'")) `
+        -Message 'The installer must enable IIS Application Initialization on server and client Windows editions.'
 
     $buildScript = [System.IO.File]::ReadAllText((Join-Path $installerRoot 'build-installer.ps1'))
     Assert-InstallerTest `

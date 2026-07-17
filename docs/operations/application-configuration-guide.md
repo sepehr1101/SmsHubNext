@@ -23,6 +23,48 @@ If `SMSHUBNEXT_SQL_PASSWORD` is changed for Docker Compose, update the local con
 
 `OpenApi:Enabled` controls both the OpenAPI JSON endpoint at `/openapi/v1.json` and the Scalar UI at `/scalar/v1`. It defaults to `true` so backend and React development can use the deployed IIS instance directly. Set it to `false` in `appsettings.Production.json` and restart the application if documentation should be hidden for a deployment. The landing-page documentation button follows the same setting.
 
+## Cross-Origin Resource Sharing (CORS)
+
+The `Cors` section controls which browser applications may call the API from a different origin. An origin is the exact combination of scheme, host, and port. For example, `https://panel.example.com` and `http://panel.example.com` are different origins, as are ports `443` and `8443`.
+
+The committed default permits the local Vite development server at `http://localhost:5173`. For a deployed React application, override the section in `appsettings.Production.json`:
+
+```json
+{
+  "Cors": {
+    "Enabled": true,
+    "AllowedOrigins": [
+      "https://panel.example.com",
+      "https://support.example.com"
+    ],
+    "AllowedMethods": [ "GET", "POST", "PUT", "DELETE" ],
+    "AllowedHeaders": [ "Accept", "Authorization", "Content-Type", "X-Api-Key" ],
+    "AllowCredentials": false,
+    "PreflightMaxAgeSeconds": 600
+  }
+}
+```
+
+| Setting | Meaning |
+|---|---|
+| `Enabled` | Enables or disables the configured CORS policy. Same-origin requests continue to work when disabled. |
+| `AllowedOrigins` | Exact HTTP/HTTPS origins allowed to call the API. Do not include a path, query, fragment, or wildcard. A trailing slash is accepted but unnecessary. |
+| `AllowedMethods` | HTTP methods permitted in cross-origin requests. Keep this list limited to methods used by the frontend. |
+| `AllowedHeaders` | Request headers accepted by preflight. `Authorization` is required for Bearer tokens and `X-Api-Key` for customer send requests. |
+| `AllowCredentials` | Allows browser credentials such as cookies. Keep this `false` for the current header-based authentication model. |
+| `PreflightMaxAgeSeconds` | How long the browser may cache a successful preflight response, from `0` to `86400` seconds. |
+
+Operational rules:
+
+1. Use explicit trusted origins. The application deliberately rejects `*` to avoid accidentally exposing credential-bearing APIs to every website.
+2. Include the scheme and non-default port when applicable, for example `https://panel.example.com:8443`.
+3. Do not write paths such as `https://panel.example.com/app`; CORS matches origins, not pages.
+4. Restart the application pool/site after changing these startup settings.
+5. If startup fails after a change, inspect the application log. Invalid origins and invalid preflight cache values fail fast with a `Cors:` configuration message.
+6. Test both the preflight request and the real API call from the deployed frontend domain. A successful request from Postman does not prove that browser CORS is configured correctly.
+
+The equivalent environment-variable form for the first allowed origin is `Cors__AllowedOrigins__0=https://panel.example.com`.
+
 ## Dispatch Settings
 
 The `Dispatch` section controls the background worker that submits queued messages to the SMS provider.

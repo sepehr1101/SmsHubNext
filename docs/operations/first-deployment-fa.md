@@ -186,7 +186,9 @@ curl -X POST https://SERVER/reference-data/geo-sections ^
 curl https://SERVER/health
 ```
 
-باید پاسخ سالم بگیرید.
+باید پاسخ JSON با status برابر `healthy` یا، در تنظیم اولیه ناقص Provider، `degraded` بگیرید. مسیر
+`/health/live` فقط زنده‌بودن process و `/health/ready` آمادگی کامل dependencyها را گزارش می‌کند.
+قرارداد فیلدها و معنی هر check در `health-checks-fa.md` مستند شده است.
 
 ### 5.2 تست API مدیریتی با JWT
 

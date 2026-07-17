@@ -1,3 +1,5 @@
+using SmsHubNext.Shared.Health;
+
 namespace SmsHubNext.Features.Inbound;
 
 /// <summary>
@@ -10,46 +12,58 @@ public sealed class InboundPollWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly InboundPollOptions _options;
+    private readonly BackgroundWorkerHealthMonitor _health;
     private readonly ILogger<InboundPollWorker> _logger;
 
     public InboundPollWorker(
         IServiceScopeFactory scopeFactory,
         InboundPollOptions options,
+        BackgroundWorkerHealthMonitor health,
         ILogger<InboundPollWorker> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options;
+        _health = health;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _health.ReportStarted(BackgroundWorkerNames.Inbound);
         _logger.LogInformation("Inbound poll worker started (poll interval {Interval}).", _options.PollInterval);
 
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                using IServiceScope scope = _scopeFactory.CreateScope();
-                InboundPoller poller = scope.ServiceProvider.GetRequiredService<InboundPoller>();
+                try
+                {
+                    using IServiceScope scope = _scopeFactory.CreateScope();
+                    InboundPoller poller = scope.ServiceProvider.GetRequiredService<InboundPoller>();
 
-                bool morePending = await poller.PollOnceAsync(stoppingToken);
+                    bool morePending = await poller.PollOnceAsync(stoppingToken);
+                    _health.ReportSucceeded(BackgroundWorkerNames.Inbound);
 
-                if (!morePending)
+                    if (!morePending)
+                        await Task.Delay(_options.PollInterval, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break; // graceful shutdown
+                }
+                catch (Exception ex)
+                {
+                    // Never let a transient failure kill the loop; back off and try again.
+                    _health.ReportFailed(BackgroundWorkerNames.Inbound);
+                    _logger.LogError(ex, "Inbound poll cycle failed; backing off.");
                     await Task.Delay(_options.PollInterval, stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break; // graceful shutdown
-            }
-            catch (Exception ex)
-            {
-                // Never let a transient failure kill the loop; back off and try again.
-                _logger.LogError(ex, "Inbound poll cycle failed; backing off.");
-                await Task.Delay(_options.PollInterval, stoppingToken);
+                }
             }
         }
-
-        _logger.LogInformation("Inbound poll worker stopping.");
+        finally
+        {
+            _health.ReportStopped(BackgroundWorkerNames.Inbound);
+            _logger.LogInformation("Inbound poll worker stopping.");
+        }
     }
 }
