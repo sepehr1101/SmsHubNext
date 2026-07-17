@@ -1,3 +1,5 @@
+using SmsHubNext.Shared.Health;
+
 namespace SmsHubNext.Features.Dispatch;
 
 /// <summary>
@@ -11,46 +13,58 @@ public sealed class DispatchWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly DispatchOptions _options;
+    private readonly BackgroundWorkerHealthMonitor _health;
     private readonly ILogger<DispatchWorker> _logger;
 
     public DispatchWorker(
         IServiceScopeFactory scopeFactory,
         DispatchOptions options,
+        BackgroundWorkerHealthMonitor health,
         ILogger<DispatchWorker> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options;
+        _health = health;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _health.ReportStarted(BackgroundWorkerNames.Dispatch);
         _logger.LogInformation("Dispatch worker started (poll interval {Interval}).", _options.PollInterval);
 
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                using IServiceScope scope = _scopeFactory.CreateScope();
-                MessageDispatcher dispatcher = scope.ServiceProvider.GetRequiredService<MessageDispatcher>();
+                try
+                {
+                    using IServiceScope scope = _scopeFactory.CreateScope();
+                    MessageDispatcher dispatcher = scope.ServiceProvider.GetRequiredService<MessageDispatcher>();
 
-                bool didWork = await dispatcher.DispatchNextBatchAsync(stoppingToken);
+                    bool didWork = await dispatcher.DispatchNextBatchAsync(stoppingToken);
+                    _health.ReportSucceeded(BackgroundWorkerNames.Dispatch);
 
-                if (!didWork)
+                    if (!didWork)
+                        await Task.Delay(_options.PollInterval, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break; // graceful shutdown
+                }
+                catch (Exception ex)
+                {
+                    // Never let a transient failure kill the loop; back off and try again.
+                    _health.ReportFailed(BackgroundWorkerNames.Dispatch);
+                    _logger.LogError(ex, "Dispatch cycle failed; backing off.");
                     await Task.Delay(_options.PollInterval, stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break; // graceful shutdown
-            }
-            catch (Exception ex)
-            {
-                // Never let a transient failure kill the loop; back off and try again.
-                _logger.LogError(ex, "Dispatch cycle failed; backing off.");
-                await Task.Delay(_options.PollInterval, stoppingToken);
+                }
             }
         }
-
-        _logger.LogInformation("Dispatch worker stopping.");
+        finally
+        {
+            _health.ReportStopped(BackgroundWorkerNames.Dispatch);
+            _logger.LogInformation("Dispatch worker stopping.");
+        }
     }
 }

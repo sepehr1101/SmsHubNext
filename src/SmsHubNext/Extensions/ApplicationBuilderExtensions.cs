@@ -1,6 +1,9 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Scalar.AspNetCore;
 using Serilog;
 using SmsHubNext.Features.Landing;
+using SmsHubNext.Shared.Health;
+using SmsHubNext.Shared.Http;
 
 namespace SmsHubNext.Extensions;
 
@@ -14,6 +17,12 @@ public static class ApplicationBuilderExtensions
     {
         app.UseExceptionHandler();
         app.UseSerilogRequestLogging();
+
+        app.UseRouting();
+
+        ApplicationCorsOptions corsOptions = app.Services.GetRequiredService<ApplicationCorsOptions>();
+        if (corsOptions.Enabled)
+            app.UseCors(ApplicationCorsOptions.PolicyName);
 
         bool openApiEnabled = app.Configuration.GetValue("OpenApi:Enabled", true);
         if (openApiEnabled)
@@ -40,6 +49,8 @@ public static class ApplicationBuilderExtensions
             endpoints = new
             {
                 health = "/health",
+                healthLive = "/health/live",
+                healthReady = "/health/ready",
                 messageTypes = "/reference-data/message-types",
                 providers = "/reference-data/providers",
                 senderLines = "/reference-data/sender-lines",
@@ -62,8 +73,33 @@ public static class ApplicationBuilderExtensions
         app.UseAuthorization();
 
         app.MapControllers();
-        app.MapHealthChecks("/health");
+        MapHealthEndpoints(app);
 
         return app;
     }
+
+    private static void MapHealthEndpoints(WebApplication app)
+    {
+        HealthResponseWriter responseWriter = app.Services.GetRequiredService<HealthResponseWriter>();
+
+        app.MapHealthChecks("/health/live", new HealthCheckOptions
+        {
+            Predicate = _ => false,
+            ResponseWriter = responseWriter.WriteAsync,
+            AllowCachingResponses = false,
+        });
+
+        app.MapHealthChecks("/health/ready", CreateReadinessOptions(responseWriter));
+
+        // Compatibility alias used by the installer, smoke tests, landing page, and existing monitors.
+        app.MapHealthChecks("/health", CreateReadinessOptions(responseWriter));
+    }
+
+    private static HealthCheckOptions CreateReadinessOptions(HealthResponseWriter responseWriter) =>
+        new()
+        {
+            Predicate = registration => registration.Tags.Contains(HealthCheckTags.Ready),
+            ResponseWriter = responseWriter.WriteAsync,
+            AllowCachingResponses = false,
+        };
 }

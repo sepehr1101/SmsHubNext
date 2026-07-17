@@ -220,6 +220,7 @@ function Ensure-SmsHubNextSite {
     Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name managedRuntimeVersion -Value ''
     Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name managedPipelineMode -Value 'Integrated'
     Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name processModel.identityType -Value 'ApplicationPoolIdentity'
+    Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name processModel.idleTimeout -Value ([TimeSpan]::Zero)
     Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name startMode -Value 'AlwaysRunning'
 
     if (-not (Test-Path -LiteralPath "IIS:\Sites\$SiteName")) {
@@ -242,6 +243,8 @@ function Ensure-SmsHubNextSite {
         }
         New-WebBinding -Name $SiteName -Protocol 'http' -Port $Port -HostHeader $HostName
     }
+
+    Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationDefaults.preloadEnabled -Value $true
 
     Grant-IisPermissions
 

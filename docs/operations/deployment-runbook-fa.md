@@ -76,7 +76,7 @@ appsettings.Production.json
 
 این اسکریپت موارد زیر را بررسی می‌کند:
 
-- `/health`
+- `/health` (alias کامل readiness؛ قرارداد جزئیات در `health-checks-fa.md`)
 - دسترسی JWT به providerها
 - quote تعرفه
 - ارسال واقعی با `X-Api-Key`، در صورت حذف نکردن ارسال واقعی

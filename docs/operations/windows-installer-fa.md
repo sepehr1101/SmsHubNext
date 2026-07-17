@@ -27,7 +27,7 @@
 7. در اولین نصب یک JWT signing key تصادفی قوی تولید می‌کند و Data Protection key ring را در `%ProgramData%\SmsHubNext` قرار می‌دهد.
 8. app pool، سایت IIS، binding، دسترسی فایل‌ها و firewall rule را تنظیم می‌کند.
 9. سایت را اجرا می‌کند؛ خود برنامه در startup دیتابیس ناموجود را می‌سازد و migrationها را اجرا می‌کند.
-10. `/health` را تا ۶۰ ثانیه بررسی می‌کند تا موفقیت startup و دسترسی دیتابیس تأیید شود.
+10. `/health` را تا ۶۰ ثانیه بررسی می‌کند تا موفقیت startup و readiness dependencyهای ضروری تأیید شود.
 
 اینستالر عمداً این کارها را انجام **نمی‌دهد**:
 
@@ -48,6 +48,7 @@
 - Database: `SmsHubNext`
 
 پس از نصب، میان‌بر SmsHubNext صفحه شروع فارسی سرویس را باز می‌کند. بررسی سلامت از `/health` و اطلاعات فنی JSON از `/service-info` در دسترس است.
+Installer برای جلوگیری از خوابیدن workerهای SQL-backed، App Pool را `AlwaysRunning` نگه می‌دارد، idle timeout را صفر می‌کند و Application Initialization/Preload را فعال می‌کند.
 
 رمز SQL در command line قرار نمی‌گیرد. اینستالر آن را در یک response file موقت UTF-8 در `%TEMP%` می‌نویسد و در پایان یا شکست حذف می‌کند. connection string نهایی طبق تصمیم فعلی پروژه به‌صورت plaintext در `appsettings.Production.json` ذخیره می‌شود، ولی ACL فایل به `SYSTEM`، Administrators و app pool محدود می‌شود.
 
