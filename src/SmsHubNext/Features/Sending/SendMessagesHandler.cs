@@ -272,6 +272,11 @@ public sealed class SendMessagesHandler
         using SqlTransaction transaction = connection.BeginTransaction();
         try
         {
+            await DatabaseApplicationLock.AcquireFactoryResetSharedAsync(
+                connection,
+                transaction,
+                cancellationToken);
+
             Result<decimal> balanceAfter = await DebitBalanceAsync(
                 connection, transaction, identity.CustomerId, totalCost, cancellationToken);
             if (balanceAfter.IsFailure)

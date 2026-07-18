@@ -97,6 +97,14 @@ public static class UserMessages
             "Client correlated ids may contain at most 100 characters.";
     }
 
+    public static class Setup
+    {
+        public const string FactoryResetConfirmationRequired =
+            "Factory reset requires the exact confirmation value 'RESET'.";
+        public const string FactoryResetMessagesExist =
+            "Factory reset is permanently unavailable because at least one SMS exists.";
+    }
+
     public static class Reports
     {
         public const string FromJalaliInvalid = "fromJalali must be in yyyy/MM/dd format.";

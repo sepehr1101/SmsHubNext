@@ -67,7 +67,7 @@
 3. برنامه را اجرا کنید.
 4. لاگ startup را بررسی کنید؛ اگر migration شکست بخورد برنامه fail-fast می‌شود.
 
-بعد از migration، فقط reference data پایه وجود دارد؛ داده‌های عملیاتی نمونه مثل sender line، customer، API key، provider account، tariff و geo section دیگر seed نمی‌شوند و باید واقعی تنظیم شوند.
+بعد از migration همه جدول‌های reference data و operational data خالی هستند. Provider، Message Type، sender line، customer، API key، provider account، tariff و geo section همگی باید با ویزارد یا APIهای مدیریتی و بر اساس اطلاعات واقعی کاربر ساخته شوند.
 
 ## 4. داده‌های لازم بعد از نصب
 
@@ -79,7 +79,29 @@
 Authorization: Bearer <access-token>
 ```
 
-### 4.2 ساخت customer
+### 4.2 ثبت Provider و Message Type
+
+ابتدا Provider انتخاب‌شده در ویزارد را با code دقیق adapter ثبت کنید. نمونه Magfa:
+
+```bash
+curl -X POST https://SERVER/reference-data/providers ^
+  -H "Authorization: Bearer <access-token>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\":\"Magfa\",\"code\":\"magfa\",\"baseUrl\":\"https://sms.magfa.com\"}"
+```
+
+برای Kavenegar از code برابر `kavenegar` و آدرس `https://api.kavenegar.com` استفاده کنید. سپس Message Typeهای واقعی سازمان را با شناسه‌های `TINYINT` ثبت کنید:
+
+```bash
+curl -X POST https://SERVER/reference-data/message-types ^
+  -H "Authorization: Bearer <access-token>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"id\":1,\"name\":\"Transactional\",\"code\":\"transactional\"}"
+```
+
+شناسه Provider را از پاسخ API نگه دارید و در مراحل Provider Account، Sender Line و Tariff استفاده کنید؛ دیگر هیچ شناسه ثابتی برای Provider فرض نمی‌شود.
+
+### 4.3 ساخت customer
 
 ```bash
 curl -X POST https://SERVER/customers ^
@@ -90,7 +112,7 @@ curl -X POST https://SERVER/customers ^
 
 خروجی شامل `id` مشتری است.
 
-### 4.3 شارژ اولیه customer
+### 4.4 شارژ اولیه customer
 
 ```bash
 curl -X POST https://SERVER/balances/top-up ^
@@ -99,7 +121,7 @@ curl -X POST https://SERVER/balances/top-up ^
   -d "{\"customerId\":1,\"amount\":1000000,\"reference\":\"initial-production-credit\"}"
 ```
 
-### 4.4 صدور API key برای ارسال واقعی
+### 4.5 صدور API key برای ارسال واقعی
 
 ```bash
 curl -X POST https://SERVER/api-keys ^
@@ -110,7 +132,7 @@ curl -X POST https://SERVER/api-keys ^
 
 کلید plaintext فقط همین یک بار در response برمی‌گردد. آن را در secret store سیستم مصرف‌کننده نگه دارید.
 
-### 4.5 ساخت provider account
+### 4.6 ساخت provider account
 
 نمونه Magfa:
 
@@ -132,9 +154,9 @@ curl -X POST https://SERVER/provider-accounts ^
 
 در پاسخ‌های read/list هیچ secret یا ciphertext برنمی‌گردد؛ فقط `hasSecret` نمایش داده می‌شود.
 
-### 4.6 ثبت sender line واقعی
+### 4.7 ثبت sender line واقعی
 
-برای Magfa، `providerId = 1` است. برای Kavenegar، `providerId = 2` است.
+مقدار `providerId` همان شناسه برگشتی مرحله ثبت Provider است.
 
 ```bash
 curl -X POST https://SERVER/reference-data/sender-lines ^
@@ -145,7 +167,7 @@ curl -X POST https://SERVER/reference-data/sender-lines ^
 
 قانون مهم: sender line فعال برای ارسال باید به provider account فعال و دارای secret وصل باشد.
 
-### 4.7 ثبت تعرفه واقعی
+### 4.8 ثبت تعرفه واقعی
 
 فعلا endpoint مدیریتی create tariff نداریم، پس تعرفه اولیه را با SQL عملیاتی ثبت کنید. قیمت‌ها را حتما با قرارداد واقعی provider جایگزین کنید.
 

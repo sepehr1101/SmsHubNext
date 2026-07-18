@@ -35,6 +35,7 @@ public sealed class OperationalConfigurationMutationsTests : IAsyncLifetime
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
+        await ReferenceDataTestData.EnsureDefaultsAsync(_db);
         _secretProtector = new DataProtectionSecretProtector(new EphemeralDataProtectionProvider());
 
         Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db).Handle(

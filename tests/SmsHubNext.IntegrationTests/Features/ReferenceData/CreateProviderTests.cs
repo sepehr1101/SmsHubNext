@@ -37,7 +37,7 @@ public sealed class CreateProviderTests : IAsyncLifetime
             new CreateProviderRequest { Name = "Test Provider", Code = $"provider-{Guid.NewGuid():N}", BaseUrl = "https://api.example.test" },
             CancellationToken.None);
         Assert.True(created.IsSuccess);
-        Assert.True(created.Value.Id > 2); // Magfa and Kavenegar are seeded
+        Assert.Equal((byte)1, created.Value.Id);
 
         Result<IReadOnlyList<Provider>> listed = await new ListProvidersHandler(_db).Handle(CancellationToken.None);
         Assert.True(listed.IsSuccess);

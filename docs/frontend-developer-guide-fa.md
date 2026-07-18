@@ -61,6 +61,7 @@ http://localhost:8080
 | مستندات تعاملی Scalar | `http://localhost:8080/scalar/v1` |
 | قرارداد خام OpenAPI | `http://localhost:8080/openapi/v1.json` |
 | اطلاعات ماشینی سرویس | `http://localhost:8080/service-info` |
+| بازگشت کنترل‌شده به نصب اولیه | `POST http://localhost:8080/setup/factory-reset` |
 
 در محیطی غیر از سیستم محلی، فقط بخش دامنه و پورت عوض می‌شود؛ برای مثال:
 
@@ -277,8 +278,12 @@ export default defineConfig({
 - مرحله تعیین آدرس API و اعتبارسنجی URL؛
 - بررسی `GET /service-info`، `GET /health/live` و `GET /health/ready`؛
 - نمایش خطای قابل فهم برای قطع بودن API، CORS یا آماده نبودن SQL Server؛
+- دریافت Provider از کاربر و ثبت آن با code معتبر adapter (`magfa` یا `kavenegar`)؛
+- دریافت و ثبت Message Typeهای موردنیاز سازمان؛
+- دریافت اطلاعات اولیه customer، provider account، sender line و tariff و ثبت مرحله‌ای آن‌ها؛
 - مرحله خلاصه تنظیمات و پایان راه‌اندازی؛
 - نگهداری فقط تنظیمات غیرحساس؛ API Key یا Secret در storage دائمی ذخیره نشود.
+- پس از پاسخ موفق `POST /setup/factory-reset`، state محلی ویزارد پاک و کاربر به مرحله اول هدایت شود؛ این عملیات فقط با تأیید صریح کاربر در UI فراخوانی شود.
 
 **خروجی قابل تحویل:** ویزارد با یک بک‌اند واقعی ارتباط را بررسی کند و فقط در صورت معتبر بودن تنظیمات اجازه پایان بدهد.
 
@@ -564,7 +569,7 @@ export const deliveryStatusLabel: Record<number, string> = {
 5. اعتبار ریالی کافی برای مشتری؛
 6. در ارسال واقعی، provider account معتبر و اتصال آن به خط فرستنده.
 
-نوع‌های پیام و providerهای اولیه هنگام migration ساخته می‌شوند. اگر provider واقعی در تنظیمات فعال نباشد، بک‌اند از `LoopbackSmsProvider` استفاده می‌کند؛ در این حالت مسیر نرم‌افزار آزمایش می‌شود اما پیامک واقعی به گوشی ارسال نخواهد شد.
+هیچ Message Type یا Providerای هنگام migration ساخته نمی‌شود؛ ویزارد باید ابتدا آن‌ها را ثبت کند و شناسه‌های برگشتی را در مراحل بعد استفاده کند. اعداد نمونه این بخش صرفاً نمایشی‌اند و نباید به‌صورت ثابت در فرانت‌اند قرار گیرند. اگر provider واقعی در تنظیمات فعال نباشد، بک‌اند از `LoopbackSmsProvider` استفاده می‌کند؛ در این حالت مسیر نرم‌افزار آزمایش می‌شود اما پیامک واقعی به گوشی ارسال نخواهد شد.
 
 ### 9.1 ساخت داده‌های تست توسط مدیر
 
@@ -799,5 +804,6 @@ Authorization: Bearer <access-token>
 - `docs/operations/first-deployment-fa.md` — استقرار اولیه؛
 - `docs/operations/application-configuration-guide.md` — تنظیمات برنامه.
 - `docs/operations/health-checks-fa.md` — قرارداد خروجی سلامت برای داشبورد.
+- `docs/operations/factory-reset-fa.md` — قرارداد و محدودیت‌های بازگشت به نصب اولیه.
 
 برای توسعه روزمره فرانت‌اند، Scalar مرجع اصلی قرارداد HTTP است و این سند مرجع ترتیب و منطق پیاده‌سازی محسوب می‌شود.

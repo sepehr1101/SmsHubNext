@@ -44,7 +44,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         await TopUpAsync(customerId, 10000m);
         ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
 
-        // Two GSM-7 single-segment messages against the seeded 1000 IRR/segment tariff.
+        // Two GSM-7 single-segment messages against the test-only 1000 IRR/segment tariff.
         Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {

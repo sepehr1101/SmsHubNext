@@ -247,7 +247,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 ### 4.6 `MessageType`
 | Column | Type | Notes |
 |---|---|---|
-| `Id` | `TINYINT` | **PK** (seeded), `CIX` |
+| `Id` | `TINYINT` | **PK** (assigned by setup/reference-data API), `CIX` |
 | `Name` | `NVARCHAR(80)` | "OTP", "Transactional", "Bulk", "Water Bill", … |
 | `Code` | `VARCHAR(50)` | `NCIX` |
 | `IsActive` | `BIT` | whether the classification can be used for new messages |

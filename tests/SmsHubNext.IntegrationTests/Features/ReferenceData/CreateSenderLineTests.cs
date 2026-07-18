@@ -26,6 +26,7 @@ public sealed class CreateSenderLineTests : IAsyncLifetime
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
+        await ReferenceDataTestData.EnsureDefaultsAsync(_db);
     }
 
     public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();

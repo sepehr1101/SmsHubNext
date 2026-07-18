@@ -37,6 +37,7 @@ public sealed class SmokeTests : IAsyncLifetime
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
+        await ReferenceDataTestData.EnsureDefaultsAsync(_db);
         _secretProtector = new DataProtectionSecretProtector(new EphemeralDataProtectionProvider());
     }
 

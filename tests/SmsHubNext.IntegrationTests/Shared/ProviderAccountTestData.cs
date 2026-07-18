@@ -11,6 +11,7 @@ public static class ProviderAccountTestData
 {
     public static async Task<int> AssignActiveMagfaAccountToDefaultTestLineAsync(Db db)
     {
+        await ReferenceDataTestData.EnsureDefaultsAsync(db);
         await EnsureGsm7TariffAsync(db);
         await EnsureSenderLineAsync(db, "30001234");
         int providerAccountId = await CreateMagfaAccountAsync(db, isActive: true);
@@ -20,6 +21,7 @@ public static class ProviderAccountTestData
 
     public static async Task<int> CreateMagfaAccountAsync(Db db, bool isActive)
     {
+        await ReferenceDataTestData.EnsureDefaultsAsync(db);
         ISecretProtector protector = new DataProtectionSecretProtector(new EphemeralDataProtectionProvider());
         byte[] secretEncrypted = protector.Protect("secret-password");
 
@@ -59,6 +61,7 @@ public static class ProviderAccountTestData
 
     public static async Task EnsureSenderLineAsync(Db db, string lineNumber)
     {
+        await ReferenceDataTestData.EnsureDefaultsAsync(db);
         await using SqlConnection connection = await db.OpenConnectionAsync(CancellationToken.None);
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -75,6 +78,7 @@ public static class ProviderAccountTestData
 
     public static async Task<int> EnsureGsm7TariffAsync(Db db)
     {
+        await ReferenceDataTestData.EnsureDefaultsAsync(db);
         await using SqlConnection connection = await db.OpenConnectionAsync(CancellationToken.None);
 
         int tariffId = await connection.ExecuteScalarAsync<int>(new CommandDefinition(

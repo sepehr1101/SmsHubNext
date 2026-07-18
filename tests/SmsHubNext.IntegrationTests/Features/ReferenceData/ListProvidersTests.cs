@@ -12,7 +12,7 @@ using Xunit;
 
 namespace SmsHubNext.IntegrationTests.Features.ReferenceData;
 
-/// <summary>Migrates a real SQL Server (Testcontainers) and reads the seeded providers.</summary>
+/// <summary>Verifies that a fresh database leaves provider configuration to the wizard.</summary>
 public sealed class ListProvidersTests : IAsyncLifetime
 {
     private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
@@ -32,13 +32,13 @@ public sealed class ListProvidersTests : IAsyncLifetime
     public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
 
     [Fact]
-    public async Task Returns_the_seeded_providers()
+    public async Task Fresh_install_has_no_providers()
     {
         ListProvidersHandler handler = new ListProvidersHandler(_db);
 
         Result<IReadOnlyList<Provider>> result = await handler.Handle(CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Contains(result.Value, p => p.Id == 1 && p.Code == "magfa" && p.Name == "Magfa" && p.IsActive);
+        Assert.Empty(result.Value);
     }
 }
