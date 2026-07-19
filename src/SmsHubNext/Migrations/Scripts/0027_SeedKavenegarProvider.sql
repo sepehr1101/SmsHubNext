@@ -1,13 +1,6 @@
--- Add Kavenegar as the second SMS provider. Sender lines and tariffs are operational data
--- and are inserted separately per deployment/customer contract.
+-- Provider rows are installation-specific and are now created by the first-run wizard.
+-- This migration intentionally remains as a no-op so already-deployed DbUp journals and
+-- migration ordering stay stable; no production reference data is seeded automatically.
 
-SET IDENTITY_INSERT dbo.Provider ON;
-
-IF NOT EXISTS (SELECT 1 FROM dbo.Provider WHERE Id = 2)
-BEGIN
-    INSERT INTO dbo.Provider (Id, Name, Code, BaseUrl, FallbackBaseUrl, IsActive)
-    VALUES (2, N'Kavenegar', 'kavenegar', 'https://api.kavenegar.com', NULL, 1);
-END
-
-SET IDENTITY_INSERT dbo.Provider OFF;
+SELECT 1 WHERE 1 = 0;
 GO

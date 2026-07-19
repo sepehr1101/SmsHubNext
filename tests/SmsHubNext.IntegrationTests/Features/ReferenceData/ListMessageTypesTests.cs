@@ -13,8 +13,8 @@ using Xunit;
 namespace SmsHubNext.IntegrationTests.Features.ReferenceData;
 
 /// <summary>
-/// Migrates a real SQL Server (Testcontainers — requires Docker) and reads the
-/// seeded message types back through the handler.
+/// Migrates a real SQL Server (Testcontainers — requires Docker) and verifies that
+/// installation-specific message types are left for the first-run wizard.
 /// </summary>
 public sealed class ListMessageTypesTests : IAsyncLifetime
 {
@@ -35,15 +35,14 @@ public sealed class ListMessageTypesTests : IAsyncLifetime
     public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
 
     [Fact]
-    public async Task Returns_the_seeded_message_types()
+    public async Task Fresh_install_has_no_message_types()
     {
         ListMessageTypesHandler handler = new ListMessageTypesHandler(_db);
 
         Result<IReadOnlyList<MessageType>> result = await handler.Handle(CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(4, result.Value.Count);
-        Assert.Contains(result.Value, t => t.Id == 4 && t.Code == "water-bill" && t.Name == "Water Bill");
+        Assert.Empty(result.Value);
     }
 
     [Fact]

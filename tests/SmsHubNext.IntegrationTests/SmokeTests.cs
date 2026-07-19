@@ -37,6 +37,7 @@ public sealed class SmokeTests : IAsyncLifetime
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
+        await ReferenceDataTestData.EnsureDefaultsAsync(_db);
         _secretProtector = new DataProtectionSecretProtector(new EphemeralDataProtectionProvider());
     }
 
@@ -206,6 +207,8 @@ public sealed class SmokeTests : IAsyncLifetime
         public string Name => "magfa";
 
         public int MaxBatchSize => 1000;
+
+        public bool SupportsIdempotentResend => true;
 
         public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
             IReadOnlyList<ProviderSendRequest> requests,

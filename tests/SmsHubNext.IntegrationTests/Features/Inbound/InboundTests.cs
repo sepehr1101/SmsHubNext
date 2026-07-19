@@ -28,6 +28,7 @@ public sealed class InboundTests : IAsyncLifetime
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
+        await ReferenceDataTestData.EnsureDefaultsAsync(_db);
     }
 
     public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
@@ -112,7 +113,7 @@ public sealed class InboundTests : IAsyncLifetime
         return result.Value.ToList();
     }
 
-    // Inbound-only stub; its Name matches the seeded 'magfa' provider so the poller can resolve the FK.
+    // Inbound-only stub; its Name matches the test-configured 'magfa' provider so the poller can resolve the FK.
     private sealed class InboundStub : ISmsProvider
     {
         private readonly Func<Result<IReadOnlyList<ProviderInboundMessage>>> _fetch;
@@ -122,6 +123,8 @@ public sealed class InboundTests : IAsyncLifetime
         public string Name => "magfa";
 
         public int MaxBatchSize => 100;
+
+        public bool SupportsIdempotentResend => true;
 
         public Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
             int maxCount, CancellationToken cancellationToken) =>

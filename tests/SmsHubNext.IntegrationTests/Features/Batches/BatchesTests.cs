@@ -98,6 +98,7 @@ public sealed class BatchesTests : IAsyncLifetime
         Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
+                ClientBatchId = $"batches-{Guid.NewGuid():N}",
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,

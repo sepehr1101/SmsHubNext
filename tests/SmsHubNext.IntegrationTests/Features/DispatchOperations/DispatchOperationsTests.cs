@@ -90,6 +90,7 @@ public sealed class DispatchOperationsTests : IAsyncLifetime
         Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
+                ClientBatchId = $"dispatch-operations-{Guid.NewGuid():N}",
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,

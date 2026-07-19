@@ -7,7 +7,7 @@ namespace SmsHubNext.UnitTests.Features.Sending;
 public class SendMessagesRequestTests
 {
     private static SendMessagesRequest Valid(params SendMessageItem[] messages) =>
-        new() { SenderLine = "30001234", MessageTypeId = 1, Messages = messages };
+        new() { SenderLine = "30001234", MessageTypeId = 1, ClientBatchId = "unit-test-batch", Messages = messages };
 
     private static SendMessageItem Item(string recipient = "989120000000", string text = "Hello") =>
         new() { Recipient = recipient, Text = text };
@@ -56,6 +56,23 @@ public class SendMessagesRequestTests
         Assert.Contains("index 1", result.Error!.Message);
     }
 
+    [Fact]
+    public void Client_batch_id_is_required()
+    {
+        SendMessagesRequest request = Valid(Item());
+        request = new SendMessagesRequest
+        {
+            SenderLine = request.SenderLine,
+            MessageTypeId = request.MessageTypeId,
+            Messages = request.Messages,
+        };
+
+        Result result = request.Validate();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("sending.client_batch_id_required", result.Error!.Code);
+    }
+
     [Theory]
     [InlineData("9120000000")]
     [InlineData("98912000000x")]
@@ -93,5 +110,36 @@ public class SendMessagesRequestTests
 
         Assert.True(result.IsFailure);
         Assert.Equal("sending.too_many_messages", result.Error!.Code);
+    }
+
+    [Fact]
+    public void Rejects_text_and_identifiers_that_exceed_storage_limits()
+    {
+        SendMessagesRequest longText = Valid(Item(text: new string('x', SendMessagesRequest.MaxTextLength + 1)));
+        Assert.Equal("sending.text_too_long", longText.Validate().Error!.Code);
+
+        SendMessagesRequest longCorrelation = Valid(new SendMessageItem
+        {
+            Recipient = "989120000000",
+            Text = "Hello",
+            ClientCorrelatedId = new string('x', SendMessagesRequest.MaxClientCorrelatedIdLength + 1),
+        });
+        Assert.Equal("sending.client_correlated_id_too_long", longCorrelation.Validate().Error!.Code);
+
+        SendMessagesRequest longBill = Valid(new SendMessageItem
+        {
+            Recipient = "989120000000",
+            Text = "Hello",
+            BillId = new string('x', SendMessagesRequest.MaxBillIdLength + 1),
+        });
+        Assert.Equal("sending.bill_id_too_long", longBill.Validate().Error!.Code);
+
+        SendMessagesRequest longPay = Valid(new SendMessageItem
+        {
+            Recipient = "989120000000",
+            Text = "Hello",
+            PayId = new string('x', SendMessagesRequest.MaxPayIdLength + 1),
+        });
+        Assert.Equal("sending.pay_id_too_long", longPay.Validate().Error!.Code);
     }
 }

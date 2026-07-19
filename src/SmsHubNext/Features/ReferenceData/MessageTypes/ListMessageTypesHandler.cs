@@ -5,7 +5,7 @@ using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.ReferenceData.MessageTypes;
 
-/// <summary>Reads the seeded message-type classifications.</summary>
+/// <summary>Reads the message-type classifications configured by the setup wizard or an administrator.</summary>
 public sealed class ListMessageTypesHandler
 {
     private readonly Db _db;

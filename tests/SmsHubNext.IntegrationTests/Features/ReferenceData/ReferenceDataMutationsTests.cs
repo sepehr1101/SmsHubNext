@@ -31,6 +31,7 @@ public sealed class ReferenceDataMutationsTests : IAsyncLifetime
         Assert.True(migration.Successful, migration.Error?.Message);
 
         _db = new Db(connectionString);
+        await ReferenceDataTestData.EnsureDefaultsAsync(_db);
         Result<CreateCustomerResponse> actor = await new CreateCustomerHandler(_db).Handle(
             new CreateCustomerRequest { Name = "Reference admin", Code = $"admin-{Guid.NewGuid():N}" },
             CancellationToken.None);

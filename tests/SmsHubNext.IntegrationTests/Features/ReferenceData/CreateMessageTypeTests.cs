@@ -33,24 +33,27 @@ public sealed class CreateMessageTypeTests : IAsyncLifetime
     [Fact]
     public async Task Creates_a_message_type_then_lists_it()
     {
-        // Ids 1–4 are seeded; pick a fresh stable id for the new classification.
         Result<CreateMessageTypeResponse> created = await new CreateMessageTypeHandler(_db).Handle(
-            new CreateMessageTypeRequest { Id = 100, Name = "Marketing", Code = "marketing" },
+            new CreateMessageTypeRequest { Id = 1, Name = "Marketing", Code = "marketing" },
             CancellationToken.None);
         Assert.True(created.IsSuccess, created.Error?.Message);
-        Assert.Equal((byte)100, created.Value.Id);
+        Assert.Equal((byte)1, created.Value.Id);
 
         Result<IReadOnlyList<MessageType>> listed = await new ListMessageTypesHandler(_db).Handle(CancellationToken.None);
         Assert.True(listed.IsSuccess);
-        Assert.Contains(listed.Value, m => m.Id == 100 && m.Code == "marketing");
+        Assert.Contains(listed.Value, m => m.Id == 1 && m.Code == "marketing");
     }
 
     [Fact]
     public async Task Rejects_a_duplicate_code()
     {
-        // "otp" is seeded at Id 1; a new id with the same code must conflict on the unique Code index.
+        Result<CreateMessageTypeResponse> first = await new CreateMessageTypeHandler(_db).Handle(
+            new CreateMessageTypeRequest { Id = 1, Name = "One-time password", Code = "otp" },
+            CancellationToken.None);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+
         Result<CreateMessageTypeResponse> created = await new CreateMessageTypeHandler(_db).Handle(
-            new CreateMessageTypeRequest { Id = 101, Name = "One-time password", Code = "otp" },
+            new CreateMessageTypeRequest { Id = 2, Name = "Duplicate OTP", Code = "otp" },
             CancellationToken.None);
 
         Assert.True(created.IsFailure);

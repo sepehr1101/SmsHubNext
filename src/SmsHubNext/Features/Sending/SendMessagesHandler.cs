@@ -86,9 +86,6 @@ public sealed class SendMessagesHandler
         byte[] requestHash,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.ClientBatchId))
-            return Result.Success<SendMessagesResponse?>(null);
-
         ExistingBatchRow? existing = await connection.QuerySingleOrDefaultAsync<ExistingBatchRow>(new CommandDefinition(
             SendingSql.GetExistingBatchByClientBatchId,
             new { CustomerId = customerId, request.ClientBatchId },
@@ -272,6 +269,11 @@ public sealed class SendMessagesHandler
         using SqlTransaction transaction = connection.BeginTransaction();
         try
         {
+            await DatabaseApplicationLock.AcquireFactoryResetSharedAsync(
+                connection,
+                transaction,
+                cancellationToken);
+
             Result<decimal> balanceAfter = await DebitBalanceAsync(
                 connection, transaction, identity.CustomerId, totalCost, cancellationToken);
             if (balanceAfter.IsFailure)

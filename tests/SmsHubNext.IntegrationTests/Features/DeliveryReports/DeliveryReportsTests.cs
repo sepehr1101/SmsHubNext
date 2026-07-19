@@ -151,6 +151,7 @@ public sealed class DeliveryReportsTests : IAsyncLifetime
         Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
+                ClientBatchId = $"delivery-report-{Guid.NewGuid():N}",
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,

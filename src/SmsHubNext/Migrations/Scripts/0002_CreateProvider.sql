@@ -14,10 +14,3 @@ GO
 
 CREATE UNIQUE NONCLUSTERED INDEX UX_Provider_Code ON dbo.Provider (Code);
 GO
-
--- Seed the first provider with a stable Id (FKs reference it).
-SET IDENTITY_INSERT dbo.Provider ON;
-INSERT INTO dbo.Provider (Id, Name, Code, BaseUrl, FallbackBaseUrl, IsActive) VALUES
-    (1, N'Magfa', 'magfa', 'https://sms.magfa.com', NULL, 1);
-SET IDENTITY_INSERT dbo.Provider OFF;
-GO

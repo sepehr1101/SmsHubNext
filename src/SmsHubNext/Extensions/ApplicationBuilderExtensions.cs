@@ -62,6 +62,7 @@ public static class ApplicationBuilderExtensions
                 balances = "/balances?customerId=1",
                 whoami = "/auth/whoami",
                 dispatchOperations = "/dispatch/operations/summary",
+                factoryReset = "/setup/factory-reset",
             },
         }).ExcludeFromDescription();
 

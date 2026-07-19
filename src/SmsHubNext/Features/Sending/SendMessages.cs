@@ -11,6 +11,11 @@ public sealed class SendMessagesRequest
 {
     /// <summary>Maximum messages accepted in a single request.</summary>
     public const int MaxMessages = 1000;
+    public const int MaxClientBatchIdLength = 100;
+    public const int MaxTextLength = 1800;
+    public const int MaxClientCorrelatedIdLength = 100;
+    public const int MaxBillIdLength = 31;
+    public const int MaxPayIdLength = 31;
 
     /// <summary>
     /// Deprecated input kept temporarily for compatibility; send attribution uses the authenticated
@@ -24,8 +29,8 @@ public sealed class SendMessagesRequest
     /// <summary>The classification for every message in the batch (delivery class + business purpose).</summary>
     public byte MessageTypeId { get; init; }
 
-    /// <summary>Optional batch-level idempotency key.</summary>
-    public string? ClientBatchId { get; init; }
+    /// <summary>Required batch-level idempotency key, unique per customer and logical request.</summary>
+    public string ClientBatchId { get; init; } = string.Empty;
 
     /// <summary>The recipient/message pairs to send.</summary>
     public IReadOnlyList<SendMessageItem> Messages { get; init; } = [];
@@ -41,6 +46,12 @@ public sealed class SendMessagesRequest
 
         if (MessageTypeId == 0)
             return Error.Validation("sending.message_type_required", UserMessages.Sending.MessageTypeRequired);
+
+        if (string.IsNullOrWhiteSpace(ClientBatchId))
+            return Error.Validation("sending.client_batch_id_required", UserMessages.Sending.ClientBatchIdRequired);
+
+        if (ClientBatchId.Length > MaxClientBatchIdLength)
+            return Error.Validation("sending.client_batch_id_too_long", UserMessages.Sending.ClientBatchIdTooLong);
 
         if (Messages.Count == 0)
             return Error.Validation("sending.messages_required", UserMessages.Sending.MessagesRequired);
@@ -68,6 +79,26 @@ public sealed class SendMessagesRequest
                 return Error.Validation(
                     "sending.text_required",
                     UserMessages.Sending.MissingText(index));
+
+            if (message.Text.Length > MaxTextLength)
+                return Error.Validation(
+                    "sending.text_too_long",
+                    UserMessages.Sending.TextTooLong(index, MaxTextLength));
+
+            if (message.ClientCorrelatedId?.Length > MaxClientCorrelatedIdLength)
+                return Error.Validation(
+                    "sending.client_correlated_id_too_long",
+                    UserMessages.Sending.ClientCorrelatedIdTooLongAt(index, MaxClientCorrelatedIdLength));
+
+            if (message.BillId?.Length > MaxBillIdLength)
+                return Error.Validation(
+                    "sending.bill_id_too_long",
+                    UserMessages.Sending.BillIdTooLong(index, MaxBillIdLength));
+
+            if (message.PayId?.Length > MaxPayIdLength)
+                return Error.Validation(
+                    "sending.pay_id_too_long",
+                    UserMessages.Sending.PayIdTooLong(index, MaxPayIdLength));
         }
 
         return Result.Success();

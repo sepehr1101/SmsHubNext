@@ -14,20 +14,32 @@ internal static class DispatchSql
             FROM dbo.MessageBatch WITH (READPAST, UPDLOCK, ROWLOCK)
             WHERE (Status = 1 AND (NextDispatchAtUtc IS NULL OR NextDispatchAtUtc <= @Now)) -- Received and due
                OR (Status = 5 AND StatusReason = 1 AND StatusChangedAtUtc <= @HeldRetryBefore) -- Held for provider credit, due for resume
-               OR (Status = 2 AND StatusChangedAtUtc <= @DispatchStaleBefore) -- Dispatching, lease expired
+               OR (Status = 2 AND (DispatchLeaseExpiresAtUtc IS NULL OR DispatchLeaseExpiresAtUtc <= @Now)) -- expired lease
             ORDER BY Id
         )
         UPDATE b
         SET Status = 2,                                        -- Dispatching
             StatusReason = NULL,
             NextDispatchAtUtc = NULL,
+            DispatchLeaseToken = @DispatchLeaseToken,
+            DispatchLeaseExpiresAtUtc = @LeaseExpiresAtUtc,
             DispatchAttemptCount = DispatchAttemptCount + 1,
             DispatchStartedAtUtc = COALESCE(b.DispatchStartedAtUtc, @Now),
             StatusChangedAtUtc = @Now
         OUTPUT INSERTED.Id, INSERTED.CustomerId, INSERTED.ProviderId, INSERTED.SenderLineId,
-               DELETED.Status AS PreviousStatus, INSERTED.DispatchAttemptCount
+               DELETED.Status AS PreviousStatus, INSERTED.DispatchAttemptCount,
+               INSERTED.DispatchLeaseToken
         FROM dbo.MessageBatch b
         INNER JOIN next ON next.Id = b.Id;
+        """;
+
+    public const string RenewDispatchLease =
+        """
+        UPDATE dbo.MessageBatch
+        SET DispatchLeaseExpiresAtUtc = @LeaseExpiresAtUtc
+        WHERE Id = @Id
+          AND Status = 2
+          AND DispatchLeaseToken = @DispatchLeaseToken;
         """;
 
     public const string GetSenderLineNumber =
@@ -84,6 +96,7 @@ internal static class DispatchSql
         SET Status = 6,                                           -- AwaitingConfirmation
             AwaitingConfirmationSinceUtc = COALESCE(AwaitingConfirmationSinceUtc, @Now),
             ConfirmationLookupCount = CASE WHEN Status = 1 THEN 0 ELSE ConfirmationLookupCount END
+        OUTPUT INSERTED.Id
         WHERE Id IN @Ids AND Status = 1;                         -- only ones still Queued
         """;
 
@@ -95,8 +108,8 @@ internal static class DispatchSql
         WHERE Id = @Id AND Status = 6;
         """;
 
-    // Reconciliation found no provider record: the message was never accepted, so reset it to Queued
-    // for a normal (safe) re-send.
+    // Reconciliation gathered enough delayed negative evidence and the provider guarantees local-id
+    // idempotency: reset the message to Queued for a guarded resend.
     public const string RequeueMessage =
         """
         UPDATE dbo.Message
@@ -157,31 +170,35 @@ internal static class DispatchSql
     public const string HoldBatch =
         """
         UPDATE dbo.MessageBatch
-        SET Status = 5, StatusReason = @Reason, StatusChangedAtUtc = @Now   -- Held
-        WHERE Id = @Id;
+        SET Status = 5, StatusReason = @Reason, StatusChangedAtUtc = @Now,  -- Held
+            DispatchLeaseToken = NULL, DispatchLeaseExpiresAtUtc = NULL
+        WHERE Id = @Id AND Status = 2 AND DispatchLeaseToken = @DispatchLeaseToken;
         """;
 
     // Re-queue a batch after a transient error so it is reclaimed on a later cycle.
     public const string RevertBatchToReceived =
         """
         UPDATE dbo.MessageBatch
-        SET Status = 1, NextDispatchAtUtc = @NextDispatchAtUtc, StatusChangedAtUtc = @Now -- Received
-        WHERE Id = @Id;
+        SET Status = 1, NextDispatchAtUtc = @NextDispatchAtUtc, StatusChangedAtUtc = @Now, -- Received
+            DispatchLeaseToken = NULL, DispatchLeaseExpiresAtUtc = NULL
+        WHERE Id = @Id AND Status = 2 AND DispatchLeaseToken = @DispatchLeaseToken;
         """;
 
     public const string FinalizeBatch =
         """
         UPDATE dbo.MessageBatch
-        SET Status = @Status, StatusReason = NULL, FinishedAtUtc = @Now, StatusChangedAtUtc = @Now
-        WHERE Id = @Id;
+        SET Status = @Status, StatusReason = NULL, FinishedAtUtc = @Now, StatusChangedAtUtc = @Now,
+            DispatchLeaseToken = NULL, DispatchLeaseExpiresAtUtc = NULL
+        WHERE Id = @Id AND Status = 2 AND DispatchLeaseToken = @DispatchLeaseToken;
         """;
 
     public const string FailBatch =
         """
         UPDATE dbo.MessageBatch
         SET Status = 7, StatusReason = @Reason, NextDispatchAtUtc = NULL,
-            FinishedAtUtc = @Now, StatusChangedAtUtc = @Now
-        WHERE Id = @Id;
+            FinishedAtUtc = @Now, StatusChangedAtUtc = @Now,
+            DispatchLeaseToken = NULL, DispatchLeaseExpiresAtUtc = NULL
+        WHERE Id = @Id AND Status = 2 AND DispatchLeaseToken = @DispatchLeaseToken;
         """;
 
     public const string RetryFailedBatch =
@@ -193,6 +210,8 @@ internal static class DispatchSql
             DispatchAttemptCount = 0,
             DispatchStartedAtUtc = NULL,
             FinishedAtUtc = NULL,
+            DispatchLeaseToken = NULL,
+            DispatchLeaseExpiresAtUtc = NULL,
             StatusChangedAtUtc = @Now
         OUTPUT INSERTED.Id
         WHERE Id = @Id
