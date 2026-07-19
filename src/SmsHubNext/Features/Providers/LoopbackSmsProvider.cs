@@ -16,6 +16,8 @@ public sealed class LoopbackSmsProvider : ISmsProvider
     // No real transport limit; large enough to send a whole queued batch in one (no-op) call.
     public int MaxBatchSize => 1000;
 
+    public bool SupportsIdempotentResend => true;
+
     public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
         IReadOnlyList<ProviderSendRequest> requests,
         CancellationToken cancellationToken)

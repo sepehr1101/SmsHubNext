@@ -20,6 +20,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Testcontainers.MsSql" />
+    <PackageReference Include="Testcontainers.Toxiproxy" />
     <PackageReference Include="WireMock.Net" />
   </ItemGroup>
 

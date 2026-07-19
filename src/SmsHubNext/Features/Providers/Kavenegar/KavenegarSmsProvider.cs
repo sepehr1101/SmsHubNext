@@ -31,6 +31,10 @@ public sealed class KavenegarSmsProvider : ISmsProvider
 
     public int MaxBatchSize => _options.BatchSize;
 
+    // Kavenegar documents that a repeated localmessageids value returns the existing record and
+    // does not send a second SMS.
+    public bool SupportsIdempotentResend => true;
+
     public async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
         IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
     {

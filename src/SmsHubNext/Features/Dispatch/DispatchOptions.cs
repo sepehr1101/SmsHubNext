@@ -48,6 +48,48 @@ public sealed class DispatchOptions
     /// </summary>
     public int[] RetryBackoffSeconds { get; init; } = [30, 120, 300, 900];
 
+    public void Validate()
+    {
+        if (PollInterval <= TimeSpan.Zero)
+            throw new InvalidOperationException($"{SectionName}:PollInterval must be positive.");
+
+        if (HoldRetryDelay < TimeSpan.Zero)
+            throw new InvalidOperationException($"{SectionName}:HoldRetryDelay cannot be negative.");
+
+        if (DispatchLeaseTimeout < TimeSpan.FromMinutes(1))
+        {
+            throw new InvalidOperationException(
+                $"{SectionName}:DispatchLeaseTimeout must be at least one minute so an in-flight provider request is not reclaimed prematurely.");
+        }
+
+        if (MaxDispatchAttempts < 1)
+            throw new InvalidOperationException($"{SectionName}:MaxDispatchAttempts must be positive.");
+
+        if (MinAwaitingConfirmationAge <= TimeSpan.Zero)
+            throw new InvalidOperationException($"{SectionName}:MinAwaitingConfirmationAge must be positive.");
+
+        if (AwaitingConfirmationRetryDelay <= TimeSpan.Zero)
+            throw new InvalidOperationException($"{SectionName}:AwaitingConfirmationRetryDelay must be positive.");
+
+        if (AwaitingConfirmationMaxAge <= MinAwaitingConfirmationAge)
+        {
+            throw new InvalidOperationException(
+                $"{SectionName}:AwaitingConfirmationMaxAge must be greater than MinAwaitingConfirmationAge.");
+        }
+
+        if (AwaitingConfirmationMaxAge >= TimeSpan.FromHours(12))
+        {
+            throw new InvalidOperationException(
+                $"{SectionName}:AwaitingConfirmationMaxAge must stay below Kavenegar's 12-hour local-id lookup window.");
+        }
+
+        if (RequiredNegativeConfirmations < 2)
+            throw new InvalidOperationException($"{SectionName}:RequiredNegativeConfirmations must be at least 2.");
+
+        if (RetryBackoffSeconds.Any(seconds => seconds < 0))
+            throw new InvalidOperationException($"{SectionName}:RetryBackoffSeconds cannot contain negative values.");
+    }
+
     public TimeSpan RetryDelayForAttempt(int dispatchAttemptCount)
     {
         if (RetryBackoffSeconds.Length == 0)

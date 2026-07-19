@@ -23,6 +23,8 @@ installer/redist/
 *.trx
 *.coverage
 coverage/
+tests/SmsHubNext.LoadTests/results/
+tests/SmsHubNext.LoadTests/.publish/
 
 # Local secrets / environment
 *.env

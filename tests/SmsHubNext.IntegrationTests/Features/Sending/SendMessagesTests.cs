@@ -107,6 +107,87 @@ public sealed class SendMessagesTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Repeating_the_same_client_batch_returns_the_original_without_a_second_debit()
+    {
+        await ProviderAccountTestData.AssignActiveMagfaAccountToDefaultTestLineAsync(_db);
+        short customerId = await CreateCustomerAsync("idempotent");
+        await TopUpAsync(customerId, 10000m);
+        ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
+        SendMessagesRequest request = new SendMessagesRequest
+        {
+            ClientBatchId = "same-logical-request",
+            SenderLine = "30001234",
+            MessageTypeId = 1,
+            Messages = [new SendMessageItem { Recipient = "989120000007", Text = "Hello" }],
+        };
+        SendMessagesHandler handler = new SendMessagesHandler(_db, TimeProvider.System);
+
+        Result<SendMessagesResponse> first = await handler.Handle(request, identity, CancellationToken.None);
+        Result<SendMessagesResponse> duplicate = await handler.Handle(request, identity, CancellationToken.None);
+
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.True(duplicate.IsSuccess, duplicate.Error?.Message);
+        Assert.Equal(first.Value.BatchId, duplicate.Value.BatchId);
+        Assert.True(duplicate.Value.IsDuplicate);
+
+        SendMessagesRequest changedPayload = new SendMessagesRequest
+        {
+            ClientBatchId = request.ClientBatchId,
+            SenderLine = request.SenderLine,
+            MessageTypeId = request.MessageTypeId,
+            Messages = [new SendMessageItem { Recipient = "989120000007", Text = "Different" }],
+        };
+        Result<SendMessagesResponse> mismatch = await handler.Handle(changedPayload, identity, CancellationToken.None);
+        Assert.True(mismatch.IsFailure);
+        Assert.Equal("sending.client_batch_payload_mismatch", mismatch.Error!.Code);
+
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        int batchCount = await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.MessageBatch WHERE CustomerId = @CustomerId;",
+            new { CustomerId = customerId });
+        Assert.Equal(1, batchCount);
+        Assert.Equal(9000m, await connection.ExecuteScalarAsync<decimal>(
+            "SELECT Balance FROM dbo.CustomerBalance WHERE CustomerId = @CustomerId;",
+            new { CustomerId = customerId }));
+    }
+
+    [Fact]
+    public async Task Concurrent_retries_of_the_same_client_batch_create_one_batch_and_one_debit()
+    {
+        await ProviderAccountTestData.AssignActiveMagfaAccountToDefaultTestLineAsync(_db);
+        short customerId = await CreateCustomerAsync("concurrent-idempotent");
+        await TopUpAsync(customerId, 10000m);
+        ApiKeyIdentity identity = await IssueApiKeyAsync(customerId);
+        SendMessagesRequest request = new SendMessagesRequest
+        {
+            ClientBatchId = "concurrent-same-request",
+            SenderLine = "30001234",
+            MessageTypeId = 1,
+            Messages = [new SendMessageItem { Recipient = "989120000008", Text = "Hello" }],
+        };
+
+        Task<Result<SendMessagesResponse>>[] tasks = Enumerable.Range(0, 8)
+            .Select(_ => new SendMessagesHandler(_db, TimeProvider.System)
+                .Handle(request, identity, CancellationToken.None))
+            .ToArray();
+        Result<SendMessagesResponse>[] results = await Task.WhenAll(tasks);
+
+        Assert.All(results, result => Assert.True(result.IsSuccess, result.Error?.Message));
+        Assert.Single(results.Select(result => result.Value.BatchId).Distinct());
+
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        Assert.Equal(1, await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.MessageBatch WHERE CustomerId = @CustomerId;",
+            new { CustomerId = customerId }));
+        Assert.Equal(1, await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.BalanceTransaction WHERE CustomerId = @CustomerId AND Type = 2;",
+            new { CustomerId = customerId }));
+        Assert.Equal(9000m, await connection.ExecuteScalarAsync<decimal>(
+            "SELECT Balance FROM dbo.CustomerBalance WHERE CustomerId = @CustomerId;",
+            new { CustomerId = customerId }));
+    }
+
+    [Fact]
     public async Task Rejects_the_batch_when_the_balance_is_insufficient()
     {
         await ProviderAccountTestData.AssignActiveMagfaAccountToDefaultTestLineAsync(_db);
@@ -117,6 +198,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
+                ClientBatchId = "insufficient-balance",
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
@@ -149,6 +231,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
+                ClientBatchId = "unknown-sender-line",
                 CustomerId = customerId,
                 SenderLine = "99999999",
                 MessageTypeId = 1,
@@ -172,6 +255,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
+                ClientBatchId = "missing-provider-account",
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
@@ -198,6 +282,7 @@ public sealed class SendMessagesTests : IAsyncLifetime
         Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
+                ClientBatchId = "inactive-provider-account",
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,

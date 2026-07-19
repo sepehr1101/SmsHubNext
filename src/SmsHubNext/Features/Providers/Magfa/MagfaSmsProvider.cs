@@ -54,6 +54,11 @@ public sealed class MagfaSmsProvider : ISmsProvider
 
     public int MaxBatchSize => _options.BatchSize;
 
+    // uid can be queried after an uncertain submit, but Magfa does not document provider-side
+    // suppression of a second /send carrying the same uid. A negative lookup is therefore not
+    // strong enough to authorize an automatic resend when duplicate delivery is unacceptable.
+    public bool SupportsIdempotentResend => false;
+
     public async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
         IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
     {

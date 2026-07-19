@@ -381,7 +381,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `ApiKeyId` | `INT` | **FK** — which key made the call (per-call attribution, off the hot fact) |
 | `SenderLineId` | `SMALLINT` | **FK** — requested line |
 | `ProviderId` | `TINYINT` | **FK** — requested/primary provider |
-| `ClientBatchId` | `VARCHAR(100)` | nullable — caller's batch idempotency key |
+| `ClientBatchId` | `VARCHAR(100)` | nullable only for legacy/additive-schema compatibility; the send API requires this caller idempotency key |
 | `MessageCount` | `INT` | rollup |
 | `SegmentCount` | `INT` | rollup |
 | `TotalCost` | `DECIMAL(19,4)` | rollup (∑ message costs) |
@@ -391,8 +391,10 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `DispatchStartedAtUtc` | `DATETIME2(3)` | nullable — fixed milestone; `− ReceivedAtUtc` = queue wait |
 | `FinishedAtUtc` | `DATETIME2(3)` | nullable — fixed milestone, set on reaching **any terminal** status; `− DispatchStartedAtUtc` = dispatch duration |
 | `StatusChangedAtUtc` | `DATETIME2(3)` | **not null** — when the current `Status` was entered (= `ReceivedAtUtc` initially); powers stuck-batch alerts |
+| `DispatchLeaseToken` | `UNIQUEIDENTIFIER` | nullable renewable ownership/fencing token while `Status = Dispatching`; prevents a reclaimed stale worker from sending later chunks |
+| `DispatchLeaseExpiresAtUtc` | `DATETIME2(3)` | nullable lease expiry used for crash recovery and safe worker reclamation |
 
-**Indexes:** **CIX** `(SubmitDateJalali, Id)` (partition-aligned); `NCIX (CustomerId, SubmitDateJalali)` for "batches by customer"; `Filtered NCIX (ClientBatchId) WHERE NOT NULL` for batch idempotency. **Nonclustered columnstore on cold partitions** so duration aggregates (e.g. avg dispatch time by provider) stay scans, not joins.
+**Indexes:** **CIX** `(SubmitDateJalali, Id)` (partition-aligned); `NCIX (CustomerId, SubmitDateJalali)` for "batches by customer"; `Filtered NCIX (ClientBatchId) WHERE NOT NULL` for batch idempotency; filtered dispatch-lease index for reclaiming expired `Dispatching` batches. **Nonclustered columnstore on cold partitions** so duration aggregates (e.g. avg dispatch time by provider) stay scans, not joins.
 
 **Why it exists:** the unit of *who called and what it cost* — accounting, per-call API-key attribution, batch idempotency, and the home for **dispatch-level outcomes** (notably provider-credit **holds**). A credit hold sets `Status = Held` / `StatusReason = InsufficientProviderCredit` while the member messages stay `Queued` (never burned as `Failed`); a worker retries and resumes only the still-`Queued` rows. This is the request/accounting record (distinct from the removed templated-send `Campaign`). *Volume:* far below `Message` (one row per call, not per recipient).
 

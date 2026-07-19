@@ -79,9 +79,10 @@ Before a dispatch chunk is sent to the provider, its messages are moved from `Qu
 |---|---:|---|
 | `MinAwaitingConfirmationAge` | `00:02:00` | Minimum time a message must stay in `AwaitingConfirmation` before a provider "no record" lookup can be trusted. Increase this if the provider sometimes needs more time to expose uid/mid lookups. Decrease it only after proving the provider lookup is immediately consistent. |
 | `AwaitingConfirmationRetryDelay` | `00:02:00` | Delay before the next confirmation lookup when the lookup fails, times out, or does not yet provide enough evidence to resend. During this delay the message is not sent again. Increase it to reduce provider pressure during incidents. |
+| `AwaitingConfirmationMaxAge` | `11:00:00` | Maximum age at which provider lookup evidence is accepted. It must remain below Kavenegar's 12-hour local-id lookup retention. Older unknown outcomes are held for manual review and are never resent automatically. |
 | `RequiredNegativeConfirmations` | `2` | Number of delayed "no record" lookups required before a message may return to `Queued` for resend. Increase it to reduce duplicate-send risk. Lower values recover faster but are riskier if provider lookup can be stale. |
 
-Operational rule: while a message is in `AwaitingConfirmation`, do not send it again. A positive provider lookup moves it to `Submitted`; only enough delayed negative lookups move it back to `Queued`.
+Operational rule: while a message is in `AwaitingConfirmation`, do not send it again. A positive provider lookup moves it to `Submitted`. Enough delayed negative lookups permit an automatic resend only for providers that guarantee idempotency for the supplied local message id (currently Kavenegar). Magfa does not document that guarantee, so an unresolved Magfa outcome is held with `ManualReviewRequired` instead of being resent automatically.
 
 ### Other Dispatch Values
 
@@ -89,7 +90,7 @@ Operational rule: while a message is in `AwaitingConfirmation`, do not send it a
 |---|---|
 | `PollInterval` | Idle delay when no batch is ready to dispatch. |
 | `HoldRetryDelay` | Delay before a provider-credit `Held` batch can be checked again. |
-| `DispatchLeaseTimeout` | How long a `Dispatching` batch can stay stale before another worker may reclaim it. |
+| `DispatchLeaseTimeout` | Renewable ownership lease for a `Dispatching` batch. It must be at least one minute. A replacement worker may reclaim an expired lease, while the old worker's token prevents it from sending later chunks or changing the reclaimed batch. |
 | `MaxDispatchAttempts` | Maximum ordinary transient dispatch attempts before terminal dispatch failure. Awaiting-confirmation reconciliation is intentionally more conservative and should not be treated as ordinary resend retry. |
 | `RetryBackoffSeconds` | Backoff schedule for ordinary transient resend retries. |
 
@@ -104,3 +105,13 @@ The `InboundPolling` section controls provider inbox polling. Enable it only whe
 ## Provider Settings
 
 The `Providers` section controls provider integration options such as base URL, timeout, batch size, and account mapping. In production, verify sender-line to account mapping before enabling dispatch.
+
+`LoopbackSmsProvider` is available only in the `Development` and `Testing` environments. In every production-like environment the application fails at startup unless at least one real provider (`Magfa` or `Kavenegar`) is enabled. This is an intentional deployment safety check: a missing provider configuration must never create fake successful deliveries.
+
+Before production startup:
+
+1. Set the host environment explicitly to `Production`.
+2. Enable at least one real provider and supply its settings through production configuration/secrets.
+3. Create and activate the provider account, then link each production sender line to the correct account.
+4. Submit a uniquely identified low-risk test batch and confirm both the provider message id and subsequent delivery report.
+5. Treat `ClientBatchId` as mandatory. Generate one stable value per logical API request and reuse the same value, with the identical payload, for every client retry. A changed payload with the same key is rejected.

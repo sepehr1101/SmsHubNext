@@ -17,7 +17,7 @@ builder.Host.UseSerilog((context, configuration) => configuration
     .Enrich.FromLogContext()
     .WriteTo.Console());
 
-builder.Services.AddApplicationServices(builder.Configuration);
+builder.Services.AddApplicationServices(builder.Configuration, builder.Environment);
 
 WebApplication app = builder.Build();
 

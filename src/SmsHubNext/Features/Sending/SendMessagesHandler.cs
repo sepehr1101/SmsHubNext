@@ -86,9 +86,6 @@ public sealed class SendMessagesHandler
         byte[] requestHash,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.ClientBatchId))
-            return Result.Success<SendMessagesResponse?>(null);
-
         ExistingBatchRow? existing = await connection.QuerySingleOrDefaultAsync<ExistingBatchRow>(new CommandDefinition(
             SendingSql.GetExistingBatchByClientBatchId,
             new { CustomerId = customerId, request.ClientBatchId },

@@ -84,6 +84,9 @@ public static class UserMessages
         public const string InsufficientBalance = "The customer's prepaid balance is insufficient for this batch.";
         public const string SenderLineRequired = "A sender line is required.";
         public const string MessageTypeRequired = "A message type id is required.";
+        public const string ClientBatchIdRequired =
+            "A client batch id is required so retries cannot create duplicate SMS messages.";
+        public const string ClientBatchIdTooLong = "Client batch ids may contain at most 100 characters.";
         public const string MessagesRequired = "At least one message is required.";
         public const string TooManyMessages = "At most 5,000 messages can be accepted in one request.";
         public static string TooManyMessagesLimit(int maxMessages) =>
@@ -93,8 +96,14 @@ public static class UserMessages
         public static string InvalidRecipient(int index) => $"Message at index {index} has an invalid Iranian mobile number.";
         public const string TextRequired = "Each message must have text.";
         public static string MissingText(int index) => $"Message at index {index} is missing text.";
-        public const string ClientCorrelatedIdTooLong =
-            "Client correlated ids may contain at most 100 characters.";
+        public static string TextTooLong(int index, int maxLength) =>
+            $"Message at index {index} may contain at most {maxLength} characters.";
+        public static string ClientCorrelatedIdTooLongAt(int index, int maxLength) =>
+            $"Message at index {index} has a client correlated id longer than {maxLength} characters.";
+        public static string BillIdTooLong(int index, int maxLength) =>
+            $"Message at index {index} has a bill id longer than {maxLength} characters.";
+        public static string PayIdTooLong(int index, int maxLength) =>
+            $"Message at index {index} has a pay id longer than {maxLength} characters.";
     }
 
     public static class Setup

@@ -139,6 +139,7 @@ public sealed class DeliveryReportPollerTests : IAsyncLifetime
         Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
+                ClientBatchId = $"delivery-poller-{Guid.NewGuid():N}",
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
@@ -206,6 +207,8 @@ public sealed class DeliveryReportPollerTests : IAsyncLifetime
         public string Name => "magfa";
 
         public int MaxBatchSize => 1000;
+
+        public bool SupportsIdempotentResend => true;
 
         public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
             IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)

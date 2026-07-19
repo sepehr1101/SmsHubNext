@@ -18,6 +18,13 @@ public interface ISmsProvider
     int MaxBatchSize { get; }
 
     /// <summary>
+    /// Whether resubmitting the same <see cref="ProviderSendRequest.MessageId"/> is guaranteed by
+    /// the provider not to create a second SMS. Providers without this guarantee must be held for
+    /// manual review after an unknown submit outcome cannot be positively confirmed.
+    /// </summary>
+    bool SupportsIdempotentResend { get; }
+
+    /// <summary>
     /// Submits up to <see cref="MaxBatchSize"/> messages in one provider request.
     /// A failed outer <c>Result</c> means the provider outcome is unknown; the dispatcher must keep
     /// those messages in <c>AwaitingConfirmation</c> and reconcile by uid before any resend.

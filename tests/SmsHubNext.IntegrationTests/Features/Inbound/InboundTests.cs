@@ -124,6 +124,8 @@ public sealed class InboundTests : IAsyncLifetime
 
         public int MaxBatchSize => 100;
 
+        public bool SupportsIdempotentResend => true;
+
         public Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
             int maxCount, CancellationToken cancellationToken) =>
             Task.FromResult(_fetch());

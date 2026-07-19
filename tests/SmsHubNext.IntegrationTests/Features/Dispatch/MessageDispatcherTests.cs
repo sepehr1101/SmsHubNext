@@ -218,6 +218,45 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_provider_without_idempotent_resend_is_held_after_negative_confirmations()
+    {
+        (long batchId, _) = await SendBatchAsync(messageCount: 1);
+
+        MessageDispatcher failing = Dispatcher(
+            _ => ProviderDispatchResult.Accepted("unused"),
+            sendFailure: Error.Provider("dispatch.timeout", "response lost"),
+            supportsIdempotentResend: false);
+        Assert.True(await failing.DispatchNextBatchAsync(CancellationToken.None));
+
+        int sendCalls = 0;
+        DispatchOptions options = new DispatchOptions
+        {
+            MinAwaitingConfirmationAge = TimeSpan.Zero,
+            AwaitingConfirmationRetryDelay = TimeSpan.Zero,
+            RequiredNegativeConfirmations = 2,
+        };
+        MessageDispatcher firstNegative = Dispatcher(
+            _ => { sendCalls++; return ProviderDispatchResult.Accepted("must-not-send"); },
+            options,
+            resolve: _ => Result.Success<string?>(null),
+            supportsIdempotentResend: false);
+        Assert.True(await firstNegative.DispatchNextBatchAsync(CancellationToken.None));
+
+        MessageDispatcher secondNegative = Dispatcher(
+            _ => { sendCalls++; return ProviderDispatchResult.Accepted("must-not-send"); },
+            options,
+            resolve: _ => Result.Success<string?>(null),
+            supportsIdempotentResend: false);
+        Assert.True(await secondNegative.DispatchNextBatchAsync(CancellationToken.None));
+
+        Assert.Equal(0, sendCalls);
+        Assert.Equal((byte)SendStatus.AwaitingConfirmation, await MessageStatusAsync(batchId));
+        Result<Batch> batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(BatchStatus.Held, batch.Value.Status);
+        Assert.Equal(BatchStatusReason.ManualReviewRequired, batch.Value.StatusReason);
+    }
+
+    [Fact]
     public async Task Concurrent_dispatchers_claim_each_batch_once()
     {
         const int batchCount = 8;
@@ -271,17 +310,70 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.Equal(batchCount, completedBatches);
     }
 
+    [Fact]
+    public async Task A_stale_worker_cannot_send_a_later_chunk_after_its_lease_is_reclaimed()
+    {
+        (long batchId, _) = await SendBatchAsync(messageCount: 2);
+        BlockingFirstSendProvider staleProvider = new BlockingFirstSendProvider();
+        MessageDispatcher staleDispatcher = new MessageDispatcher(
+            _db,
+            new SmsProviderRegistry([staleProvider]),
+            new DispatchOptions(),
+            TimeProvider.System,
+            NullLogger<MessageDispatcher>.Instance);
+
+        Task<bool> staleTask = staleDispatcher.DispatchNextBatchAsync(CancellationToken.None);
+        await staleProvider.FirstSendStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        await using (SqlConnection connection = await _db.OpenConnectionAsync())
+        {
+            await connection.ExecuteAsync(
+                "UPDATE dbo.MessageBatch SET DispatchLeaseExpiresAtUtc = '2000-01-01' WHERE Id = @Id;",
+                new { Id = batchId });
+        }
+
+        ConcurrentDictionary<long, int> replacementSendCounts = new ConcurrentDictionary<long, int>();
+        MessageDispatcher replacement = Dispatcher(
+            request =>
+            {
+                replacementSendCounts.AddOrUpdate(request.MessageId, 1, (_, count) => count + 1);
+                return ProviderDispatchResult.Accepted($"replacement-{request.MessageId}");
+            },
+            new DispatchOptions { MinAwaitingConfirmationAge = TimeSpan.Zero },
+            resolve: id => Result.Success<string?>($"recovered-{id}"));
+
+        Assert.True(await replacement.DispatchNextBatchAsync(CancellationToken.None));
+        staleProvider.ReleaseFirstSend.SetResult();
+        Assert.True(await staleTask);
+
+        Assert.Single(staleProvider.SentMessageIds);
+        Assert.Single(replacementSendCounts);
+        Assert.All(replacementSendCounts.Values, count => Assert.Equal(1, count));
+        Assert.DoesNotContain(staleProvider.SentMessageIds.Single(), replacementSendCounts.Keys);
+
+        Result<Batch> batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(BatchStatus.DispatchCompleted, batch.Value.Status);
+    }
+
     private MessageDispatcher Dispatcher(
         Func<ProviderSendRequest, Result<ProviderDispatchResult>> behavior,
         DispatchOptions? options = null,
         Func<long, Result<string?>>? resolve = null,
-        Error? sendFailure = null) =>
-        new(
+        Error? sendFailure = null,
+        bool supportsIdempotentResend = true)
+    {
+        StubProvider provider = new StubProvider(behavior, resolve, sendFailure)
+        {
+            SupportsIdempotentResend = supportsIdempotentResend,
+        };
+
+        return new MessageDispatcher(
             _db,
-            new SmsProviderRegistry([new StubProvider(behavior, resolve, sendFailure)]),
+            new SmsProviderRegistry([provider]),
             options ?? new DispatchOptions(),
             TimeProvider.System,
             NullLogger<MessageDispatcher>.Instance);
+    }
 
     private async Task<byte> MessageStatusAsync(long batchId)
     {
@@ -323,6 +415,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
             new SendMessagesRequest
             {
+                ClientBatchId = $"dispatcher-{Guid.NewGuid():N}",
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
@@ -355,6 +448,8 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
 
         public int MaxBatchSize => 1000;
 
+        public bool SupportsIdempotentResend { get; init; } = true;
+
         // Apply the per-message behavior to each request, aligned to input order — unless a whole-batch
         // (transport) failure is configured.
         public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
@@ -376,6 +471,56 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
 
         public Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
             int maxCount, CancellationToken cancellationToken) =>
+            Task.FromResult(Result.Success<IReadOnlyList<ProviderInboundMessage>>([]));
+    }
+
+    private sealed class BlockingFirstSendProvider : ISmsProvider
+    {
+        public TaskCompletionSource FirstSendStarted { get; } =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseFirstSend { get; } =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ConcurrentBag<long> SentMessageIds { get; } = new ConcurrentBag<long>();
+
+        public string Name => "magfa";
+
+        public int MaxBatchSize => 1;
+
+        public bool SupportsIdempotentResend => false;
+
+        public async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
+            IReadOnlyList<ProviderSendRequest> requests,
+            CancellationToken cancellationToken)
+        {
+            ProviderSendRequest request = Assert.Single(requests);
+            SentMessageIds.Add(request.MessageId);
+
+            if (SentMessageIds.Count == 1)
+            {
+                FirstSendStarted.SetResult();
+                await ReleaseFirstSend.Task.WaitAsync(cancellationToken);
+            }
+
+            IReadOnlyList<Result<ProviderDispatchResult>> results =
+                [Result.Success(ProviderDispatchResult.Accepted($"stale-{request.MessageId}"))];
+            return Result.Success(results);
+        }
+
+        public Task<Result<string?>> ResolveSubmittedMessageIdAsync(
+            long messageId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(Result.Success<string?>(null));
+
+        public Task<Result<IReadOnlyList<ProviderDeliveryReport>>> GetDeliveryReportsAsync(
+            IReadOnlyCollection<string> providerMessageIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(Result.Success<IReadOnlyList<ProviderDeliveryReport>>([]));
+
+        public Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
+            int maxCount,
+            CancellationToken cancellationToken) =>
             Task.FromResult(Result.Success<IReadOnlyList<ProviderInboundMessage>>([]));
     }
 }

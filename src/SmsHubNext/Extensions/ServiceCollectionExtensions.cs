@@ -31,7 +31,8 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddApplicationServices(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         // MVC controllers (feature controllers live under Features/*; see ADR-004).
         services.AddControllers(options =>
@@ -77,7 +78,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(new Db(connectionString));
 
         services.AddFeatureHandlers();
-        services.AddBackgroundDispatch(configuration);
+        services.AddBackgroundDispatch(configuration, environment);
         services.AddDeliveryReportPolling(configuration);
         services.AddInboundPolling(configuration);
         services.AddApplicationHealthChecks();
@@ -191,16 +192,18 @@ public static class ServiceCollectionExtensions
     // (ARCHITECTURE.md §9). TimeProvider is injected so dispatch timing is testable.
     private static IServiceCollection AddBackgroundDispatch(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         services.AddSingleton(TimeProvider.System);
 
         // The one real seam: the active provider. Magfa is used when configured and enabled;
         // otherwise the loopback stand-in keeps dev/local runs and tests working credential-free.
-        AddSmsProvider(services, configuration);
+        AddSmsProvider(services, configuration, environment);
 
         DispatchOptions dispatchOptions = configuration.GetSection(DispatchOptions.SectionName).Get<DispatchOptions>()
             ?? new DispatchOptions();
+        dispatchOptions.Validate();
         services.AddSingleton(dispatchOptions);
 
         services.AddScoped<MessageDispatcher>();
@@ -246,10 +249,13 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    // Selects and registers the active ISmsProvider. Magfa is a typed HttpClient (base address and
-    // timeout configured here); credentials are per account and set per request by the provider, so
-    // the client carries no default auth. When disabled/unconfigured the loopback impl stands in.
-    private static void AddSmsProvider(IServiceCollection services, IConfiguration configuration)
+    // Selects and registers the active ISmsProvider. Real providers use typed HttpClients; credentials
+    // are resolved per account and set per request. Loopback is deliberately restricted to Development
+    // and Testing so a production configuration error can never look like a successful SMS dispatch.
+    private static void AddSmsProvider(
+        IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         bool realProviderRegistered = false;
 
@@ -287,8 +293,19 @@ public static class ServiceCollectionExtensions
             realProviderRegistered = true;
         }
 
-        if (!realProviderRegistered)
+        if (!realProviderRegistered &&
+            (environment.IsDevelopment() || environment.IsEnvironment("Testing")))
+        {
             services.AddSingleton<ISmsProvider, LoopbackSmsProvider>();
+            return;
+        }
+
+        if (!realProviderRegistered)
+        {
+            throw new InvalidOperationException(
+                "At least one real SMS provider must be enabled outside Development/Testing. " +
+                "Loopback dispatch is forbidden in production-like environments.");
+        }
     }
 
     // Feature handlers — plain classes resolved per request. Rather than list every one (a file that

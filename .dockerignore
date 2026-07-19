@@ -1,0 +1,9 @@
+.git
+.agents
+.vs
+.vscode
+artifacts
+**/bin
+**/obj
+tests/SmsHubNext.LoadTests/results
+

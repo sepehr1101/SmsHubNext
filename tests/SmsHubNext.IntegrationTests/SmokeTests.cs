@@ -208,6 +208,8 @@ public sealed class SmokeTests : IAsyncLifetime
 
         public int MaxBatchSize => 1000;
 
+        public bool SupportsIdempotentResend => true;
+
         public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
             IReadOnlyList<ProviderSendRequest> requests,
             CancellationToken cancellationToken)
