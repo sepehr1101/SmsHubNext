@@ -12,6 +12,19 @@ internal static class KavenegarProviderErrors
     public static Error HttpStatus(int statusCode) =>
         Error.Provider(KavenegarErrorCodes.HttpStatus, UserMessages.Providers.KavenegarHttpStatus(statusCode));
 
+    public static Error AuthenticationHttpStatus(int statusCode) =>
+        Error.Provider(
+            $"{KavenegarErrorCodes.AuthenticationHttpStatus}.{statusCode}",
+            UserMessages.Providers.KavenegarHttpStatus(statusCode));
+
+    public static bool TryGetAuthenticationHttpStatus(Error error, out int statusCode)
+    {
+        string prefix = KavenegarErrorCodes.AuthenticationHttpStatus + ".";
+        statusCode = 0;
+        return error.Code.StartsWith(prefix, StringComparison.Ordinal)
+            && int.TryParse(error.Code[prefix.Length..], out statusCode);
+    }
+
     public static Error BadJson(string message) =>
         Error.Provider(KavenegarErrorCodes.BadJson, UserMessages.Providers.KavenegarBadJson(message));
 

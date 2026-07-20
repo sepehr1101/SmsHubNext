@@ -6,6 +6,7 @@ internal static class KavenegarErrorCodes
     public const string Transport = "kavenegar.transport";
     public const string Timeout = "kavenegar.timeout";
     public const string HttpStatus = "kavenegar.http_status";
+    public const string AuthenticationHttpStatus = "kavenegar.authentication_http_status";
     public const string BadJson = "kavenegar.bad_json";
     public const string EmptyBody = "kavenegar.empty_body";
     public const string MissingResult = "kavenegar.missing_result";

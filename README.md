@@ -386,7 +386,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `SegmentCount` | `INT` | rollup |
 | `TotalCost` | `DECIMAL(19,4)` | rollup (∑ message costs) |
 | `Status` | `TINYINT` | **authoritative current state**: Received / Dispatching / Completed / PartiallyFailed / **Held** / Rejected / Failed |
-| `StatusReason` | `TINYINT` | nullable — e.g. `InsufficientProviderCredit`, `InsufficientCustomerBalance` |
+| `StatusReason` | `TINYINT` | nullable — e.g. `InsufficientProviderCredit`, `InsufficientCustomerBalance`, `InvalidProviderCredentials` |
 | `ProviderResultCode` | `INT` | nullable — raw provider submission code |
 | `DispatchStartedAtUtc` | `DATETIME2(3)` | nullable — fixed milestone; `− ReceivedAtUtc` = queue wait |
 | `FinishedAtUtc` | `DATETIME2(3)` | nullable — fixed milestone, set on reaching **any terminal** status; `− DispatchStartedAtUtc` = dispatch duration |

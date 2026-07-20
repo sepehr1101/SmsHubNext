@@ -73,7 +73,12 @@ The `Dispatch` section controls the background worker that submits queued messag
 
 These settings protect against duplicate SMS sends when the application cannot prove whether the provider accepted a submit request.
 
-Before a dispatch chunk is sent to the provider, its messages are moved from `Queued` to `AwaitingConfirmation`. If the HTTP response is lost, times out, or the process crashes around the provider call, the worker reconciles by provider uid/mid instead of resending immediately.
+Before a dispatch chunk is sent to the provider, its messages are pre-claimed as
+`AwaitingConfirmation` for crash safety. That state is retained only when the outcome is genuinely
+unknown: the HTTP response is lost, times out, the connection fails, a response cannot be mapped, or
+the process crashes around the provider call. An explicit transient non-submission returns the rows
+to `Queued`; an authentication/account rejection returns them to `Queued`, terminal-fails and refunds
+the batch as `InvalidProviderCredentials`. Neither known outcome performs a confirmation lookup.
 
 | Setting | Default | Operator guidance |
 |---|---:|---|

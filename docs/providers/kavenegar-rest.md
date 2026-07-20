@@ -84,7 +84,14 @@ line-scoped, the provider implementation fans out over configured inbound lines 
 ## Request-level result codes used by the implementation
 
 - `200`: success.
-- `409`: provider temporarily cannot respond; retry later.
+- `401`, `403`, `407`: inactive account, invalid API key, or access/IP failure. These prove the
+  request was not submitted: fail/refund the batch as `InvalidProviderCredentials`.
+- `409`: provider temporarily cannot respond; return messages to `Queued` and retry later without
+  confirmation lookup.
 - `418`: insufficient account credit; hold the batch.
 - `411`, `412`, `413`, `414`, `419`: request/data/configuration faults; surface as provider errors
   unless the provider returns per-message rows that can be mapped individually.
+
+HTTP `401/403` has the same definite-non-submission treatment. Timeouts, connection failures,
+HTTP 5xx, malformed responses, and missing per-message results remain unknown outcomes and use the
+`AwaitingConfirmation` reconciliation path.

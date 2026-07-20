@@ -81,10 +81,10 @@ custom endpoints or replace its generated credentials with real ones.
 The expected safety behavior is:
 
 - all 10,000 `Message` and `MessageBody` rows are present;
-- every message is `AwaitingConfirmation`, with no provider message id or delivery-poll row;
-- every batch is `Held / ManualReviewRequired` after its first provider call;
-- the original prepaid debits remain and no automatic refund is created, because an authentication
-  response currently travels through the conservative unknown-outcome lane;
+- every message returns to `Queued`, with no provider message id or delivery-poll row;
+- every batch is `DispatchFailed / InvalidProviderCredentials` after its first provider call;
+- every prepaid debit has one matching batch-level refund because authentication failure proves the
+  provider accepted no message;
 - no automatic resend or confirmation lookup occurs during this bounded probe.
 
 The JSON timing and invariant report is written to

@@ -21,6 +21,19 @@ internal static class MagfaProviderErrors
     public static Error HttpStatus(int statusCode) =>
         Error.Provider(MagfaErrorCodes.HttpStatus, UserMessages.Providers.MagfaHttpStatus(statusCode));
 
+    public static Error AuthenticationHttpStatus(int statusCode) =>
+        Error.Provider(
+            $"{MagfaErrorCodes.AuthenticationHttpStatus}.{statusCode}",
+            UserMessages.Providers.MagfaHttpStatus(statusCode));
+
+    public static bool TryGetAuthenticationHttpStatus(Error error, out int statusCode)
+    {
+        string prefix = MagfaErrorCodes.AuthenticationHttpStatus + ".";
+        statusCode = 0;
+        return error.Code.StartsWith(prefix, StringComparison.Ordinal)
+            && int.TryParse(error.Code[prefix.Length..], out statusCode);
+    }
+
     public static Error BadJson(string message) =>
         Error.Provider(MagfaErrorCodes.BadJson, UserMessages.Providers.MagfaBadJson(message));
 }

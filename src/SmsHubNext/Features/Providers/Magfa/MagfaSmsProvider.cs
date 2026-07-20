@@ -97,7 +97,19 @@ public sealed class MagfaSmsProvider : ISmsProvider
             Result<MagfaSendResponse> response = await ExecuteAsync<MagfaSendResponse>(
                 () => CreateSendRequest(account, group), cancellationToken);
             if (response.IsFailure)
-                return response.Error!;
+            {
+                if (!MagfaProviderErrors.TryGetAuthenticationHttpStatus(response.Error!, out int httpStatus))
+                    return response.Error!;
+
+                IReadOnlyList<Result<ProviderDispatchResult>> notSubmitted = WholeRequestOutcomes(
+                    group,
+                    ProviderDispatchResult.DefinitelyNotSubmitted(
+                        httpStatus,
+                        UserMessages.Providers.MagfaDefinitelyNotSubmitted(httpStatus)));
+                for (int j = 0; j < indices.Count; j++)
+                    results[indices[j]] = notSubmitted[j];
+                continue;
+            }
 
             Result<IReadOnlyList<Result<ProviderDispatchResult>>> mapped = MapSendResponse(response.Value, group);
             if (mapped.IsFailure)
@@ -257,7 +269,12 @@ public sealed class MagfaSmsProvider : ISmsProvider
         using (response)
         {
             if (!response.IsSuccessStatusCode)
-                return MagfaProviderErrors.HttpStatus((int)response.StatusCode);
+            {
+                int statusCode = (int)response.StatusCode;
+                return statusCode is 401 or 403
+                    ? MagfaProviderErrors.AuthenticationHttpStatus(statusCode)
+                    : MagfaProviderErrors.HttpStatus(statusCode);
+            }
 
             T? body;
             try
@@ -292,8 +309,30 @@ public sealed class MagfaSmsProvider : ISmsProvider
             return Result.Success(outOfCredit);
         }
 
-        // Auth/IP/protocol faults and "server busy" are not per-message outcomes: re-queue the whole
-        // chunk and surface loudly so a misconfiguration is fixed rather than charged.
+        if (MagfaStatusCodes.IsDefinitelyNotSubmitted(response.Status))
+        {
+            _logger.LogError(
+                "Magfa rejected {Count} message(s) before submission with authentication/account status {Status}.",
+                requests.Count,
+                response.Status);
+            return Result.Success(WholeRequestOutcomes(
+                requests,
+                ProviderDispatchResult.DefinitelyNotSubmitted(
+                    response.Status,
+                    UserMessages.Providers.MagfaDefinitelyNotSubmitted(response.Status))));
+        }
+
+        if (MagfaStatusCodes.Classify(response.Status) == MagfaDisposition.Transient)
+        {
+            return Result.Success(WholeRequestOutcomes(
+                requests,
+                ProviderDispatchResult.RetryableNotSubmitted(
+                    response.Status,
+                    UserMessages.Providers.MagfaRequestStatus(response.Status))));
+        }
+
+        // Unknown request-level protocol/configuration faults remain inconclusive until explicitly
+        // classified. Do not refund them as authentication errors by guesswork.
         _logger.LogError("Magfa rejected the send request ({Count} message(s)) with request-level status {Status}.",
             requests.Count, response.Status);
         return MagfaProviderErrors.RequestStatus(MagfaErrorCodes.RequestStatus, response.Status);
@@ -357,7 +396,9 @@ public sealed class MagfaSmsProvider : ISmsProvider
                 return ProviderDispatchResult.Rejected(message.Status, UserMessages.Providers.MagfaRejectedStatus(message.Status));
 
             case MagfaDisposition.Transient:
-                return Error.Provider(MagfaErrorCodes.MessageStatus, UserMessages.Providers.MagfaMessageStatus(message.Status));
+                return ProviderDispatchResult.RetryableNotSubmitted(
+                    message.Status,
+                    UserMessages.Providers.MagfaMessageStatus(message.Status));
 
             // A per-message configuration fault (e.g. invalid sender/encoding) will never succeed on
             // retry, so it is treated as a rejection (unsendable ⇒ refund), logged as a likely config issue.
@@ -370,4 +411,9 @@ public sealed class MagfaSmsProvider : ISmsProvider
                     UserMessages.Providers.MagfaRejectedConfigurationStatus(message.Status));
         }
     }
+
+    private static IReadOnlyList<Result<ProviderDispatchResult>> WholeRequestOutcomes(
+        IReadOnlyCollection<ProviderSendRequest> requests,
+        ProviderDispatchResult outcome) =>
+        requests.Select(_ => Result.Success(outcome)).ToList();
 }
