@@ -106,6 +106,84 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Invalid_provider_credentials_fail_and_refund_the_batch_without_awaiting_confirmation()
+    {
+        (long batchId, short customerId) = await SendBatchAsync(messageCount: 2);
+
+        MessageDispatcher dispatcher = Dispatcher(_ =>
+            ProviderDispatchResult.DefinitelyNotSubmitted(
+                resultCode: 403,
+                detail: "secret-material-must-not-be-persisted"));
+
+        Assert.True(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
+
+        Result<Batch> batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(BatchStatus.DispatchFailed, batch.Value.Status);
+        Assert.Equal(BatchStatusReason.InvalidProviderCredentials, batch.Value.StatusReason);
+        Assert.Equal(403, batch.Value.ProviderResultCode);
+        Assert.NotNull(batch.Value.FinishedAtUtc);
+
+        Result<IReadOnlyList<BatchMessage>> messages =
+            await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.All(messages.Value, message => Assert.Equal(SendStatus.Queued, message.Status));
+        Assert.Equal(10000m, await BalanceAsync(customerId));
+
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        int refunds = await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.BalanceTransaction WHERE CustomerId = @CustomerId AND Type = 3;",
+            new { CustomerId = customerId });
+        Assert.Equal(1, refunds);
+
+        Result<IReadOnlyList<BatchEvent>> events =
+            await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
+        BatchEvent failure = Assert.Single(
+            events.Value,
+            batchEvent => batchEvent.EventType == MessageBatchEventType.DispatchFailed);
+        Assert.Equal(BatchStatusReason.InvalidProviderCredentials, failure.BatchStatusReason);
+        Assert.Equal(403, failure.ProviderResultCode);
+        Assert.NotNull(failure.Detail);
+        Assert.Contains("before submission", failure.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secret-material", failure.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(events.Value, batchEvent =>
+            batchEvent.EventType == MessageBatchEventType.AwaitingConfirmation);
+    }
+
+    [Fact]
+    public async Task Explicit_transient_rejection_retries_queued_messages_without_confirmation_lookup()
+    {
+        (long batchId, short customerId) = await SendBatchAsync(messageCount: 1);
+        DispatchOptions options = new DispatchOptions
+        {
+            MaxDispatchAttempts = 2,
+            RetryBackoffSeconds = [0],
+        };
+        MessageDispatcher dispatcher = Dispatcher(
+            _ => ProviderDispatchResult.RetryableNotSubmitted(409, "busy"),
+            options);
+
+        Assert.True(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
+
+        Result<Batch> retrying = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(BatchStatus.Received, retrying.Value.Status);
+        Assert.Equal((byte)SendStatus.Queued, await MessageStatusAsync(batchId));
+
+        Result<IReadOnlyList<BatchEvent>> firstEvents =
+            await new ListBatchEventsHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Contains(firstEvents.Value, batchEvent =>
+            batchEvent.EventType == MessageBatchEventType.Requeued && batchEvent.ProviderResultCode == 409);
+        Assert.DoesNotContain(firstEvents.Value, batchEvent =>
+            batchEvent.EventType == MessageBatchEventType.AwaitingConfirmation);
+
+        Assert.True(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
+
+        Result<Batch> failed = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(BatchStatus.DispatchFailed, failed.Value.Status);
+        Assert.Equal(BatchStatusReason.DispatchRetriesExhausted, failed.Value.StatusReason);
+        Assert.Equal(409, failed.Value.ProviderResultCode);
+        Assert.Equal(10000m, await BalanceAsync(customerId));
+    }
+
+    [Fact]
     public async Task A_credit_exhausted_batch_is_held_then_resumed()
     {
         (long batchId, short customerId) = await SendBatchAsync(messageCount: 1);

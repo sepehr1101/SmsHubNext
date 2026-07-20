@@ -36,6 +36,11 @@ public static class MagfaStatusCodes
     /// <summary>Transient: worth retrying the same request later.</summary>
     private static readonly HashSet<int> Transient = [15, 23];
 
+    /// <summary>Request-level account/authentication failures that prove no message was accepted.</summary>
+    private static readonly HashSet<int> DefinitelyNotSubmitted = [16, 17, 18, 19, 22, 29];
+
+    public static bool IsDefinitelyNotSubmitted(int status) => DefinitelyNotSubmitted.Contains(status);
+
     public static MagfaDisposition Classify(int status) => status switch
     {
         Success => MagfaDisposition.Accepted,

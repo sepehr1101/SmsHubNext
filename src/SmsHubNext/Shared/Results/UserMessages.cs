@@ -227,6 +227,8 @@ public static class UserMessages
         public static string MagfaRejectedStatus(int status) => $"Magfa status {status}.";
         public static string MagfaRejectedConfigurationStatus(int status) =>
             $"Magfa status {status} (configuration).";
+        public static string MagfaDefinitelyNotSubmitted(int status) =>
+            $"Magfa rejected the request before submission with authentication/account status {status}.";
 
         public const string KavenegarTransport = "HTTP transport error while calling Kavenegar.";
         public const string KavenegarTimeout = "Kavenegar request timed out.";
@@ -240,6 +242,8 @@ public static class UserMessages
             $"Kavenegar message {messageId} returned unhandled status {status}.";
         public static string KavenegarRequestStatus(string method, int status, string message) =>
             $"Kavenegar {method} returned status {status}: {message}";
+        public static string KavenegarDefinitelyNotSubmitted(int status) =>
+            $"Kavenegar rejected the request before submission with authentication/account status {status}.";
 
         public const string ProviderThrew = "The SMS provider failed unexpectedly.";
     }

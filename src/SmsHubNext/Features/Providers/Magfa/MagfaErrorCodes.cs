@@ -9,6 +9,7 @@ internal static class MagfaErrorCodes
     public const string Transport = "magfa.transport";
     public const string Timeout = "magfa.timeout";
     public const string HttpStatus = "magfa.http_status";
+    public const string AuthenticationHttpStatus = "magfa.authentication_http_status";
     public const string BadJson = "magfa.bad_json";
     public const string EmptyBody = "magfa.empty_body";
     public const string RequestStatus = "magfa.request_status";

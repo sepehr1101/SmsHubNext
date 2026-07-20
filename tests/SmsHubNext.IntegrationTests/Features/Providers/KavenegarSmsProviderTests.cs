@@ -92,6 +92,47 @@ public sealed class KavenegarSmsProviderTests : IDisposable
         Assert.Equal(ProviderDispatchStatus.InsufficientCredit, result.Value.Status);
     }
 
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(407)]
+    public async Task Request_level_authentication_or_access_failure_is_definitely_not_submitted(int status)
+    {
+        StubSendArray(200, $$"""{ "return": { "status": {{status}}, "message": "denied" }, "entries": [] }""");
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.DefinitelyNotSubmitted, result.Value.Status);
+        Assert.Equal(status, result.Value.ProviderResultCode);
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task Http_authentication_failure_is_definitely_not_submitted(int status)
+    {
+        StubSendArray(status, "authentication failed");
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.DefinitelyNotSubmitted, result.Value.Status);
+        Assert.Equal(status, result.Value.ProviderResultCode);
+    }
+
+    [Fact]
+    public async Task Temporary_unavailable_response_is_retryable_without_confirmation_lookup()
+    {
+        StubSendArray(200, """{ "return": { "status": 409, "message": "busy" }, "entries": [] }""");
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.RetryableNotSubmitted, result.Value.Status);
+        Assert.Equal(409, result.Value.ProviderResultCode);
+    }
+
     [Fact]
     public async Task Status_by_localid_returns_existing_provider_message_id()
     {

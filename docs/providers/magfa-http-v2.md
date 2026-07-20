@@ -252,11 +252,15 @@ Mapping to our `DeliveryReportStatus` / `Message.DeliveryStatus` is decided in t
 * **InsufficientCredit** — `14` (top-level or per-message) ⇒ dispatcher **holds** the batch.
 * **Rejected** — per-message permanent refusals: `1, 8, 13, 20, 27, 28, 30, 33, 34, 35`
   (message never sent ⇒ refund).
-* **Transient** (failed `Result`, batch re-queued & retried) — `15`, `23`, HTTP/transport
-  errors, timeouts.
-* **Config/auth/bug** (`16, 17, 18, 19, 22, 25, 29, 31, 3, 4, 6, 2, 10x`) — not a normal
-  per-message outcome. Treated as a non-retryable provider error and logged loudly; the exact
-  disposition (fail the batch vs. reject the message) is finalised in the integration code.
+* **Explicit transient non-submission** — `15`, `23`: return `RetryableNotSubmitted`; messages
+  return to `Queued` and retry with normal backoff without a confirmation lookup.
+* **Unknown transport outcome** — connection errors, timeouts, HTTP 5xx, malformed/empty responses:
+  keep `AwaitingConfirmation` and reconcile by uid/mid before any resend.
+* **Definite authentication/account non-submission** — request-level `16, 17, 18, 19, 22, 29`
+  and HTTP `401/403`: return `DefinitelyNotSubmitted`; fail the batch with
+  `InvalidProviderCredentials`, refund its unsubmitted messages, and record the native code.
+* **Other config/bug statuses** (`25, 31, 3, 4, 6, 2, 10x`) remain provider errors unless a
+  per-message row proves that specific message was rejected.
 
 ---
 

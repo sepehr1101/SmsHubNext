@@ -51,6 +51,7 @@ public class StatusEnumsTests
     [InlineData(BatchStatusReason.InsufficientCustomerBalance, 2)]
     [InlineData(BatchStatusReason.DispatchRetriesExhausted, 3)]
     [InlineData(BatchStatusReason.ManualReviewRequired, 4)]
+    [InlineData(BatchStatusReason.InvalidProviderCredentials, 5)]
     public void BatchStatusReason_values_are_stable(BatchStatusReason reason, byte expected)
         => Assert.Equal(expected, (byte)reason);
 

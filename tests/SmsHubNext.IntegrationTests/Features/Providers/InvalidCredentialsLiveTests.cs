@@ -29,10 +29,10 @@ namespace SmsHubNext.IntegrationTests.Features.Providers;
 /// persisted in a disposable SQL Server, then submitted to the selected provider's real HTTPS
 /// endpoint with randomly generated invalid credentials. No valid credential is read or accepted.
 ///
-/// A request-level authentication failure is conservatively an unknown submission outcome in the
-/// current dispatcher. The test therefore verifies that every message is parked as
-/// AwaitingConfirmation, every batch is held for manual review, no delivery polling is scheduled,
-/// and no automatic refund or blind resend happens.
+/// A request-level authentication failure is a definitive non-submission outcome. The test verifies
+/// that the provider and dispatcher preserve that distinction end to end:
+/// messages return to Queued, batches fail with InvalidProviderCredentials, debits are refunded,
+/// no delivery polling is scheduled, and no blind resend happens.
 /// </summary>
 public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
 {
@@ -61,7 +61,7 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
 
     [LiveProviderFact]
     [Trait("Category", "LiveProvider")]
-    public async Task Ten_thousand_messages_with_invalid_credentials_are_held_and_audited()
+    public async Task Ten_thousand_messages_with_invalid_credentials_are_failed_refunded_and_audited()
     {
         string providerCode = RequiredProviderCode();
         LiveScenario scenario = ScenarioFor(providerCode);
@@ -88,7 +88,7 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
             new DispatchOptions
             {
                 // An authentication failure must become operator-visible after the first real call;
-                // this probe must not hammer the provider or retry an unknown submission.
+                // this probe must not retry any failed batch or treat it as an unknown submission.
                 MaxDispatchAttempts = 1,
             },
             TimeProvider.System,
@@ -111,7 +111,8 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
             batchIds.Count,
             provider.SendCallCount,
             provider.MessagesOfferedToProvider,
-            provider.FailedSendCallCount,
+            provider.DefinitelyNotSubmittedCallCount,
+            provider.TransportFailureCallCount,
             persistenceTimer.Elapsed.TotalMilliseconds,
             dispatchTimer.Elapsed.TotalMilliseconds,
             totalTimer.Elapsed.TotalMilliseconds,
@@ -119,11 +120,11 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
             state.Messages.Queued,
             state.Messages.Submitted,
             state.Messages.Rejected,
-            state.Batches.HeldForManualReview,
+            state.Batches.FailedForInvalidCredentials,
             state.Ledger.DebitRows,
             state.Ledger.RefundRows,
             state.Ledger.Balance,
-            "HeldForManualReview");
+            "DispatchFailedAndRefunded");
 
         string json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
         _output.WriteLine(json);
@@ -162,9 +163,9 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
 
     private static ISmsProvider CreateProvider(LiveScenario scenario, HttpClient httpClient)
     {
-        string randomInvalidCredential = $"smshub-invalid-{Guid.NewGuid():N}";
         if (scenario.ProviderCode == ProviderCodes.Magfa)
         {
+            string randomInvalidCredential = $"smshub-invalid-{Guid.NewGuid():N}";
             MagfaAccount account = new MagfaAccount
             {
                 Username = randomInvalidCredential,
@@ -186,9 +187,12 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
                 NullLogger<MagfaSmsProvider>.Instance);
         }
 
+        // Kavenegar routes malformed key shapes differently from a well-formed but unknown key.
+        // Use the documented 64-hex shape so this probe exercises authentication, not URL validation.
+        string invalidApiKey = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         KavenegarAccount kavenegarAccount = new KavenegarAccount
         {
-            ApiKey = randomInvalidCredential,
+            ApiKey = invalidApiKey,
             SenderLines = [scenario.SenderLine],
         };
         KavenegarOptions kavenegarOptions = new KavenegarOptions
@@ -355,8 +359,8 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
             """
             SELECT
                 COUNT_BIG(*) AS Total,
-                SUM(CONVERT(BIGINT, CASE WHEN Status = @Held AND StatusReason = @ManualReview THEN 1 ELSE 0 END))
-                    AS HeldForManualReview,
+                SUM(CONVERT(BIGINT, CASE WHEN Status = @DispatchFailed AND StatusReason = @InvalidCredentials THEN 1 ELSE 0 END))
+                    AS FailedForInvalidCredentials,
                 SUM(CONVERT(BIGINT, DispatchAttemptCount)) AS DispatchAttempts,
                 SUM(CONVERT(BIGINT, CASE WHEN FinishedAtUtc IS NOT NULL THEN 1 ELSE 0 END)) AS Finished
             FROM dbo.MessageBatch
@@ -365,8 +369,8 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
             new
             {
                 CustomerId = customerId,
-                Held = (byte)BatchStatus.Held,
-                ManualReview = (byte)BatchStatusReason.ManualReviewRequired,
+                DispatchFailed = (byte)BatchStatus.DispatchFailed,
+                InvalidCredentials = (byte)BatchStatusReason.InvalidProviderCredentials,
             },
             cancellationToken: CancellationToken.None));
 
@@ -375,7 +379,7 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
             SELECT
                 SUM(CONVERT(BIGINT, CASE WHEN e.EventType = @AwaitingConfirmation THEN 1 ELSE 0 END))
                     AS AwaitingConfirmation,
-                SUM(CONVERT(BIGINT, CASE WHEN e.EventType = @Held THEN 1 ELSE 0 END)) AS Held
+                SUM(CONVERT(BIGINT, CASE WHEN e.EventType = @DispatchFailed THEN 1 ELSE 0 END)) AS DispatchFailed
             FROM dbo.MessageBatchEvent e
             INNER JOIN dbo.MessageBatch b ON b.Id = e.MessageBatchId
             WHERE b.CustomerId = @CustomerId;
@@ -384,7 +388,7 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
             {
                 CustomerId = customerId,
                 AwaitingConfirmation = (byte)MessageBatchEventType.AwaitingConfirmation,
-                Held = (byte)MessageBatchEventType.Held,
+                DispatchFailed = (byte)MessageBatchEventType.DispatchFailed,
             },
             cancellationToken: CancellationToken.None));
 
@@ -437,12 +441,13 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
         DatabaseProbeState state)
     {
         Assert.Equal(expectedBatchCount, provider.SendCallCount);
-        Assert.Equal(expectedBatchCount, provider.FailedSendCallCount);
+        Assert.Equal(expectedBatchCount, provider.DefinitelyNotSubmittedCallCount);
+        Assert.Equal(0, provider.TransportFailureCallCount);
         Assert.Equal(TotalMessageCount, provider.MessagesOfferedToProvider);
 
         Assert.Equal(TotalMessageCount, state.Messages.Total);
-        Assert.Equal(TotalMessageCount, state.Messages.AwaitingConfirmation);
-        Assert.Equal(0, state.Messages.Queued);
+        Assert.Equal(0, state.Messages.AwaitingConfirmation);
+        Assert.Equal(TotalMessageCount, state.Messages.Queued);
         Assert.Equal(0, state.Messages.Submitted);
         Assert.Equal(0, state.Messages.Rejected);
         Assert.Equal(TotalMessageCount * PricePerSegment, state.Messages.TotalCost);
@@ -451,15 +456,15 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
         Assert.Equal(0, state.DeliveryPollRows);
 
         Assert.Equal(expectedBatchCount, state.Batches.Total);
-        Assert.Equal(expectedBatchCount, state.Batches.HeldForManualReview);
+        Assert.Equal(expectedBatchCount, state.Batches.FailedForInvalidCredentials);
         Assert.Equal(expectedBatchCount, state.Batches.DispatchAttempts);
-        Assert.Equal(0, state.Batches.Finished);
-        Assert.Equal(expectedBatchCount, state.Events.AwaitingConfirmation);
-        Assert.Equal(expectedBatchCount, state.Events.Held);
+        Assert.Equal(expectedBatchCount, state.Batches.Finished);
+        Assert.Equal(0, state.Events.AwaitingConfirmation);
+        Assert.Equal(expectedBatchCount, state.Events.DispatchFailed);
 
         Assert.Equal(expectedBatchCount, state.Ledger.DebitRows);
-        Assert.Equal(0, state.Ledger.RefundRows);
-        Assert.Equal(InitialBalance - (TotalMessageCount * PricePerSegment), state.Ledger.Balance);
+        Assert.Equal(expectedBatchCount, state.Ledger.RefundRows);
+        Assert.Equal(InitialBalance, state.Ledger.Balance);
         Assert.Equal(TotalMessageCount / scenario.BatchSize, expectedBatchCount);
     }
 
@@ -486,7 +491,8 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
         public int MaxBatchSize => _inner.MaxBatchSize;
         public bool SupportsIdempotentResend => _inner.SupportsIdempotentResend;
         public int SendCallCount { get; private set; }
-        public int FailedSendCallCount { get; private set; }
+        public int DefinitelyNotSubmittedCallCount { get; private set; }
+        public int TransportFailureCallCount { get; private set; }
         public int MessagesOfferedToProvider { get; private set; }
 
         public async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(
@@ -498,7 +504,14 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
             Result<IReadOnlyList<Result<ProviderDispatchResult>>> result =
                 await _inner.SendBatchAsync(requests, cancellationToken);
             if (result.IsFailure)
-                FailedSendCallCount++;
+            {
+                TransportFailureCallCount++;
+            }
+            else if (result.Value.All(item =>
+                item.IsSuccess && item.Value.Status == ProviderDispatchStatus.DefinitelyNotSubmitted))
+            {
+                DefinitelyNotSubmittedCallCount++;
+            }
             return result;
         }
 
@@ -538,11 +551,11 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
 
     private sealed record BatchProbeState(
         long Total,
-        long HeldForManualReview,
+        long FailedForInvalidCredentials,
         long DispatchAttempts,
         long Finished);
 
-    private sealed record EventProbeState(long AwaitingConfirmation, long Held);
+    private sealed record EventProbeState(long AwaitingConfirmation, long DispatchFailed);
 
     private sealed record LedgerProbeState(decimal Balance, long DebitRows, long RefundRows);
 
@@ -561,7 +574,8 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
         int LocalBatches,
         int ProviderHttpCalls,
         int MessagesOfferedToProvider,
-        int FailedProviderCalls,
+        int DefinitelyNotSubmittedCalls,
+        int TransportFailureCalls,
         double PersistenceMilliseconds,
         double DispatchMilliseconds,
         double TotalMilliseconds,
@@ -569,7 +583,7 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
         long QueuedMessages,
         long SubmittedMessages,
         long RejectedMessages,
-        long HeldBatches,
+        long InvalidCredentialFailedBatches,
         long DebitRows,
         long RefundRows,
         decimal BalanceAfter,

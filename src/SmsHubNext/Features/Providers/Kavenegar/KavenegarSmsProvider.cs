@@ -68,7 +68,19 @@ public sealed class KavenegarSmsProvider : ISmsProvider
                     () => CreateSendArrayRequest(account, group), cancellationToken);
 
             if (response.IsFailure)
-                return response.Error!;
+            {
+                if (!KavenegarProviderErrors.TryGetAuthenticationHttpStatus(response.Error!, out int httpStatus))
+                    return response.Error!;
+
+                IReadOnlyList<Result<ProviderDispatchResult>> notSubmitted = WholeRequestOutcomes(
+                    group,
+                    ProviderDispatchResult.DefinitelyNotSubmitted(
+                        httpStatus,
+                        UserMessages.Providers.KavenegarDefinitelyNotSubmitted(httpStatus)));
+                for (int j = 0; j < indices.Count; j++)
+                    results[indices[j]] = notSubmitted[j];
+                continue;
+            }
 
             Result<IReadOnlyList<Result<ProviderDispatchResult>>> mapped =
                 MapSendArrayResponse(response.Value, group);
@@ -232,7 +244,12 @@ public sealed class KavenegarSmsProvider : ISmsProvider
         using (response)
         {
             if (!response.IsSuccessStatusCode)
-                return KavenegarProviderErrors.HttpStatus((int)response.StatusCode);
+            {
+                int statusCode = (int)response.StatusCode;
+                return statusCode is 401 or 403
+                    ? KavenegarProviderErrors.AuthenticationHttpStatus(statusCode)
+                    : KavenegarProviderErrors.HttpStatus(statusCode);
+            }
 
             KavenegarResponse<T>? body;
             try
@@ -261,6 +278,31 @@ public sealed class KavenegarSmsProvider : ISmsProvider
                 .Select(_ => Result.Success(ProviderDispatchResult.InsufficientCredit(response.Return.Status)))
                 .ToList();
             return Result.Success(outOfCredit);
+        }
+
+        if (KavenegarStatusCodes.IsDefinitelyNotSubmitted(response.Return.Status))
+        {
+            _logger.LogError(
+                "Kavenegar rejected {Count} message(s) before submission with authentication/account status {Status}.",
+                requests.Count,
+                response.Return.Status);
+            return Result.Success(WholeRequestOutcomes(
+                requests,
+                ProviderDispatchResult.DefinitelyNotSubmitted(
+                    response.Return.Status,
+                    UserMessages.Providers.KavenegarDefinitelyNotSubmitted(response.Return.Status))));
+        }
+
+        if (response.Return.Status == KavenegarStatusCodes.TemporaryUnavailable)
+        {
+            return Result.Success(WholeRequestOutcomes(
+                requests,
+                ProviderDispatchResult.RetryableNotSubmitted(
+                    response.Return.Status,
+                    UserMessages.Providers.KavenegarRequestStatus(
+                        "sendarray",
+                        response.Return.Status,
+                        response.Return.Message))));
         }
 
         if (response.Return.Status != KavenegarStatusCodes.Success)
@@ -322,4 +364,9 @@ public sealed class KavenegarSmsProvider : ISmsProvider
     {
         return KavenegarProviderErrors.RequestStatus(method, requestReturn);
     }
+
+    private static IReadOnlyList<Result<ProviderDispatchResult>> WholeRequestOutcomes(
+        IReadOnlyCollection<ProviderSendRequest> requests,
+        ProviderDispatchResult outcome) =>
+        requests.Select(_ => Result.Success(outcome)).ToList();
 }

@@ -81,7 +81,7 @@ public sealed class MagfaSmsProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task Per_message_transient_status_is_a_transport_failure()
+    public async Task Per_message_transient_status_is_retryable_without_confirmation_lookup()
     {
         // 23 = no capacity to process the request right now → retry (failed Result).
         StubSend(200, """
@@ -90,8 +90,51 @@ public sealed class MagfaSmsProviderTests : IDisposable
 
         Result<ProviderDispatchResult> result = await Send();
 
-        Assert.True(result.IsFailure);
-        Assert.Equal(ErrorType.Provider, result.Error!.Type);
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.RetryableNotSubmitted, result.Value.Status);
+        Assert.Equal(23, result.Value.ProviderResultCode);
+    }
+
+    [Theory]
+    [InlineData(16)]
+    [InlineData(18)]
+    [InlineData(19)]
+    [InlineData(29)]
+    public async Task Request_level_authentication_or_account_failure_is_definitely_not_submitted(int status)
+    {
+        StubSend(200, $$"""{ "status": {{status}}, "messages": [] }""");
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.DefinitelyNotSubmitted, result.Value.Status);
+        Assert.Equal(status, result.Value.ProviderResultCode);
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task Http_authentication_failure_is_definitely_not_submitted(int status)
+    {
+        StubSend(status, "authentication failed");
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.DefinitelyNotSubmitted, result.Value.Status);
+        Assert.Equal(status, result.Value.ProviderResultCode);
+    }
+
+    [Fact]
+    public async Task Request_level_busy_response_is_retryable_without_confirmation_lookup()
+    {
+        StubSend(200, """{ "status": 15, "messages": [] }""");
+
+        Result<ProviderDispatchResult> result = await Send();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(ProviderDispatchStatus.RetryableNotSubmitted, result.Value.Status);
+        Assert.Equal(15, result.Value.ProviderResultCode);
     }
 
     [Fact]

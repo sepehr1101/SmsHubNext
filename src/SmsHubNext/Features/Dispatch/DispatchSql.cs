@@ -119,6 +119,18 @@ internal static class DispatchSql
         WHERE Id = @Id AND Status = 6;                           -- AwaitingConfirmation
         """;
 
+    // A definitive request-level rejection proves the provider accepted none of the pre-claimed
+    // messages. Return the current chunk to Queued; AwaitingConfirmation is only for unknown
+    // transport outcomes.
+    public const string RequeueMessages =
+        """
+        UPDATE dbo.Message
+        SET Status = 1,
+            AwaitingConfirmationSinceUtc = NULL,
+            ConfirmationLookupCount = 0
+        WHERE Id IN @Ids AND Status = 6;
+        """;
+
     public const string MarkRejected =
         """
         UPDATE dbo.Message
@@ -195,7 +207,8 @@ internal static class DispatchSql
     public const string FailBatch =
         """
         UPDATE dbo.MessageBatch
-        SET Status = 7, StatusReason = @Reason, NextDispatchAtUtc = NULL,
+        SET Status = 7, StatusReason = @Reason, ProviderResultCode = @ProviderResultCode,
+            NextDispatchAtUtc = NULL,
             FinishedAtUtc = @Now, StatusChangedAtUtc = @Now,
             DispatchLeaseToken = NULL, DispatchLeaseExpiresAtUtc = NULL
         WHERE Id = @Id AND Status = 2 AND DispatchLeaseToken = @DispatchLeaseToken;
