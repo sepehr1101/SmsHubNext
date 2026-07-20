@@ -57,3 +57,35 @@ verifier is intended for the disposable local database; use equivalent read-only
 `DispatchNetworkChaosTests` belongs to the regular integration-test project. It uses SQL Server and
 Toxiproxy containers to drop the database connection after a provider accepts a message and verifies
 that lease recovery reconciles the provider id without sending the message twice.
+
+## Real invalid-credential probe (explicit opt-in)
+
+This probe contacts either Magfa's or Kavenegar's real HTTPS endpoint with a freshly generated,
+deliberately invalid credential. It persists and accounts for 10,000 synthetic messages in a fresh
+disposable SQL Server, submits them in the provider's native maximum batch size, measures persistence
+and dispatch time, and verifies the resulting database state.
+
+It is excluded from every normal test run. Run exactly one provider explicitly:
+
+```powershell
+./tests/SmsHubNext.LoadTests/run-live-invalid-credentials.ps1 `
+    -Provider kavenegar `
+    -IUnderstandThisContactsLiveProvider
+```
+
+Use `-Provider magfa` for Magfa. The run makes 50 real Kavenegar requests (200 messages each) or
+100 real Magfa requests (100 messages each). The credentials and sender lines are intentionally
+invalid, so the expected result is no accepted SMS and no provider charge. Do not point the test at
+custom endpoints or replace its generated credentials with real ones.
+
+The expected safety behavior is:
+
+- all 10,000 `Message` and `MessageBody` rows are present;
+- every message is `AwaitingConfirmation`, with no provider message id or delivery-poll row;
+- every batch is `Held / ManualReviewRequired` after its first provider call;
+- the original prepaid debits remain and no automatic refund is created, because an authentication
+  response currently travels through the conservative unknown-outcome lane;
+- no automatic resend or confirmation lookup occurs during this bounded probe.
+
+The JSON timing and invariant report is written to
+`tests/SmsHubNext.LoadTests/results/live-invalid-credentials-<provider>.json`.
