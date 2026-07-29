@@ -53,7 +53,7 @@ public class SendMessagesRequestTests
 
         Assert.True(result.IsFailure);
         Assert.Equal("sending.recipient_required", result.Error!.Code);
-        Assert.Contains("index 1", result.Error!.Message);
+        Assert.Contains("ردیف 1", result.Error!.Message);
     }
 
     [Fact]

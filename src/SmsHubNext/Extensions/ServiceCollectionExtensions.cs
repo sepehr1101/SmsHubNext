@@ -14,6 +14,7 @@ using SmsHubNext.Features.Inbound;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.Kavenegar;
 using SmsHubNext.Features.Providers.Magfa;
+using SmsHubNext.Features.Providers.SmsIr;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Errors;
@@ -48,8 +49,11 @@ public static class ServiceCollectionExtensions
             {
                 List<ApiError> errors = context.ModelState
                     .Where(entry => entry.Value?.Errors.Count > 0)
-                    .SelectMany(entry => entry.Value!.Errors.Select(error =>
-                        new ApiError(entry.Key, "validation.invalid_field", error.ErrorMessage)))
+                    .SelectMany(entry => entry.Value!.Errors.Select(_ =>
+                        new ApiError(
+                            entry.Key,
+                            "validation.invalid_field",
+                            UserMessages.Common.InvalidField(entry.Key))))
                     .ToList();
 
                 ApiResponse<object> response = ApiResponse.Failure(
@@ -225,7 +229,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(options);
 
         services.AddScoped<DeliveryReportPoller>();
-        services.AddHostedService<DeliveryReportPollWorker>();
+        if (options.Enabled)
+            services.AddHostedService<DeliveryReportPollWorker>();
 
         return services;
     }
@@ -288,6 +293,23 @@ public static class ServiceCollectionExtensions
             {
                 client.BaseAddress = new Uri(kavenegarOptions.BaseUrl);
                 client.Timeout = kavenegarOptions.Timeout;
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            });
+            realProviderRegistered = true;
+        }
+
+        SmsIrOptions smsIrOptions = configuration.GetSection(SmsIrOptions.SectionName).Get<SmsIrOptions>()
+            ?? new SmsIrOptions();
+        smsIrOptions.Validate();
+        services.AddSingleton(smsIrOptions);
+
+        if (smsIrOptions.Enabled)
+        {
+            services.AddSingleton<SmsIrAccountResolver>();
+            services.AddHttpClient<ISmsProvider, SmsIrSmsProvider>(client =>
+            {
+                client.BaseAddress = new Uri(smsIrOptions.BaseUrl);
+                client.Timeout = smsIrOptions.Timeout;
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             });
             realProviderRegistered = true;

@@ -87,8 +87,8 @@ public sealed class MessageDispatcher
             ? MessageBatchEventType.DispatchStarted
             : MessageBatchEventType.DispatchResumed;
         string claimDetail = claimEventType == MessageBatchEventType.DispatchStarted
-            ? "Dispatch started."
-            : "Dispatch resumed after a hold or expired dispatch lease.";
+            ? "ارسال بچ آغاز شد."
+            : "ارسال بچ پس از رفع توقف یا پایان مهلت پردازش قبلی از سر گرفته شد.";
         await InsertBatchEventAsync(
             connection, batch.Id, now, claimEventType, BatchStatus.Dispatching, null, null, claimDetail, cancellationToken);
 
@@ -126,7 +126,7 @@ public sealed class MessageDispatcher
                     connection,
                     batch,
                     confirmationNow,
-                    $"Message {message.Id} has been awaiting provider confirmation for longer than {_options.AwaitingConfirmationMaxAge}. Manual review is required before any resend.",
+                    $"پیام {message.Id} بیش از {_options.AwaitingConfirmationMaxAge} در انتظار تأیید سرویس‌دهنده بوده است. پیش از ارسال مجدد، بررسی دستی الزامی است.",
                     cancellationToken);
                 return true;
             }
@@ -138,7 +138,7 @@ public sealed class MessageDispatcher
                     batch,
                     confirmationNow,
                     nextLookupAtUtc,
-                    $"Message {message.Id} is awaiting confirmation; delaying lookup until {nextLookupAtUtc:O}.",
+                    $"پیام {message.Id} در انتظار تأیید است؛ بررسی مجدد تا {nextLookupAtUtc:O} به تعویق افتاد.",
                     cancellationToken);
                 return true;
             }
@@ -152,7 +152,7 @@ public sealed class MessageDispatcher
                     batch,
                     confirmationNow,
                     confirmationNow + _options.AwaitingConfirmationRetryDelay,
-                    $"Provider confirmation lookup failed: {lookup.Error!.Message}.",
+                    $"بررسی تأیید سرویس‌دهنده ناموفق بود: {lookup.Error!.Message}",
                     cancellationToken);
                 return true;
             }
@@ -174,7 +174,7 @@ public sealed class MessageDispatcher
                         batch,
                         confirmationNow,
                         confirmationNow + _options.AwaitingConfirmationRetryDelay,
-                        $"Provider has no record for message {message.Id}; waiting for {negativeConfirmations}/{_options.RequiredNegativeConfirmations} negative confirmation(s).",
+                        $"سرویس‌دهنده سابقه‌ای برای پیام {message.Id} پیدا نکرد؛ {negativeConfirmations} از {_options.RequiredNegativeConfirmations} پاسخ منفی دریافت شده است.",
                         cancellationToken);
                     return true;
                 }
@@ -185,8 +185,8 @@ public sealed class MessageDispatcher
                         connection,
                         batch,
                         confirmationNow,
-                        $"Provider cannot guarantee idempotent resend for message {message.Id}; " +
-                        "negative lookups are not sufficient evidence to resend automatically.",
+                        $"سرویس‌دهنده نمی‌تواند ارسال مجدد بدون تکرار پیام {message.Id} را تضمین کند؛ " +
+                        "پاسخ‌های منفی برای ارسال مجدد خودکار کافی نیستند.",
                         cancellationToken);
                     return true;
                 }
@@ -246,14 +246,14 @@ public sealed class MessageDispatcher
                     BatchStatus.Dispatching,
                     null,
                     null,
-                    $"Provider send outcome is unknown for {claimedChunk.Length} message(s): {batchResult.Error.Message}.",
+                    $"نتیجه ارسال {claimedChunk.Length} پیام از سوی سرویس‌دهنده نامشخص است: {batchResult.Error.Message}",
                     cancellationToken);
                 await RequeueAwaitingConfirmationOrHoldAsync(
                     connection,
                     batch,
                     chunkNow,
                     chunkNow,
-                    $"Provider send response was lost for {claimedChunk.Length} message(s): {batchResult.Error.Message}.",
+                    $"پاسخ سرویس‌دهنده برای {claimedChunk.Length} پیام دریافت نشد: {batchResult.Error.Message}",
                     cancellationToken);
                 return true;
             }
@@ -305,7 +305,7 @@ public sealed class MessageDispatcher
                             BatchStatusReason.InvalidProviderCredentials,
                             outcome.ProviderResultCode,
                             claimedMessageIds,
-                            "Provider authentication/account validation failed before submission; no message in the request was accepted.",
+                            "اعتبارسنجی حساب یا احراز هویت سرویس‌دهنده پیش از ثبت ناموفق بود و هیچ پیامی پذیرفته نشد.",
                             cancellationToken);
                         return true;
 
@@ -346,7 +346,7 @@ public sealed class MessageDispatcher
                     BatchStatus.Held,
                     BatchStatusReason.InsufficientProviderCredit,
                     null,
-                    "Provider credit is exhausted; batch held and will be retried later.",
+                    "اعتبار سرویس‌دهنده کافی نیست؛ بچ متوقف شد و بعداً دوباره تلاش می‌شود.",
                     cancellationToken);
             }
             return true;
@@ -364,14 +364,14 @@ public sealed class MessageDispatcher
                 BatchStatus.Dispatching,
                 null,
                 null,
-                $"Provider outcome is unknown for {inconclusiveCount} message(s); confirmation lookup is required.",
+                $"نتیجه سرویس‌دهنده برای {inconclusiveCount} پیام نامشخص است و باید وضعیت آن‌ها بررسی شود.",
                 cancellationToken);
             await RequeueAwaitingConfirmationOrHoldAsync(
                 connection,
                 batch,
                 requeueNow,
                 requeueNow + _options.AwaitingConfirmationRetryDelay,
-                "One or more messages had an inconclusive provider result.",
+                "نتیجه سرویس‌دهنده برای یک یا چند پیام قطعی نیست.",
                 cancellationToken);
             return true;
         }
@@ -388,7 +388,7 @@ public sealed class MessageDispatcher
                     BatchStatusReason.DispatchRetriesExhausted,
                     retryableResultCode,
                     null,
-                    $"Provider explicitly did not accept the request after {batch.DispatchAttemptCount} attempt(s).",
+                    $"سرویس‌دهنده پس از {batch.DispatchAttemptCount} بار تلاش، درخواست را نپذیرفت.",
                     cancellationToken);
             }
             else
@@ -443,7 +443,7 @@ public sealed class MessageDispatcher
                 BatchStatus.Received,
                 null,
                 null,
-                $"{detail} Batch requeued for confirmation at {nextDispatchAtUtc:O}.",
+                $"{detail} بچ برای بررسی مجدد در {nextDispatchAtUtc:O} به صف بازگشت.",
                 cancellationToken);
         }
     }
@@ -467,7 +467,7 @@ public sealed class MessageDispatcher
                 BatchStatus.Received,
                 null,
                 providerResultCode,
-                $"Provider explicitly did not accept the request; batch will retry at {nextDispatchAtUtc:O}.",
+                $"سرویس‌دهنده درخواست را نپذیرفت؛ ارسال بچ در {nextDispatchAtUtc:O} دوباره تلاش می‌شود.",
                 cancellationToken);
         }
     }
@@ -486,7 +486,7 @@ public sealed class MessageDispatcher
                 connection,
                 batch,
                 now,
-                $"{detail} Confirmation retry limit exhausted after {batch.DispatchAttemptCount} attempt(s); manual review is required before any resend.",
+                $"{detail} سقف بررسی مجدد پس از {batch.DispatchAttemptCount} بار تلاش تکمیل شد؛ پیش از هر ارسال مجدد، بررسی دستی الزامی است.",
                 cancellationToken);
             return;
         }
@@ -613,7 +613,7 @@ public sealed class MessageDispatcher
                 transaction,
                 cancellationToken: cancellationToken));
 
-            eventDetail = $"{detail} Refunded {refund.TotalCost:0.####} IRR for {refund.MessageCount} unsubmitted message(s).";
+            eventDetail = $"{detail} مبلغ {refund.TotalCost:0.####} ریال بابت {refund.MessageCount} پیام ارسال‌نشده بازگردانده شد.";
         }
 
         await InsertBatchEventAsync(
@@ -786,7 +786,7 @@ public sealed class MessageDispatcher
                 BatchStatus.Dispatching,
                 null,
                 outcome.ProviderResultCode,
-                $"Message {message.Id} rejected by provider; refunded {message.TotalCost:0.####} IRR.",
+                $"پیام {message.Id} توسط سرویس‌دهنده رد شد و مبلغ {message.TotalCost:0.####} ریال بازگردانده شد.",
                 cancellationToken);
         }
 
@@ -828,7 +828,7 @@ public sealed class MessageDispatcher
                 status,
                 null,
                 null,
-                $"Batch finalized as {status}: {submitted} submitted, {rejected} rejected.",
+                $"پردازش بچ پایان یافت: {submitted} پیام ثبت و {rejected} پیام رد شد.",
                 cancellationToken);
         }
     }

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateRange(1, 65535)]
@@ -48,7 +48,9 @@ for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
                 -Path $ResultPath `
                 -Success $false `
                 -Code 'health.failed' `
-                -Message (Get-InstallerSafeErrorMessage -ErrorRecord $_)
+                -Message (Get-InstallerDisplayErrorMessage `
+                    -ErrorRecord $_ `
+                    -Fallback 'بررسی سلامت SmsHubNext ناموفق بود.')
             exit 23
         }
     }
@@ -62,5 +64,5 @@ Write-InstallerResult `
     -Path $ResultPath `
     -Success $false `
     -Code 'health.failed' `
-    -Message 'SmsHubNext did not become healthy before the timeout.'
+    -Message 'سرویس SmsHubNext پیش از پایان مهلت تعیین‌شده آماده نشد.'
 exit 23

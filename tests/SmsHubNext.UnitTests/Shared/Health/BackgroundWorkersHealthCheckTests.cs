@@ -56,6 +56,29 @@ public sealed class BackgroundWorkersHealthCheckTests
         Assert.Equal(HealthStatus.Degraded, result.Status);
     }
 
+    [Fact]
+    public async Task Disabled_delivery_polling_is_not_expected_by_readiness()
+    {
+        ManualTimeProvider clock = NewClock();
+        BackgroundWorkerHealthMonitor monitor = new(clock);
+        monitor.ReportStarted(BackgroundWorkerNames.Dispatch);
+        monitor.ReportSucceeded(BackgroundWorkerNames.Dispatch);
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["DeliveryReportPolling:Enabled"] = "false",
+            })
+            .Build();
+        BackgroundWorkersHealthCheck check = new(monitor, clock, configuration);
+
+        HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+        IReadOnlyList<BackgroundWorkerHealthData> workers =
+            Assert.IsAssignableFrom<IReadOnlyList<BackgroundWorkerHealthData>>(result.Data["workers"]);
+        Assert.DoesNotContain(workers, worker => worker.Name == BackgroundWorkerNames.DeliveryReports);
+    }
+
     private static BackgroundWorkersHealthCheck NewCheck(
         BackgroundWorkerHealthMonitor monitor,
         TimeProvider clock)

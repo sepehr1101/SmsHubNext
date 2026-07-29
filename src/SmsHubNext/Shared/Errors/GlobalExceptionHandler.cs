@@ -12,16 +12,9 @@ namespace SmsHubNext.Shared.Errors;
 /// </summary>
 public sealed class GlobalExceptionHandler : IExceptionHandler
 {
-    private readonly IHostEnvironment _environment;
     private readonly ILogger<GlobalExceptionHandler> _logger;
 
-    public GlobalExceptionHandler(
-        IHostEnvironment environment,
-        ILogger<GlobalExceptionHandler> logger)
-    {
-        _environment = environment;
-        _logger = logger;
-    }
+    public GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) => _logger = logger;
 
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
@@ -43,10 +36,9 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
         ExceptionProblem problem = ProblemFor(exception);
         LogException(problem, exception, httpContext);
 
-        string message = _environment.IsDevelopment() ? exception.Message : problem.Detail;
         httpContext.Response.StatusCode = problem.StatusCode;
         await httpContext.Response.WriteAsJsonAsync(
-            ApiResponse.Failure(problem.Code, message, httpContext),
+            ApiResponse.Failure(problem.Code, problem.Detail, httpContext),
             cancellationToken);
 
         return true;

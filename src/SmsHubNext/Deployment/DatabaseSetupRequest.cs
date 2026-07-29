@@ -24,10 +24,10 @@ public sealed class DatabaseSetupRequest
         ValidateRequiredValue(Database, nameof(Database), 128, errors);
 
         if (!Enum.IsDefined(Authentication))
-            errors.Add("Authentication must be Windows or SqlServer.");
+            errors.Add("روش احراز هویت باید Windows یا SqlServer باشد.");
 
         if (ConnectTimeoutSeconds is < 1 or > 120)
-            errors.Add("ConnectTimeoutSeconds must be between 1 and 120.");
+            errors.Add("مهلت اتصال باید بین ۱ تا ۱۲۰ ثانیه باشد.");
 
         if (Authentication == DatabaseAuthenticationMode.SqlServer)
         {
@@ -46,14 +46,14 @@ public sealed class DatabaseSetupRequest
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            errors.Add($"{name} is required.");
+            errors.Add($"مقدار {name} الزامی است.");
             return;
         }
 
         if (value.Length > maximumLength)
-            errors.Add($"{name} must not exceed {maximumLength} characters.");
+            errors.Add($"مقدار {name} نباید بیشتر از {maximumLength} نویسه باشد.");
 
         if (value.Contains('\r', StringComparison.Ordinal) || value.Contains('\n', StringComparison.Ordinal))
-            errors.Add($"{name} must not contain line breaks.");
+            errors.Add($"مقدار {name} نباید چندخطی باشد.");
     }
 }

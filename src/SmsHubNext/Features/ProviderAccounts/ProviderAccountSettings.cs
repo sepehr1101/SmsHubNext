@@ -24,8 +24,11 @@ internal static class ProviderAccountSettings
         if (string.Equals(providerCode, ProviderCodes.Magfa, StringComparison.OrdinalIgnoreCase))
             return ValidateMagfa(authType, settings);
 
-        if (string.Equals(providerCode, ProviderCodes.Kavenegar, StringComparison.OrdinalIgnoreCase))
-            return ValidateKavenegar(authType);
+        if (string.Equals(providerCode, ProviderCodes.Kavenegar, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(providerCode, ProviderCodes.SmsIr, StringComparison.OrdinalIgnoreCase))
+        {
+            return ValidateApiKey(authType);
+        }
 
         return Error.Validation("provider_accounts.unsupported_provider", UserMessages.ProviderAccounts.UnsupportedProvider);
     }
@@ -44,7 +47,7 @@ internal static class ProviderAccountSettings
         return Result.Success();
     }
 
-    private static Result ValidateKavenegar(string authType)
+    private static Result ValidateApiKey(string authType)
     {
         if (!string.Equals(authType, ProviderAccountAuthTypes.ApiKey, StringComparison.Ordinal))
             return Error.Validation("provider_accounts.invalid_auth_type", UserMessages.ProviderAccounts.InvalidAuthType);

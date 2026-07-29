@@ -3,6 +3,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using SmsHubNext.Features.Providers.Kavenegar;
 using SmsHubNext.Features.Providers.Magfa;
+using SmsHubNext.Features.Providers.SmsIr;
 using SmsHubNext.Shared.Database;
 
 namespace SmsHubNext.Features.Providers;
@@ -34,7 +35,8 @@ public sealed class ProviderSecretsHealthCheck : IHealthCheck
         Db db,
         ISecretProtector secretProtector,
         MagfaOptions magfaOptions,
-        KavenegarOptions kavenegarOptions)
+        KavenegarOptions kavenegarOptions,
+        SmsIrOptions smsIrOptions)
     {
         _db = db;
         _secretProtector = secretProtector;
@@ -44,6 +46,8 @@ public sealed class ProviderSecretsHealthCheck : IHealthCheck
             enabledProviderCodes.Add(ProviderCodes.Magfa);
         if (kavenegarOptions.Enabled)
             enabledProviderCodes.Add(ProviderCodes.Kavenegar);
+        if (smsIrOptions.Enabled)
+            enabledProviderCodes.Add(ProviderCodes.SmsIr);
 
         _enabledProviderCodes = enabledProviderCodes;
     }
@@ -55,7 +59,7 @@ public sealed class ProviderSecretsHealthCheck : IHealthCheck
         if (_enabledProviderCodes.Count == 0)
         {
             return HealthCheckResult.Healthy(
-                "No external SMS provider is enabled; provider secret verification is not applicable.",
+                "هیچ سرویس‌دهنده پیامک خارجی فعال نیست؛ بررسی اطلاعات محرمانه کاربرد ندارد.",
                 new Dictionary<string, object>
                 {
                     ["enabledProviderCount"] = 0,
@@ -113,14 +117,14 @@ public sealed class ProviderSecretsHealthCheck : IHealthCheck
             };
 
             return degraded
-                ? HealthCheckResult.Degraded("One or more enabled providers have no usable active credential.", data: data)
-                : HealthCheckResult.Healthy("Enabled provider credentials can be decrypted.", data);
+                ? HealthCheckResult.Degraded("اطلاعات ورود معتبر و قابل استفاده برای یک یا چند سرویس‌دهنده فعال وجود ندارد.", data: data)
+                : HealthCheckResult.Healthy("اطلاعات ورود سرویس‌دهندگان فعال قابل رمزگشایی است.", data);
         }
         catch (Exception)
         {
             // SQL connectivity has its own Unhealthy readiness check. Keep this capability-specific
             // check Degraded so a duplicated dependency failure doesn't obscure the primary cause.
-            return HealthCheckResult.Degraded("Provider credentials could not be verified.");
+            return HealthCheckResult.Degraded("بررسی اطلاعات ورود سرویس‌دهندگان امکان‌پذیر نبود.");
         }
     }
 

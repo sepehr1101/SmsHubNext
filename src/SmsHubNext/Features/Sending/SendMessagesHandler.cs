@@ -409,7 +409,7 @@ public sealed class SendMessagesHandler
                 NowUtc = nowUtc,
                 EventType = (byte)MessageBatchEventType.Accepted,
                 BatchStatus = (byte)BatchStatus.Received,
-                Detail = $"Batch accepted: {messageCount} message(s), {segmentCount} segment(s), total cost {totalCost:0.####} IRR.",
+                Detail = $"بچ پذیرفته شد: {messageCount} پیام، {segmentCount} بخش و هزینه کل {totalCost:0.####} ریال.",
             },
             transaction,
             cancellationToken: cancellationToken));

@@ -115,7 +115,7 @@ public sealed class RetryDispatchHandler
                 BatchStatus = (byte)BatchStatus.Received,
                 BatchStatusReason = (byte?)null,
                 ProviderResultCode = (int?)null,
-                Detail = "Manual dispatch retry requested by an operator.",
+                Detail = "تلاش مجدد برای ارسال به‌صورت دستی توسط اپراتور درخواست شد.",
             },
             transaction,
             cancellationToken: cancellationToken));

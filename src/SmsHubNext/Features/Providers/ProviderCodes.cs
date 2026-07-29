@@ -4,4 +4,5 @@ public static class ProviderCodes
 {
     public const string Magfa = "magfa";
     public const string Kavenegar = "kavenegar";
+    public const string SmsIr = "smsir";
 }

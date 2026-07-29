@@ -58,7 +58,7 @@ SmsHubNext/
 │     │   ├─ Reports/                  # cost/success-rate/trend queries
 │     │   ├─ Tariffs/                  # tariff resolution + admin
 │     │   ├─ ApiKeys/                  # issue/rotate/revoke; auth lookup
-│     │   ├─ Providers/                # ISmsProvider + Magfa/ (the one real seam)
+│     │   ├─ Providers/                # ISmsProvider + provider adapters (the one real seam)
 │     │   └─ ReferenceData/            # GeoSection, SenderLine, MessageType, Customer admin
 │     │
 │     ├─ Shared/                       # SMALL, truly cross-cutting only
@@ -73,7 +73,7 @@ SmsHubNext/
 │
 └─ tests/
    ├─ SmsHubNext.UnitTests/            # Shared/Sms calc, status mapping, Result flow, Jalali
-   └─ SmsHubNext.IntegrationTests/     # Dapper + SQL Server (Testcontainers), Magfa via WireMock
+   └─ SmsHubNext.IntegrationTests/     # Dapper + SQL Server (Testcontainers), providers via WireMock
 ```
 
 There is **no `Domain/` / `Application/` / `Infrastructure/`** layering. Persistence models are **feature-local** (each Dapper query projects exactly the columns it needs into a small record next to the query) — so there is no shared "entities" god-folder, and features don't drift against a monolithic model.
@@ -203,7 +203,7 @@ No external job scheduler is required. The application depends only on the built
 | Resilience | Polly (`Microsoft.Extensions.Http.Resilience`) |
 | Logging | **Serilog** → console + rolling file (Seq optional) · health checks · **no OpenTelemetry** |
 | API docs | **OpenAPI** (`Microsoft.AspNetCore.OpenApi`) + **Scalar** UI · controlled by `OpenApi:Enabled` (default `true`); production root serves a lightweight Persian status/endpoint landing page |
-| Tests | xUnit · Testcontainers (SQL Server) · WireMock.Net (Magfa) |
+| Tests | xUnit · Testcontainers (SQL Server) · WireMock.Net (provider HTTP adapters) |
 
 ---
 

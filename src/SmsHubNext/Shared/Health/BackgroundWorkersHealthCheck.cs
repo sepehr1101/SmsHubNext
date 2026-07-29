@@ -21,8 +21,10 @@ public sealed class BackgroundWorkersHealthCheck : IHealthCheck
         List<BackgroundWorkerExpectation> expectations =
         [
             new BackgroundWorkerExpectation(BackgroundWorkerNames.Dispatch, TimeSpan.FromMinutes(2)),
-            new BackgroundWorkerExpectation(BackgroundWorkerNames.DeliveryReports, TimeSpan.FromMinutes(5)),
         ];
+
+        if (configuration.GetValue("DeliveryReportPolling:Enabled", true))
+            expectations.Add(new BackgroundWorkerExpectation(BackgroundWorkerNames.DeliveryReports, TimeSpan.FromMinutes(5)));
 
         if (configuration.GetValue("InboundPolling:Enabled", false))
             expectations.Add(new BackgroundWorkerExpectation(BackgroundWorkerNames.Inbound, TimeSpan.FromMinutes(5)));
@@ -86,11 +88,11 @@ public sealed class BackgroundWorkersHealthCheck : IHealthCheck
         if (degraded)
         {
             return Task.FromResult(HealthCheckResult.Degraded(
-                "One or more background workers need attention.",
+                "یک یا چند پردازش پس‌زمینه نیاز به بررسی دارند.",
                 data: data));
         }
 
-        return Task.FromResult(HealthCheckResult.Healthy("Background workers are running.", data));
+        return Task.FromResult(HealthCheckResult.Healthy("پردازش‌های پس‌زمینه در حال اجرا هستند.", data));
     }
 
     private static string ResolveStatus(

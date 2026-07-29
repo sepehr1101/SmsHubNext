@@ -37,12 +37,12 @@ public sealed class ProcessMemoryHealthCheck : IHealthCheck
         if (pressurePercent >= DegradedPressurePercent)
         {
             return Task.FromResult(HealthCheckResult.Degraded(
-                "Process memory pressure is high.",
+                "فشار حافظه پردازش زیاد است.",
                 data: data));
         }
 
         return Task.FromResult(HealthCheckResult.Healthy(
-            "Process memory pressure is within the expected range.",
+            "فشار حافظه پردازش در محدوده مورد انتظار است.",
             data));
     }
 }

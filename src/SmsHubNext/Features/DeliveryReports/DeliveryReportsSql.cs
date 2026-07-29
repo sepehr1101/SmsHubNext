@@ -104,12 +104,12 @@ internal static class DeliveryReportsSql
             MAX(a.ReceivedAtUtc),
             @DeliveryUpdatedEventType,
             CONCAT(
-                'Delivery reports applied: ', COUNT_BIG(*),
-                ' terminal message(s); delivered=', SUM(CASE WHEN a.DeliveryStatus = @DeliveredValue THEN 1 ELSE 0 END),
-                ', undelivered=', SUM(CASE WHEN a.DeliveryStatus = 3 THEN 1 ELSE 0 END),
-                ', expired=', SUM(CASE WHEN a.DeliveryStatus = 4 THEN 1 ELSE 0 END),
-                ', unknown=', SUM(CASE WHEN a.DeliveryStatus = 5 THEN 1 ELSE 0 END),
-                '.'
+                N'گزارش تحویل ', COUNT_BIG(*),
+                N' پیام نهایی ثبت شد؛ تحویل‌شده=', SUM(CASE WHEN a.DeliveryStatus = @DeliveredValue THEN 1 ELSE 0 END),
+                N'، تحویل‌نشده=', SUM(CASE WHEN a.DeliveryStatus = 3 THEN 1 ELSE 0 END),
+                N'، منقضی‌شده=', SUM(CASE WHEN a.DeliveryStatus = 4 THEN 1 ELSE 0 END),
+                N'، نامشخص=', SUM(CASE WHEN a.DeliveryStatus = 5 THEN 1 ELSE 0 END),
+                N'.'
             )
         FROM #TerminalApply a
         INNER JOIN @Transitioned t ON t.Id = a.MessageId

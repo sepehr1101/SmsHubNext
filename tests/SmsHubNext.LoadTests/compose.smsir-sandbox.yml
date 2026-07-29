@@ -1,0 +1,72 @@
+services:
+  app:
+    environment:
+      BearerTokens__Key: SmsHubNext_smsir_sandbox_JWT_key_2026_change_only_in_tests_123456789
+      BearerTokens__Issuer: smsir-sandbox-tests
+      BearerTokens__Audience: smsir-sandbox-tests
+      Providers__Magfa__Enabled: "false"
+      Providers__Kavenegar__Enabled: "false"
+      Providers__SmsIr__Enabled: "true"
+      Providers__SmsIr__BaseUrl: https://api.sms.ir
+      Providers__SmsIr__Timeout: 00:00:30
+      Providers__SmsIr__BatchSize: 100
+      Providers__SmsIr__MinimumRequestInterval: ${SMSHUBNEXT_SMSIR_SANDBOX_REQUEST_INTERVAL:-00:00:01}
+      DeliveryReportPolling__Enabled: "false"
+      InboundPolling__Enabled: "false"
+
+  smsir-seed:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      MSSQL_SA_PASSWORD: ${SMSHUBNEXT_LOAD_SQL_PASSWORD:-SmsHubNext_load_2026!}
+    volumes:
+      - ./sql:/load/sql:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        /opt/mssql-tools18/bin/sqlcmd
+        -S sqlserver -U sa -P "$${MSSQL_SA_PASSWORD}" -C
+        -d SmsHubNextLoad -b -i /load/sql/seed-smsir-sandbox.sql
+
+  smsir-k6:
+    image: grafana/k6:2.1.0
+    environment:
+      BASE_URL: http://app:8080
+      API_KEY: smshub-smsir-sandbox-customer-key-2026
+      SENDER_LINE: ${SMSHUBNEXT_SMSIR_SANDBOX_SENDER_LINE}
+      MESSAGE_TYPE_ID: "250"
+      RECIPIENT: ${SMSHUBNEXT_SMSIR_SANDBOX_RECIPIENT}
+      RUN_ID: ${SMSHUBNEXT_SMSIR_SANDBOX_RUN_ID}
+      MESSAGE_COUNT: ${SMSHUBNEXT_SMSIR_SANDBOX_MESSAGE_COUNT:-100000}
+      BATCH_SIZE: ${SMSHUBNEXT_SMSIR_SANDBOX_BATCH_SIZE:-100}
+      REQUEST_INTERVAL_MS: ${SMSHUBNEXT_SMSIR_SANDBOX_REQUEST_INTERVAL_MS:-1000}
+    volumes:
+      - ./k6:/scripts:ro
+      - ./results:/results
+    command:
+      - run
+      - --summary-export=/results/smsir-sandbox-k6.json
+      - /scripts/smsir-sandbox.js
+
+  smsir-verify:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      MSSQL_SA_PASSWORD: ${SMSHUBNEXT_LOAD_SQL_PASSWORD:-SmsHubNext_load_2026!}
+      RUN_ID: ${SMSHUBNEXT_SMSIR_SANDBOX_RUN_ID}
+      EXPECTED_MESSAGE_COUNT: ${SMSHUBNEXT_SMSIR_SANDBOX_MESSAGE_COUNT:-100000}
+      EXPECTED_BATCH_COUNT: ${SMSHUBNEXT_SMSIR_SANDBOX_EXPECTED_BATCH_COUNT:-1000}
+      VERIFY_TIMEOUT_MINUTES: ${SMSHUBNEXT_SMSIR_SANDBOX_VERIFY_TIMEOUT_MINUTES:-30}
+    volumes:
+      - ./sql:/load/sql:ro
+      - ./results:/results
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        /opt/mssql-tools18/bin/sqlcmd
+        -S sqlserver -U sa -P "$${MSSQL_SA_PASSWORD}" -C
+        -d SmsHubNextLoad -b -h -1 -W -w 65535
+        -v RunId="$${RUN_ID}"
+        ExpectedMessageCount="$${EXPECTED_MESSAGE_COUNT}"
+        ExpectedBatchCount="$${EXPECTED_BATCH_COUNT}"
+        VerifyTimeoutMinutes="$${VERIFY_TIMEOUT_MINUTES}"
+        -i /load/sql/verify-smsir-sandbox.sql
+        -o /results/smsir-sandbox-db.json

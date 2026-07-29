@@ -61,22 +61,22 @@ public sealed class SqlServerHealthCheck : IHealthCheck
             if (!string.Equals(row.DatabaseStatus, "ONLINE", StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(row.Updateability, "READ_WRITE", StringComparison.OrdinalIgnoreCase))
             {
-                return HealthCheckResult.Unhealthy("SQL Server database is not online and writable.", data: data);
+                return HealthCheckResult.Unhealthy("پایگاه داده SQL Server آنلاین یا قابل نوشتن نیست.", data: data);
             }
 
             if (clockSkew > UnhealthyClockSkew)
-                return HealthCheckResult.Unhealthy("SQL Server and application clocks differ significantly.", data: data);
+                return HealthCheckResult.Unhealthy("اختلاف ساعت SQL Server و برنامه بیش از حد مجاز است.", data: data);
 
             if (stopwatch.Elapsed > DegradedLatency || clockSkew > DegradedClockSkew)
-                return HealthCheckResult.Degraded("SQL Server is reachable but needs attention.", data: data);
+                return HealthCheckResult.Degraded("SQL Server در دسترس است، اما نیاز به بررسی دارد.", data: data);
 
-            return HealthCheckResult.Healthy("SQL Server is online, writable, and responsive.", data);
+            return HealthCheckResult.Healthy("SQL Server آنلاین، قابل نوشتن و پاسخ‌گو است.", data);
         }
         catch (Exception)
         {
             stopwatch.Stop();
             return HealthCheckResult.Unhealthy(
-                "SQL Server is not reachable.",
+                "SQL Server در دسترس نیست.",
                 data: new Dictionary<string, object>
                 {
                     ["latencyMs"] = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2),

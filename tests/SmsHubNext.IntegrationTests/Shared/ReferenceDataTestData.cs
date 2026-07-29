@@ -35,6 +35,12 @@ public static class ReferenceDataTestData
                 VALUES (2, N'Kavenegar Test', 'kavenegar', 'https://api.kavenegar.com', NULL, 1);
             END;
 
+            IF NOT EXISTS (SELECT 1 FROM dbo.Provider WHERE Id = 3)
+            BEGIN
+                INSERT INTO dbo.Provider (Id, Name, Code, BaseUrl, FallbackBaseUrl, IsActive)
+                VALUES (3, N'sms.ir Test', 'smsir', 'https://api.sms.ir', NULL, 1);
+            END;
+
             SET IDENTITY_INSERT dbo.Provider OFF;
             """);
     }

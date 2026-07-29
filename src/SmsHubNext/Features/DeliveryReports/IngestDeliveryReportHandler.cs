@@ -76,8 +76,8 @@ public sealed class IngestDeliveryReportHandler
         bool applied = updated == 1;
         DeliveryStatus responseStatus = applied ? readModel : partition.DeliveryStatus;
         string detail = applied
-            ? $"Delivery report applied for message {request.MessageId}: {readModel}."
-            : $"Delivery report recorded for message {request.MessageId}: {readModel}; read model already terminal as {partition.DeliveryStatus}.";
+            ? $"گزارش تحویل پیام {request.MessageId} ثبت و وضعیت آن به «{DeliveryStatusText(readModel)}» تغییر کرد."
+            : $"گزارش تحویل پیام {request.MessageId} با وضعیت «{DeliveryStatusText(readModel)}» ثبت شد؛ وضعیت نهایی قبلی «{DeliveryStatusText(partition.DeliveryStatus)}» حفظ شد.";
 
         await connection.ExecuteAsync(new CommandDefinition(
             DeliveryReportsSql.InsertBatchEventForReport,
@@ -94,6 +94,16 @@ public sealed class IngestDeliveryReportHandler
         transaction.Commit();
         return new IngestDeliveryReportResponse(reportId, responseStatus, applied);
     }
+
+    private static string DeliveryStatusText(DeliveryStatus status) => status switch
+    {
+        DeliveryStatus.Pending => "در انتظار",
+        DeliveryStatus.Delivered => "تحویل‌شده",
+        DeliveryStatus.Undelivered => "تحویل‌نشده",
+        DeliveryStatus.Expired => "منقضی‌شده",
+        DeliveryStatus.Unknown => "نامشخص",
+        _ => "نامشخص",
+    };
 
     private sealed record MessagePartition(string SubmitDateJalali, long MessageBatchId, DeliveryStatus DeliveryStatus);
 }

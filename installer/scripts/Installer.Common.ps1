@@ -1,4 +1,4 @@
-Set-StrictMode -Version 3.0
+﻿Set-StrictMode -Version 3.0
 
 function Write-InstallerResult {
     [CmdletBinding()]
@@ -45,10 +45,28 @@ function Get-InstallerSafeErrorMessage {
 
     $message = $ErrorRecord.Exception.Message -replace '[\r\n]+', ' '
     if ([string]::IsNullOrWhiteSpace($message)) {
-        return 'The operation failed.'
+        return 'عملیات ناموفق بود.'
     }
 
     return $message.Trim()
+}
+
+function Get-InstallerDisplayErrorMessage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.ErrorRecord] $ErrorRecord,
+
+        [Parameter(Mandatory = $true)]
+        [string] $Fallback
+    )
+
+    $message = Get-InstallerSafeErrorMessage -ErrorRecord $ErrorRecord
+    if ($message -match '[\u0600-\u06FF]') {
+        return $message
+    }
+
+    return $Fallback
 }
 
 function Assert-InstallerSafeDirectory {
@@ -66,7 +84,7 @@ function Assert-InstallerSafeDirectory {
     if ([string]::IsNullOrWhiteSpace($fullPath) -or
         [string]::Equals($fullPath, $root, [System.StringComparison]::OrdinalIgnoreCase) -or
         $fullPath.Length -le ($root.Length + 3)) {
-        throw "Refusing to use unsafe $Purpose directory '$fullPath'."
+        throw "استفاده از مسیر ناامن «$fullPath» برای $Purpose مجاز نیست."
     }
 
     return $fullPath
@@ -103,7 +121,7 @@ function Invoke-InstallerProcess {
         -WindowStyle Hidden
 
     if ($SuccessfulExitCodes -notcontains $process.ExitCode) {
-        throw "Process '$FilePath' failed with exit code $($process.ExitCode)."
+        throw "اجرای پردازش «$FilePath» با کد خروج $($process.ExitCode) ناموفق بود."
     }
 
     return $process.ExitCode
