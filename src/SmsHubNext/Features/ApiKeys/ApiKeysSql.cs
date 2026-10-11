@@ -13,7 +13,7 @@ internal static class ApiKeysSql
 
     public const string ListByCustomer =
         """
-        SELECT Id, CustomerId, Name, KeyPrefix, IsActive, ExpiresAtUtc, RevokedAtUtc,
+        SELECT Id, CustomerId, Name, KeyPrefix, AccessLevel, IsActive, ExpiresAtUtc, RevokedAtUtc,
                RevokedByApiKeyId, CreatedAtUtc
         FROM dbo.ApiKey
         WHERE CustomerId = @CustomerId

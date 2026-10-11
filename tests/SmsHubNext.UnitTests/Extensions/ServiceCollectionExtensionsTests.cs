@@ -1,8 +1,12 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using SmsHubNext.Extensions;
+using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.SmsIr;
 using Xunit;
@@ -11,6 +15,30 @@ namespace SmsHubNext.UnitTests.Extensions;
 
 public sealed class ServiceCollectionExtensionsTests
 {
+    [Fact]
+    public void Default_management_policy_requires_administrator_api_key_claims()
+    {
+        ServiceCollection services = new ServiceCollection();
+        services.AddApplicationServices(Configuration(), Environment(Environments.Development));
+
+        using ServiceProvider serviceProvider = services.BuildServiceProvider();
+        AuthorizationOptions options = serviceProvider
+            .GetRequiredService<IOptions<AuthorizationOptions>>()
+            .Value;
+        AuthorizationPolicy? administrator = options.GetPolicy(AuthenticationPolicies.Administrator);
+
+        Assert.NotNull(administrator);
+        Assert.Same(administrator, options.DefaultPolicy);
+        Assert.Contains(
+            administrator.Requirements,
+            requirement => requirement is RolesAuthorizationRequirement roles &&
+                roles.AllowedRoles.Contains(AuthenticationPolicies.AdministratorRole));
+        Assert.Contains(
+            administrator.Requirements,
+            requirement => requirement is ClaimsAuthorizationRequirement claim &&
+                claim.ClaimType == AuthenticationClaimTypes.ApiKeyId);
+    }
+
     [Fact]
     public void Development_without_a_real_provider_registers_loopback()
     {

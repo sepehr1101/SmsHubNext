@@ -22,6 +22,7 @@ builder.Services.AddApplicationServices(builder.Configuration, builder.Environme
 WebApplication app = builder.Build();
 
 app.MigrateDatabase();
+await app.SeedDevelopmentDataAsync();
 app.ConfigurePipeline();
 
 await app.RunAsync();

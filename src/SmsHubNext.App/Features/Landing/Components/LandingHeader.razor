@@ -1,0 +1,29 @@
+<header class="landing-header">
+    <div class="landing-container header-inner">
+        <BrandMark />
+        <nav class="desktop-nav" aria-label="ناوبری اصلی">
+            <span class="nav-indicator"></span><a href="#features">امکانات</a><a href="#workflow">نحوه کار</a><a href="#api">API</a><a href="#accounting">حسابداری</a><a href="#faq">سؤالات</a>
+        </nav>
+        <div class="header-actions">
+            <a class="button button-quiet desktop-action" href="#api">مستندات فنی</a>
+            <a class="button button-primary desktop-action" href="/login">ورود به پنل</a>
+            <button class="menu-button" type="button" aria-label="باز کردن منو" aria-expanded="@_menuOpen" @onclick="ToggleMenu">
+                <MudIcon Icon="@(_menuOpen ? Icons.Material.Rounded.Close : Icons.Material.Rounded.Menu)" />
+            </button>
+        </div>
+    </div>
+    @if (_menuOpen)
+    {
+        <nav class="mobile-nav" aria-label="ناوبری موبایل">
+            <a href="#features" @onclick="CloseMenu">امکانات</a><a href="#workflow" @onclick="CloseMenu">نحوه کار</a>
+            <a href="#api" @onclick="CloseMenu">API</a><a href="#accounting" @onclick="CloseMenu">حسابداری</a><a href="#faq" @onclick="CloseMenu">سؤالات</a>
+            <a href="/login" @onclick="CloseMenu">ورود به پنل</a>
+        </nav>
+    }
+</header>
+
+@code {
+    private bool _menuOpen;
+    private void ToggleMenu() => _menuOpen = !_menuOpen;
+    private void CloseMenu() => _menuOpen = false;
+}

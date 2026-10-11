@@ -1,7 +1,9 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DbUp.Engine;
 using Microsoft.Data.SqlClient;
+using SmsHubNext.Shared.Database;
 
 namespace SmsHubNext.Deployment;
 
@@ -41,8 +43,68 @@ public static class SetupCommandRunner
         {
             "test-database" => await TestDatabaseAsync(options, cancellationToken),
             "configure" => await ConfigureAsync(options, cancellationToken),
+            "create-admin-key" => await CreateAdminKeyAsync(options, cancellationToken),
             _ => await UnknownCommandAsync(options, command),
         };
+    }
+
+    private static async Task<int> CreateAdminKeyAsync(
+        IReadOnlyDictionary<string, string> options,
+        CancellationToken cancellationToken)
+    {
+        string? resultPath = GetOptionalOption(options, "--result");
+
+        try
+        {
+            DatabaseSetupRequest request = await ReadRequestAsync(options, cancellationToken);
+            string name = GetOptionalOption(options, "--name") ?? "Initial administrator";
+            string connectionString = DatabaseConnectionStringFactory.Create(request);
+
+            DatabaseSetupService setupService = new();
+            await setupService.TestConnectionAsync(request, cancellationToken);
+
+            DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
+            if (!migration.Successful)
+                throw migration.Error ?? new InvalidOperationException("اجرای migration پایگاه داده ناموفق بود.");
+
+            AdminApiKeyBootstrapper bootstrapper = new(new Db(connectionString));
+            SetupAdministratorCredential administrator = await bootstrapper.CreateAsync(
+                name,
+                expiresAtUtc: null,
+                cancellationToken);
+
+            await WriteResultAsync(
+                resultPath,
+                SetupCommandResult.Succeeded(
+                    "setup.admin_key_created",
+                    "کلید مدیریتی ساخته شد. مقدار آن فقط در همین پاسخ نمایش داده می‌شود.",
+                    administrator));
+            return SetupExitCodes.Success;
+        }
+        catch (ArgumentException exception)
+        {
+            await WriteResultAsync(resultPath, SetupCommandResult.Failed("setup.invalid_arguments", exception.Message));
+            return SetupExitCodes.InvalidArguments;
+        }
+        catch (InvalidDataException exception)
+        {
+            await WriteResultAsync(resultPath, SetupCommandResult.Failed("setup.invalid_request", exception.Message));
+            return SetupExitCodes.InvalidRequest;
+        }
+        catch (SqlException)
+        {
+            await WriteResultAsync(
+                resultPath,
+                SetupCommandResult.Failed("database.connection_failed", DatabaseConnectionFailedMessage));
+            return SetupExitCodes.DatabaseConnectionFailed;
+        }
+        catch (Exception)
+        {
+            await WriteResultAsync(
+                resultPath,
+                SetupCommandResult.Failed("setup.unexpected_failure", UnexpectedFailureMessage));
+            return SetupExitCodes.UnexpectedFailure;
+        }
     }
 
     private static async Task<int> TestDatabaseAsync(

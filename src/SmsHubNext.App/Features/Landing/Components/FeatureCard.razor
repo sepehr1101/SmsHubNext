@@ -1,0 +1,15 @@
+<article class="feature-card reveal @Class">
+    <span class="feature-icon"><MudIcon Icon="@Icon" /></span><h3>@Title</h3><p>@Description</p>
+    @if (!string.IsNullOrWhiteSpace(Detail))
+    {
+        <span class="feature-detail">@Detail</span>
+    }
+</article>
+
+@code {
+    [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Description { get; set; } = string.Empty;
+    [Parameter] public string? Detail { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

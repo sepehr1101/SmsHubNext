@@ -27,6 +27,12 @@ public static class UserMessages
         public const string InactiveKey = "کلید API غیرفعال یا لغو شده است.";
         public const string ExpiredKey = "اعتبار کلید API به پایان رسیده است.";
         public const string IpNotAllowed = "نشانی IP درخواست‌دهنده برای این کلید API مجاز نیست.";
+        public const string AdministratorKeyRequired = "این کلید API دسترسی مدیریتی ندارد.";
+        public const string CustomerKeyRequired = "برای ارسال پیام باید از کلید API مشتری استفاده شود.";
+        public const string AuthenticationRequired = "برای دسترسی به این بخش، توکن مدیریتی معتبر لازم است.";
+        public const string AccessDenied = "اجازه دسترسی به این بخش را ندارید.";
+        public const string TooManyTokenRequests =
+            "تعداد درخواست‌های ورود بیش از حد مجاز است؛ کمی بعد دوباره تلاش کنید.";
     }
 
     public static class ApiKeys

@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ورود به smshub</title>
+<meta name="description" content="ورود به حساب کاربری smshub" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#05050e;
+  --surface:rgba(255,255,255,.035);
+  --surface-2:rgba(255,255,255,.06);
+  --border:rgba(255,255,255,.08);
+  --border-strong:rgba(255,255,255,.14);
+  --text:#eef0ff;
+  --muted:#9295b8;
+  --muted-2:#6b6e90;
+  --primary:#7c5cff;
+  --accent:#22d3ee;
+  --pink:#f472b6;
+  --green:#34d399;
+  --red:#f87171;
+  --amber:#fbbf24;
+  --grad:linear-gradient(135deg,#7c5cff 0%,#a86cff 45%,#22d3ee 100%);
+  --grad-soft:linear-gradient(135deg,rgba(124,92,255,.18),rgba(34,211,238,.14));
+  --radius:20px;
+  --radius-sm:14px;
+  --radius-lg:28px;
+  --shadow:0 24px 70px -20px rgba(0,0,0,.75);
+  --ease:cubic-bezier(.22,.75,.28,1);
+}
+
+html{height:100%}
+body{
+  font-family:'Vazirmatn',system-ui,-apple-system,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  line-height:1.7;
+  min-height:100vh;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+body::before{
+  content:'';
+  position:fixed;inset:0;
+  background:
+    radial-gradient(900px 600px at 85% -5%, rgba(124,92,255,.18), transparent 65%),
+    radial-gradient(800px 600px at 10% 15%, rgba(34,211,238,.10), transparent 60%),
+    radial-gradient(700px 700px at 50% 110%, rgba(244,114,182,.08), transparent 65%);
+  pointer-events:none;z-index:0;
+}
+.grid-bg{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.grid-bg::before{
+  content:'';position:absolute;inset:-2px;
+  background-image:
+    linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px);
+  background-size:64px 64px;
+}
+.grid-bg::after{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(circle at 30% 40%, transparent 0%, transparent 40%, #05050e 90%);
+}
+
+img,svg{display:block;max-width:100%}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input{font-family:inherit}
+
+::selection{background:rgba(124,92,255,.45);color:#fff}
+::-webkit-scrollbar{width:10px}
+::-webkit-scrollbar-track{background:#080814}
+::-webkit-scrollbar-thumb{background:linear-gradient(#7c5cff,#22d3ee);border-radius:20px;border:2px solid #080814}
+
+/* LAYOUT */
+.auth{
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:1fr 1.05fr; /* فرم 1fr، ویژوال 1.05fr */
+  position:relative;
+  z-index:2;
+}
+
+/* ============================================================
+   VISUAL SIDE — حالا سمت چپ
+   ============================================================ */
+.auth-visual{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:60px 40px;
+  overflow:hidden;
+  border-inline-start:1px solid var(--border); /* خط جداکننده سمت راست ویژوال */
+}
+
+/* Orb with rings */
+.visual-stage{
+  position:relative;
+  width:min(420px, 80%);
+  aspect-ratio:1;
+  margin-bottom:48px;
+  isolation:isolate;
+}
+.visual-stage::before{
+  content:'';
+  position:absolute;inset:-20%;
+  background:radial-gradient(circle, rgba(124,92,255,.28), transparent 60%);
+  filter:blur(50px);
+  z-index:-1;
+}
+
+.v-ring{
+  position:absolute;top:50%;left:50%;
+  border-radius:50%;
+  border:1px dashed;
+  pointer-events:none;
+  transform:translate(-50%,-50%);
+}
+.v-ring.r1{
+  width:100%;height:100%;
+  border-color:rgba(124,92,255,.22);
+  animation:spin 60s linear infinite;
+}
+.v-ring.r2{
+  width:76%;height:76%;
+  border-color:rgba(34,211,238,.2);
+  animation:spin 45s linear infinite reverse;
+}
+.v-ring.r3{
+  width:52%;height:52%;
+  border-color:rgba(244,114,182,.16);
+  animation:spin 32s linear infinite;
+}
+@keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+
+.v-orbit-node{
+  position:absolute;
+  top:0;left:50%;
+  transform:translate(-50%,-50%);
+  width:10px;height:10px;
+  border-radius:50%;
+  background:var(--primary);
+  box-shadow:0 0 14px var(--primary);
+}
+.v-orbit-node.cyan{background:var(--accent);box-shadow:0 0 14px var(--accent)}
+.v-orbit-node.pink{background:var(--pink);box-shadow:0 0 14px var(--pink)}
+
+.v-pulse{
+  position:absolute;top:50%;left:50%;
+  width:34%;aspect-ratio:1;
+  border-radius:50%;
+  border:1.5px solid rgba(124,92,255,.55);
+  transform:translate(-50%,-50%);
+  pointer-events:none;
+  animation:vPulse 4s cubic-bezier(.22,.75,.28,1) infinite;
+}
+.v-pulse:nth-of-type(2){animation-delay:1.33s}
+.v-pulse:nth-of-type(3){animation-delay:2.66s}
+@keyframes vPulse{
+  0%{transform:translate(-50%,-50%) scale(1);opacity:.75}
+  100%{transform:translate(-50%,-50%) scale(2.9);opacity:0}
+}
+
+.v-core{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  width:34%;aspect-ratio:1;
+  border-radius:50%;
+  background:linear-gradient(160deg,#7c5cff 0%,#a86cff 45%,#22d3ee 100%);
+  display:grid;place-items:center;
+  box-shadow:
+    0 0 50px rgba(124,92,255,.7),
+    0 0 100px rgba(124,92,255,.45),
+    inset 0 2px 0 rgba(255,255,255,.35);
+  z-index:5;
+  animation:coreGlow 4s ease-in-out infinite;
+}
+@keyframes coreGlow{
+  0%,100%{box-shadow:0 0 50px rgba(124,92,255,.7),0 0 100px rgba(124,92,255,.45),inset 0 2px 0 rgba(255,255,255,.35)}
+  50%{box-shadow:0 0 70px rgba(124,92,255,.95),0 0 140px rgba(124,92,255,.6),inset 0 2px 0 rgba(255,255,255,.5)}
+}
+.v-core-inner{
+  display:flex;flex-direction:column;align-items:center;gap:4px;color:#fff;
+}
+.v-core-inner svg{width:34px;height:34px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
+.v-core-inner span{font-size:.9rem;font-weight:900;letter-spacing:-.02em;text-shadow:0 1px 3px rgba(0,0,0,.4)}
+
+.v-chip{
+  position:absolute;
+  display:flex;align-items:center;gap:7px;
+  padding:8px 14px;
+  border-radius:100px;
+  background:linear-gradient(160deg,rgba(20,20,38,.94),rgba(10,10,24,.96));
+  border:1px solid var(--border-strong);
+  backdrop-filter:blur(14px);
+  font-size:.78rem;font-weight:600;color:#d5d7f0;
+  white-space:nowrap;
+  box-shadow:0 10px 26px -12px rgba(0,0,0,.85);
+  z-index:4;
+}
+.v-chip i{
+  width:6px;height:6px;border-radius:50%;
+  background:linear-gradient(135deg,#7c5cff,#22d3ee);
+  box-shadow:0 0 8px rgba(124,92,255,.8);
+  flex-shrink:0;
+}
+.v-chip.c1{top:8%;right:-4%;animation:chipFloat 6s ease-in-out infinite}
+.v-chip.c2{top:38%;left:-6%;animation:chipFloat 7s ease-in-out infinite .8s}
+.v-chip.c3{bottom:14%;right:-2%;animation:chipFloat 6.5s ease-in-out infinite 1.6s}
+.v-chip.c4{bottom:2%;left:8%;animation:chipFloat 7.5s ease-in-out infinite 2.2s}
+@keyframes chipFloat{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(-10px)}
+}
+
+.visual-caption{
+  text-align:center;
+  max-width:440px;
+}
+.visual-caption .badge{
+  display:inline-flex;align-items:center;gap:8px;
+  font-size:.76rem;font-weight:600;color:var(--accent);
+  background:rgba(34,211,238,.08);
+  border:1px solid rgba(34,211,238,.22);
+  padding:6px 14px;border-radius:100px;margin-bottom:20px;
+}
+.visual-caption .badge::before{
+  content:'';width:6px;height:6px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 10px var(--accent);
+}
+.visual-caption h2{
+  font-size:clamp(1.4rem,2.4vw,1.85rem);
+  font-weight:900;letter-spacing:-.02em;
+  line-height:1.4;margin-bottom:14px;
+}
+.visual-caption h2 .grad{
+  background:var(--grad);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.visual-caption p{
+  font-size:.92rem;color:var(--muted);line-height:1.95;
+}
+
+/* ============================================================
+   FORM SIDE — حالا سمت راست
+   ============================================================ */
+.auth-form-wrap{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:60px 40px;
+  overflow-y:auto;
+}
+
+.auth-card{
+  width:100%;
+  max-width:420px;
+  padding:44px 40px 36px;
+  border-radius:var(--radius-lg);
+  background:linear-gradient(165deg,rgba(255,255,255,.05),rgba(255,255,255,.012));
+  border:1px solid var(--border-strong);
+  backdrop-filter:blur(24px);
+  box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.06);
+  position:relative;
+  overflow:hidden;
+  animation:cardIn .7s var(--ease) both;
+}
+@keyframes cardIn{
+  from{opacity:0;transform:translateY(20px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.auth-card::before{
+  content:'';
+  position:absolute;
+  top:-140px;right:-100px;
+  width:300px;height:300px;
+  border-radius:50%;
+  background:radial-gradient(circle,rgba(124,92,255,.28),transparent 70%);
+  filter:blur(50px);
+  pointer-events:none;
+}
+
+.auth-logo{
+  display:inline-flex;align-items:center;gap:10px;
+  font-weight:900;font-size:1.15rem;letter-spacing:-.02em;
+  margin-bottom:30px;
+  position:relative;z-index:1;
+}
+.auth-logo-mark{
+  width:36px;height:36px;border-radius:11px;
+  background:var(--grad);
+  display:grid;place-items:center;
+  box-shadow:0 8px 22px -6px rgba(124,92,255,.7);
+  position:relative;overflow:hidden;
+}
+.auth-logo-mark::after{
+  content:'';position:absolute;inset:0;border-radius:11px;
+  background:linear-gradient(135deg,rgba(255,255,255,.35),transparent 60%);
+}
+.auth-logo-mark svg{width:19px;height:19px;color:#fff;position:relative;z-index:1}
+.auth-logo span{
+  background:linear-gradient(135deg,#fff,#b9b6ff);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+
+.auth-card h1{
+  font-size:1.65rem;
+  font-weight:900;
+  letter-spacing:-.025em;
+  margin-bottom:10px;
+  line-height:1.3;
+  position:relative;z-index:1;
+}
+.auth-card .sub{
+  font-size:.9rem;
+  color:var(--muted);
+  margin-bottom:32px;
+  line-height:1.85;
+  position:relative;z-index:1;
+}
+
+.form-row{margin-bottom:20px;position:relative;z-index:1}
+
+.field-label{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  font-size:.83rem;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:9px;
+}
+.field-label .forgot{
+  font-size:.8rem;
+  color:var(--muted);
+  font-weight:500;
+  transition:color .25s var(--ease);
+}
+.field-label .forgot:hover{color:var(--accent)}
+
+.input-wrap{
+  position:relative;
+  display:flex;
+  align-items:center;
+}
+.input-wrap .field-icon{
+  position:absolute;
+  right:16px;
+  top:50%;
+  transform:translateY(-50%);
+  width:18px;height:18px;
+  color:var(--muted-2);
+  pointer-events:none;
+  transition:color .25s var(--ease);
+}
+.input-wrap input{
+  width:100%;
+  height:52px;
+  padding:0 46px 0 16px;
+  border-radius:14px;
+  background:rgba(255,255,255,.03);
+  border:1px solid var(--border);
+  color:var(--text);
+  font-size:.93rem;
+  outline:none;
+  transition:all .3s var(--ease);
+  direction:ltr;
+  text-align:right;
+}
+.input-wrap input::placeholder{
+  color:var(--muted-2);
+  text-align:right;
+}
+.input-wrap input:hover{
+  border-color:rgba(255,255,255,.18);
+  background:rgba(255,255,255,.045);
+}
+.input-wrap input:focus{
+  border-color:rgba(124,92,255,.7);
+  background:rgba(124,92,255,.06);
+  box-shadow:0 0 0 4px rgba(124,92,255,.12);
+}
+.input-wrap:focus-within .field-icon{color:#a99cff}
+
+.toggle-pass{
+  position:absolute;
+  left:14px;
+  top:50%;
+  transform:translateY(-50%);
+  width:32px;height:32px;
+  border-radius:9px;
+  display:grid;place-items:center;
+  color:var(--muted-2);
+  transition:all .25s var(--ease);
+}
+.toggle-pass:hover{color:var(--text);background:rgba(255,255,255,.05)}
+.toggle-pass svg{width:17px;height:17px}
+.toggle-pass .eye-off{display:none}
+.toggle-pass.showing .eye{display:none}
+.toggle-pass.showing .eye-off{display:block}
+
+.remember-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:26px;
+  position:relative;z-index:1;
+}
+.checkbox{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  cursor:pointer;
+  font-size:.84rem;
+  color:var(--muted);
+  user-select:none;
+  transition:color .25s var(--ease);
+}
+.checkbox:hover{color:var(--text)}
+.checkbox input{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+}
+.checkbox .box{
+  width:19px;height:19px;
+  border-radius:6px;
+  border:1.5px solid var(--border-strong);
+  background:rgba(255,255,255,.03);
+  display:grid;place-items:center;
+  transition:all .25s var(--ease);
+  flex-shrink:0;
+}
+.checkbox .box svg{
+  width:12px;height:12px;
+  color:#fff;
+  stroke-dasharray:20;
+  stroke-dashoffset:20;
+  transition:stroke-dashoffset .25s var(--ease);
+}
+.checkbox input:checked ~ .box{
+  background:var(--grad);
+  border-color:transparent;
+  box-shadow:0 4px 12px -3px rgba(124,92,255,.7);
+}
+.checkbox input:checked ~ .box svg{stroke-dashoffset:0}
+.checkbox input:focus-visible ~ .box{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+
+.btn-submit{
+  width:100%;
+  height:52px;
+  border-radius:14px;
+  font-size:.95rem;
+  font-weight:800;
+  letter-spacing:-.01em;
+  position:relative;
+  overflow:hidden;
+  background:var(--grad);
+  color:#fff;
+  box-shadow:0 12px 32px -10px rgba(124,92,255,.8);
+  transition:all .3s var(--ease);
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.btn-submit::after{
+  content:'';
+  position:absolute;inset:0;
+  background:linear-gradient(120deg,transparent 20%,rgba(255,255,255,.35) 50%,transparent 80%);
+  transform:translateX(-130%);
+  transition:transform .7s var(--ease);
+}
+.btn-submit:hover:not(:disabled)::after{transform:translateX(130%)}
+.btn-submit:hover:not(:disabled){
+  transform:translateY(-2px);
+  box-shadow:0 18px 44px -12px rgba(124,92,255,.95);
+}
+.btn-submit:active:not(:disabled){transform:translateY(0)}
+.btn-submit:disabled{
+  cursor:not-allowed;
+  opacity:.85;
+}
+
+.spinner{
+  width:18px;height:18px;
+  border-radius:50%;
+  border:2.5px solid rgba(255,255,255,.35);
+  border-top-color:#fff;
+  animation:spinBtn .8s linear infinite;
+  display:none;
+}
+@keyframes spinBtn{to{transform:rotate(360deg)}}
+.btn-submit.loading .btn-label{display:none}
+.btn-submit.loading .spinner{display:block}
+
+.divider{
+  display:flex;align-items:center;gap:14px;
+  margin:26px 0;
+  font-size:.78rem;
+  color:var(--muted-2);
+  position:relative;z-index:1;
+}
+.divider::before,.divider::after{
+  content:'';flex:1;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.1),transparent);
+}
+
+.socials{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+  position:relative;z-index:1;
+}
+.social-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:9px;
+  height:48px;
+  border-radius:14px;
+  background:rgba(255,255,255,.03);
+  border:1px solid var(--border);
+  font-size:.86rem;
+  font-weight:600;
+  color:var(--text);
+  transition:all .3s var(--ease);
+}
+.social-btn:hover{
+  background:rgba(255,255,255,.06);
+  border-color:rgba(124,92,255,.45);
+  transform:translateY(-2px);
+}
+.social-btn svg{width:18px;height:18px}
+
+.signup-cta{
+  text-align:center;
+  margin-top:28px;
+  font-size:.85rem;
+  color:var(--muted);
+  position:relative;z-index:1;
+}
+.signup-cta a{
+  color:#a99cff;
+  font-weight:700;
+  transition:color .25s var(--ease);
+  margin-inline-start:4px;
+}
+.signup-cta a:hover{color:var(--accent)}
+
+.home-link{
+  position:absolute;
+  top:28px;
+  right:32px;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  font-size:.82rem;
+  color:var(--muted);
+  padding:8px 14px;
+  border-radius:100px;
+  background:rgba(255,255,255,.03);
+  border:1px solid var(--border);
+  transition:all .3s var(--ease);
+  z-index:5;
+}
+.home-link:hover{
+  color:var(--text);
+  border-color:rgba(124,92,255,.5);
+  background:rgba(124,92,255,.1);
+}
+.home-link svg{width:14px;height:14px}
+
+.auth-footer{
+  margin-top:32px;
+  text-align:center;
+  font-size:.76rem;
+  color:var(--muted-2);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.auth-footer .status{
+  display:inline-flex;align-items:center;gap:6px;
+  color:var(--green);
+}
+.auth-footer .status i{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--green);box-shadow:0 0 8px var(--green);
+  animation:blink 1.6s ease-in-out infinite;
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.field-error{
+  display:none;
+  align-items:center;
+  gap:6px;
+  font-size:.75rem;
+  color:var(--red);
+  margin-top:8px;
+}
+.field-error svg{width:13px;height:13px;flex-shrink:0}
+.form-row.has-error .input-wrap input{
+  border-color:rgba(248,113,113,.6);
+  background:rgba(248,113,113,.05);
+}
+.form-row.has-error .field-error{display:flex}
+
+/* RESPONSIVE */
+@media (max-width:960px){
+  .auth{grid-template-columns:1fr}
+  .auth-visual{display:none}
+  .auth-form-wrap{padding:40px 24px}
+  .home-link{top:20px;right:20px}
+}
+@media (max-width:520px){
+  .auth-form-wrap{padding:32px 18px}
+  .auth-card{padding:34px 26px 30px;border-radius:24px}
+  .auth-card h1{font-size:1.4rem}
+  .socials{grid-template-columns:1fr}
+  .home-link{
+    position:static;
+    margin:0 auto 20px;
+  }
+  .auth-visual{display:flex;padding:40px 24px 20px;border-inline-start:none}
+  .visual-stage{width:min(280px,70%);margin-bottom:28px}
+  .v-core-inner svg{width:24px;height:24px}
+  .v-core-inner span{font-size:.76rem}
+  .v-chip{font-size:.7rem;padding:6px 11px}
+  .visual-caption h2{font-size:1.15rem}
+  .visual-caption p{font-size:.85rem}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:.01ms!important;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="grid-bg" aria-hidden="true"></div>
+
+<main class="auth">
+  <!-- FORM SIDE — حالا سمت راست -->
+  <section class="auth-form-wrap">
+    <a href="#" class="home-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 12H5M12 19l-7-7 7-7"/>
+      </svg>
+      بازگشت به صفحه‌ی اصلی
+    </a>
+
+    <div class="auth-card">
+      <a href="#" class="auth-logo">
+        <div class="auth-logo-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h16v12H7l-3 4V4z"/>
+            <path d="M9 9h6M9 12h4"/>
+          </svg>
+        </div>
+        <span>smshub</span>
+      </a>
+
+      <h1>خوش برگشتی 👋</h1>
+      <p class="sub">برای ادامه، وارد حساب کاربری‌ات شو.</p>
+
+      <form id="loginForm" novalidate>
+        <div class="form-row" id="usernameRow">
+          <div class="field-label">
+            <label for="username">نام کاربری</label>
+          </div>
+          <div class="input-wrap">
+            <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              placeholder="مثلاً: ali.rezaei"
+              autocomplete="username"
+              spellcheck="false"
+              required
+            />
+          </div>
+          <div class="field-error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 8v4M12 16h.01"/>
+            </svg>
+            <span>نام کاربری را وارد کن.</span>
+          </div>
+        </div>
+
+        <div class="form-row" id="passwordRow">
+          <div class="field-label">
+            <label for="password">رمز عبور</label>
+            <a href="#" class="forgot">فراموشی رمز؟</a>
+          </div>
+          <div class="input-wrap">
+            <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="11" width="16" height="10" rx="2"/>
+              <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+            </svg>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              placeholder="••••••••"
+              autocomplete="current-password"
+              required
+            />
+            <button type="button" class="toggle-pass" id="togglePass" aria-label="نمایش رمز عبور">
+              <svg class="eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <path d="M1 1l22 22"/>
+              </svg>
+            </button>
+          </div>
+          <div class="field-error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 8v4M12 16h.01"/>
+            </svg>
+            <span>رمز عبور را وارد کن.</span>
+          </div>
+        </div>
+
+        <div class="remember-row">
+          <label class="checkbox">
+            <input type="checkbox" id="remember" name="remember" />
+            <span class="box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </span>
+            مرا به خاطر بسپار
+          </label>
+        </div>
+
+        <button type="submit" class="btn-submit" id="submitBtn">
+          <span class="spinner"></span>
+          <span class="btn-label">ورود به smshub</span>
+        </button>
+      </form>
+
+      <div class="divider">یا ادامه با</div>
+
+      <div class="socials">
+        <button type="button" class="social-btn">
+          <svg viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          Google
+        </button>
+        <button type="button" class="social-btn">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.5 2 2 6.6 2 12.2c0 4.5 2.9 8.3 6.8 9.7.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.4-3.4-1.4-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1.1 1.5 1.1.9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.7-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.3 9.3 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.3 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10.2 10.2 0 0 0 22 12.2C22 6.6 17.5 2 12 2z"/>
+          </svg>
+          GitHub
+        </button>
+      </div>
+
+      <p class="signup-cta">
+        حساب کاربری نداری؟
+        <a href="#">ثبت‌نام کن</a>
+      </p>
+    </div>
+
+    <div class="auth-footer">
+      <span>© ۱۴۰۴ smshub</span>
+      <span>·</span>
+      <span class="status"><i></i> همه‌ی سیستم‌ها فعال</span>
+    </div>
+  </section>
+
+  <!-- VISUAL SIDE — حالا سمت چپ -->
+  <section class="auth-visual">
+    <div class="visual-stage">
+      <div class="v-ring r1"><div class="v-orbit-node"></div></div>
+      <div class="v-ring r2"><div class="v-orbit-node cyan"></div></div>
+      <div class="v-ring r3"><div class="v-orbit-node pink"></div></div>
+
+      <div class="v-pulse"></div>
+      <div class="v-pulse"></div>
+      <div class="v-pulse"></div>
+
+      <div class="v-core">
+        <div class="v-core-inner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h16v12H7l-3 4V4z"/>
+            <path d="M9 9h6M9 12h4"/>
+          </svg>
+          <span>smshub</span>
+        </div>
+      </div>
+
+      <div class="v-chip c1"><i></i>کاوه‌نگار</div>
+      <div class="v-chip c2"><i></i>مگفا</div>
+      <div class="v-chip c3"><i></i>sms.ir</div>
+      <div class="v-chip c4"><i></i>ملی‌پیامک</div>
+    </div>
+
+    <div class="visual-caption">
+      <span class="badge">امن، سریع، یکپارچه</span>
+      <h2>همه‌ی پیامک‌هایت، <span class="grad">در یک پنل</span></h2>
+      <p>با یک API واحد به ۱۵+ اپراتور و ارائه‌دهنده وصل شو — با مسیریابی هوشمند و پایداری ۹۹.۹۹٪.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+(function(){
+  var toggle = document.getElementById('togglePass');
+  var input = document.getElementById('password');
+  if (!toggle || !input) return;
+  toggle.addEventListener('click', function(){
+    var showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    toggle.classList.toggle('showing', !showing);
+    toggle.setAttribute('aria-label', showing ? 'نمایش رمز عبور' : 'پنهان کردن رمز عبور');
+    input.focus();
+  });
+})();
+
+(function(){
+  var form = document.getElementById('loginForm');
+  var btn = document.getElementById('submitBtn');
+  var userRow = document.getElementById('usernameRow');
+  var passRow = document.getElementById('passwordRow');
+  var userInput = document.getElementById('username');
+  var passInput = document.getElementById('password');
+
+  function clearError(row){ row.classList.remove('has-error'); }
+
+  userInput.addEventListener('input', function(){ clearError(userRow); });
+  passInput.addEventListener('input', function(){ clearError(passRow); });
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var ok = true;
+    if (!userInput.value.trim()) { userRow.classList.add('has-error'); ok = false; }
+    if (!passInput.value) { passRow.classList.add('has-error'); ok = false; }
+    if (!ok) {
+      if (userRow.classList.contains('has-error')) userInput.focus();
+      else passInput.focus();
+      return;
+    }
+
+    btn.classList.add('loading');
+    btn.disabled = true;
+
+    setTimeout(function(){
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }, 1600);
+  });
+})();
+</script>
+</body>
+</html>

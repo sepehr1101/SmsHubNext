@@ -48,6 +48,13 @@ public sealed class SendMessagesHandler
         ApiKeyIdentity identity,
         CancellationToken cancellationToken)
     {
+        if (identity.AccessLevel != ApiKeyAccessLevel.Customer)
+        {
+            return Error.Forbidden(
+                "auth.customer_key_required",
+                UserMessages.Auth.CustomerKeyRequired);
+        }
+
         Result validation = request.Validate();
         if (validation.IsFailure)
             return validation.Error!;

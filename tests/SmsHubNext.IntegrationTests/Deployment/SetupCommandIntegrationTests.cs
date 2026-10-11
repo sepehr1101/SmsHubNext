@@ -80,4 +80,44 @@ public sealed class SetupCommandIntegrationTests : IAsyncLifetime
             new { databaseName = _databaseName });
         Assert.Null(databaseId);
     }
+
+    [Fact]
+    public async Task Create_admin_key_command_migrates_database_and_returns_secret_once()
+    {
+        string requestPath = Path.Combine(_directory, "admin-database-request.json");
+        string resultPath = Path.Combine(_directory, "admin-result.json");
+        await File.WriteAllTextAsync(
+            requestPath,
+            System.Text.Json.JsonSerializer.Serialize(
+                _request,
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
+                {
+                    Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+                }));
+
+        int? exitCode = await SetupCommandRunner.TryRunAsync(
+            [
+                "setup", "create-admin-key",
+                "--request", requestPath,
+                "--name", "First administrator",
+                "--result", resultPath,
+            ]);
+
+        Assert.Equal(SetupExitCodes.Success, exitCode);
+        SetupCommandResult result = System.Text.Json.JsonSerializer.Deserialize<SetupCommandResult>(
+            await File.ReadAllTextAsync(resultPath),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        Assert.True(result.Success);
+        Assert.NotNull(result.Administrator);
+        Assert.StartsWith("shn_", result.Administrator.ApiKey);
+
+        SqlConnectionStringBuilder databaseConnection = new(_masterConnectionString)
+        {
+            InitialCatalog = _databaseName,
+        };
+        await using SqlConnection connection = new(databaseConnection.ConnectionString);
+        int adminKeys = await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.ApiKey WHERE AccessLevel = 1;");
+        Assert.Equal(1, adminKeys);
+    }
 }

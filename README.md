@@ -178,6 +178,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `Name` | `NVARCHAR(200)` | |
 | `Code` | `VARCHAR(50)` | external/business code; `NCIX` unique |
 | `IsActive` | `BIT` | |
+| `IsSystem` | `BIT` | hidden platform customer used only to own administrator API keys |
 | `CreatedAtUtc` | `DATETIME2(3)` | |
 | `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |
 | `DeletedByApiKeyId` | `INT` | nullable **FK** → `ApiKey`; deletion actor |
@@ -192,6 +193,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `Name` | `NVARCHAR(100)` | human label, e.g. "Production billing system" |
 | `KeyPrefix` | `VARCHAR(12)` | **non-secret** public prefix shown in dashboards/logs; `NCIX` |
 | `KeyHash` | `BINARY(32)` | **SHA-256 of the secret key**; `NCIX` **unique**. Plaintext is **never** stored |
+| `AccessLevel` | `TINYINT` | `0` customer send key; `1` administrator key |
 | `IsActive` | `BIT` | |
 | `ExpiresAtUtc` | `DATETIME2(3)` | nullable — optional expiry |
 | `RevokedAtUtc` | `DATETIME2(3)` | nullable — set on revocation (row kept for audit) |
@@ -201,7 +203,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 
 **Indexes:** `NCIX UNIQUE (KeyHash)` — auth lookup on every send; `NCIX (CustomerId)` — list a tenant's keys.
 
-**Why a separate table:** a customer holds **many** keys (rotation, per-system), each with its own lifecycle. **Why hash-only:** if the DB leaks, plaintext keys must not; authenticate by hashing the presented key and seeking `KeyHash`; `KeyPrefix` identifies a key without exposing it. *Alternatives:* plaintext/encrypted (breach liability / unnecessary); JWT/OAuth (heavier; layer later, §9). Throttling lives in the app/cache layer.
+**Why a separate table:** a customer holds **many** keys (rotation, per-system), each with its own lifecycle. **Why hash-only:** if the DB leaks, plaintext keys must not; authenticate by hashing the presented key and seeking `KeyHash`; `KeyPrefix` identifies a key without exposing it. Customer keys authenticate send calls directly. Administrator keys are owned by one hidden system customer and may only be exchanged for a short-lived management JWT; keeping them in this table preserves the existing `DeletedByApiKeyId`/`RevokedByApiKeyId` audit chain. Token exchange is rate-limited by source IP. *Alternative:* plaintext/encrypted keys — rejected (breach liability / unnecessary).
 
 ### 4.3 `ApiKeyIpRestriction` (optional)
 | Column | Type | Notes |

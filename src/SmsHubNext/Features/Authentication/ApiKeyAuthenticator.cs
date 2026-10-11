@@ -12,11 +12,8 @@ namespace SmsHubNext.Features.Authentication;
 /// hashes the key, seeks the active/non-revoked/non-expired <c>ApiKey</c> row, and
 /// enforces the optional per-key CIDR allow-list against the caller's IP.
 ///
-/// This is the whole of API-key auth. It is wired as a service and exercised by the
-/// convenience <c>GET /auth/whoami</c> endpoint, but it is deliberately NOT placed in
-/// the request pipeline yet — every other endpoint stays open for convenient testing.
-/// Activation is a one-liner: see <see cref="ApiKeyAuthenticationMiddleware"/> and
-/// <c>ApplicationBuilderExtensions</c>.
+/// Customer send calls and administrator-token exchange invoke this validator explicitly
+/// because management endpoints use JWT rather than a global API-key middleware.
 /// </summary>
 public sealed class ApiKeyAuthenticator
 {
@@ -64,7 +61,7 @@ public sealed class ApiKeyAuthenticator
         if (cidrs.Count > 0 && !IsAllowed(remoteIp, cidrs))
             return Error.Unauthorized("auth.ip_not_allowed", UserMessages.Auth.IpNotAllowed);
 
-        return new ApiKeyIdentity(key.ApiKeyId, key.CustomerId, key.KeyPrefix);
+        return new ApiKeyIdentity(key.ApiKeyId, key.CustomerId, key.KeyPrefix, key.AccessLevel);
     }
 
     private static bool IsAllowed(IPAddress? remoteIp, IReadOnlyList<string> cidrs)
@@ -85,6 +82,7 @@ public sealed class ApiKeyAuthenticator
         int ApiKeyId,
         short CustomerId,
         string KeyPrefix,
+        ApiKeyAccessLevel AccessLevel,
         bool IsActive,
         DateTime? ExpiresAtUtc,
         DateTime? RevokedAtUtc);

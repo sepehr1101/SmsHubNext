@@ -1,0 +1,19 @@
+@inherits LayoutComponentBase
+
+<MudRTLProvider RightToLeft="true">
+    <MudThemeProvider />
+    <MudPopoverProvider />
+    <MudDialogProvider />
+    <MudSnackbarProvider />
+
+    <main class="login-shell">
+        <div class="login-grid" aria-hidden="true"></div>
+        @Body
+    </main>
+</MudRTLProvider>
+
+<div id="blazor-error-ui" data-nosnippet>
+    خطایی رخ داده است.
+    <a href="." class="reload">بارگذاری مجدد</a>
+    <span class="dismiss">🗙</span>
+</div>

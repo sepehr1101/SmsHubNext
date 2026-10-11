@@ -1,0 +1,18 @@
+@page "/inbound-messages"
+@layout AdminLayout
+@attribute [Authorize(Roles = DevelopmentAccount.AdministratorRole)]
+@inject InboundMessagesService Service
+@inject ProvidersService Providers
+@implements IDisposable
+
+<PageTitle>پیام‌های دریافتی | SmsHub</PageTitle>
+<div class="admin-page-head"><div><span class="admin-kicker">صندوق ورودی اپراتور</span><h1>پیام‌های دریافتی</h1><p>پیام‌های MO دریافت‌شده از ارائه‌دهندگان، از جدید به قدیم.</p></div><button class="admin-button secondary" @onclick="Load"><MudIcon Icon="@Icons.Material.Rounded.Refresh" /> تازه‌سازی</button></div>
+<section class="report-filters"><label><span>شماره دریافت‌کننده</span><input @bind="_recipient" dir="ltr" placeholder="3000..." /></label><label><span>تعداد نمایش</span><select @bind="_take"><option value="25">۲۵</option><option value="50">۵۰</option><option value="100">۱۰۰</option></select></label><button class="admin-button primary" @onclick="Load">جستجو</button></section>
+<FeatureNotice Loading="_loading" Error="@_error" OnRetry="Load" />
+<section class="inbox-list">@if (!_loading && _items.Count == 0) { <div class="admin-empty inbox-empty">پیام دریافتی مطابق فیلتر وجود ندارد.</div> }@foreach (InboundMessageItem item in _items) { <article><div class="inbox-avatar"><MudIcon Icon="@Icons.Material.Rounded.MarkEmailUnread" /></div><div class="inbox-body"><header><strong dir="ltr">@item.SenderNumber</strong><span>@ProviderName(item.ProviderId)</span><time>@item.ReceivedAtUtc.ToString("yyyy/MM/dd HH:mm") UTC</time></header><p>@item.Body</p><footer><span>خط دریافت: <b dir="ltr">@item.RecipientNumber</b></span><span>زمان ارائه‌دهنده: @(item.ProviderTimestamp ?? "—")</span></footer></div></article> }</section>
+@code {
+    private readonly CancellationTokenSource _token = new(); private IReadOnlyList<InboundMessageItem> _items = []; private IReadOnlyList<ProviderItem> _providers = []; private string? _recipient; private int _take = 50; private bool _loading = true; private string? _error;
+    protected override async Task OnInitializedAsync() { ApiClientResult<IReadOnlyList<ProviderItem>> providers = await Providers.List(_token.Token); _providers = providers.Value ?? []; await Load(); }
+    private async Task Load() { _loading = true; _error = null; ApiClientResult<IReadOnlyList<InboundMessageItem>> result = await Service.List(_recipient, _take, _token.Token); _items = result.Value ?? []; _error = result.ErrorMessage; _loading = false; }
+    private string ProviderName(byte id) => _providers.FirstOrDefault(item => item.Id == id)?.Name ?? $"ارائه‌دهنده {id}"; public void Dispose() { _token.Cancel(); _token.Dispose(); }
+}

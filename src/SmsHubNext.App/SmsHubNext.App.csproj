@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <RootNamespace>SmsHubNext.App</RootNamespace>
+    <AssemblyName>SmsHubNext.App</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UI component library for the new Persian administration experience. -->
+    <PackageReference Include="MudBlazor" />
+
+    <!-- Minimal persistence and hosting stack retained from the proven backend. -->
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="dbup-sqlserver" />
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+</Project>

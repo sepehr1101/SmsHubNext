@@ -9,10 +9,9 @@ namespace SmsHubNext.Features.Authentication;
 /// otherwise stashes the <see cref="ApiKeyIdentity"/> on <c>HttpContext.Items</c> for
 /// handlers to read (<see cref="HttpContextApiKeyExtensions.GetApiKeyIdentity"/>).
 ///
-/// NOT REGISTERED YET — auth is implemented but intentionally inactive so the APIs
-/// stay open for testing. Activate by calling <c>app.UseApiKeyAuthentication()</c> in
-/// the pipeline (see <c>ApplicationBuilderExtensions</c>) and switching the send/
-/// delivery handlers from the interim explicit ids to the resolved identity.
+/// This middleware is retained for a possible future API-key-only route group. It is not
+/// registered globally because management routes require administrator JWTs while the
+/// customer send route validates its API key explicitly.
 /// </summary>
 public sealed class ApiKeyAuthenticationMiddleware
 {

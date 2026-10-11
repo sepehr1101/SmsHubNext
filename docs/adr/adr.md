@@ -386,31 +386,32 @@ Not expected. If the app ever needs environment-specific composition, add focuse
 ---
 
 # ADR-015
-## API-key authentication: implemented, not yet enforced
+## API-key authentication and administrator-token exchange
 
 ### Decision
 
-API-key authentication is fully implemented (`Features/Authentication/`) but deliberately **left out of the request pipeline**. Every endpoint stays anonymous for now.
+API keys are validated explicitly at the endpoint boundary rather than through one global API-key middleware:
 
-- `ApiKeyAuthenticator` (a plain service, registered in DI) is the whole of auth: it hashes the `X-Api-Key` header (SHA-256, `ApiKeyHasher`), seeks the active/non-revoked/non-expired `ApiKey` by hash, and enforces the optional per-key CIDR allow-list against the caller IP.
-- `ApiKeyAuthenticationMiddleware` enforces it (401 on failure, stashes `ApiKeyIdentity` on `HttpContext.Items`) — but is **not** added to the pipeline.
-- `GET /auth/whoami` exercises the resolver directly so a key can be tested without enforcing auth anywhere.
+- customer keys (`AccessLevel = Customer`) authenticate `POST /messages` directly;
+- administrator keys (`AccessLevel = Administrator`) are exchanged through rate-limited `POST /auth/token` for a 5–30 minute management JWT (15 minutes by default);
+- all management controllers require an administrator role plus the API-key identity claims carried by that JWT;
+- `ApiKeyId` remains the mutation/deletion actor, so the existing audit foreign keys stay valid;
+- administrator keys belong to one hidden system customer and cannot submit messages;
+- `GET /auth/whoami` validates either kind of key and remains available for diagnostics.
 
 ### Why
 
-The caller asked to build auth ahead of activation so the APIs remain convenient to test (no key required on every call). Building the resolver, the enforcement middleware, and the identity accessor now means activation is a one-line change later, with the design already reviewed.
+Customer integrations need stable non-interactive credentials, while the management UI needs short-lived bearer credentials and explicit authorization. Exchanging a hash-only administrator API key for a JWT reuses the existing key lifecycle, CIDR restrictions, and audit attribution without introducing a user/password subsystem before the internal UI stack is selected.
 
-Keeping it a plain middleware + service (not an ASP.NET `AuthenticationHandler`/`[Authorize]` scheme) matches the house style (ARCHITECTURE.md §3: controllers + plain services, no framework ceremony).
+One global API-key middleware would incorrectly require customer credentials on management routes and administrator credentials on customer routes. Explicit exchange/send boundaries make that separation visible.
 
-### How to activate
+### Bootstrap and recovery
 
-1. Add `app.UseApiKeyAuthentication();` in `ApplicationBuilderExtensions.ConfigurePipeline`, just before `MapControllers`.
-2. Replace the interim explicit `CustomerId`/`ApiKeyId` on `SendMessagesRequest` (and any other attributed call) with `HttpContext.GetApiKeyIdentity()`.
-3. Decide which endpoints are public (e.g. health, reference data) vs. keyed.
+`setup create-admin-key` runs locally with database credentials, applies pending migrations, and returns the new administrator secret exactly once. Re-running it is the recovery/rotation path; it does not silently revoke previous administrator keys.
 
 ### Revisit
 
-When the project is ready to enforce tenancy at the edge (roadmap Phase 5). If per-endpoint policies or scopes become necessary, reconsider an ASP.NET authentication scheme then — not before.
+When the internal UI stack is selected, decide whether its browser session uses a same-origin HttpOnly cookie/BFF boundary or continues direct bearer-token exchange. Add named granular permissions only when roles beyond the current administrator boundary are required.
 
 ---
 

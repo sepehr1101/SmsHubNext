@@ -1,0 +1,30 @@
+@page "/delivery-reports"
+@layout AdminLayout
+@attribute [Authorize(Roles = DevelopmentAccount.AdministratorRole)]
+@inject DeliveryReportsService Service
+@implements IDisposable
+
+<PageTitle>تاریخچه تحویل | SmsHub</PageTitle>
+<div class="admin-page-head"><div><span class="admin-kicker">رویدادهای DLR</span><h1>تاریخچه وضعیت تحویل</h1><p>رویدادهای تغییرناپذیر ارائه‌دهنده و وضعیت جاری هر پیام را بررسی کنید.</p></div></div>
+<section class="delivery-lookup"><label><span>شناسه دسته ارسال</span><input type="number" min="1" @bind="_batchId" /></label><button class="admin-button primary" disabled="@(_batchId <= 0)" @onclick="LoadMessages">نمایش پیام‌های دسته</button><span>شناسه دسته‌ها در صفحه «پایش ارسال» قابل مشاهده است.</span></section>
+<FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="LoadMessages" />
+@if (_messages.Count > 0)
+{
+    <section class="admin-data-panel"><header><div><h2>پیام‌های دسته #@_batchId</h2><span>یک پیام را برای مشاهده تاریخچه انتخاب کنید.</span></div></header><div class="delivery-message-grid">@foreach (BatchMessageItem item in _messages) { <button class="delivery-message-card @(item.Id == _messageId ? "active" : null)" @onclick="() => SelectMessage(item.Id)"><span class="mono">#@item.Id</span><strong dir="ltr">@item.MobileNumber</strong><em class="delivery-state state-@((byte)item.DeliveryStatus)">@DeliveryLabel(item.DeliveryStatus)</em><small>@item.TotalCost.ToString("N0") ریال</small></button> }</div></section>
+}
+@if (_messageId > 0)
+{
+    <div class="delivery-columns"><section class="admin-data-panel"><header><div><h2>رویدادهای پیام #@_messageId</h2><span>جدیدترین گزارش در ابتدای فهرست</span></div></header><div class="delivery-timeline">@if (!_loading && _reports.Count == 0) { <div class="admin-empty">هنوز گزارشی برای این پیام ثبت نشده است.</div> }@foreach (DeliveryReportItem item in _reports) { <article><i class="dlr-@((byte)item.NormalizedStatus)"></i><div><strong>@ReportLabel(item.NormalizedStatus)</strong><span>کد خام ارائه‌دهنده: @item.RawStatusCode</span><small>@item.ReceivedAtUtc.ToString("yyyy/MM/dd HH:mm:ss") UTC · @item.SubmitDateJalali</small></div></article> }</div></section>
+    <section class="admin-data-panel delivery-ingest"><header><div><h2>ثبت گزارش تستی</h2><span>برای بررسی جریان کامل UI و API</span></div></header><label><span>وضعیت نرمال‌شده</span><select @bind="_status"><option value="1">تحویل‌شده</option><option value="2">تحویل‌نشده</option><option value="3">منقضی</option><option value="4">ردشده</option><option value="5">نامشخص</option></select></label><label><span>کد خام ارائه‌دهنده</span><input type="number" @bind="_rawCode" /></label><button class="admin-button primary" disabled="@_saving" @onclick="Ingest">ثبت رویداد</button></section></div>
+}
+@code {
+    [SupplyParameterFromQuery(Name = "messageId")] public long? QueryMessageId { get; set; }
+    private readonly CancellationTokenSource _token = new(); private IReadOnlyList<BatchMessageItem> _messages = []; private IReadOnlyList<DeliveryReportItem> _reports = []; private long _batchId; private long _messageId; private DeliveryReportStatus _status = DeliveryReportStatus.Delivered; private int _rawCode; private bool _loading; private bool _saving; private string? _error; private string? _success;
+    protected override async Task OnParametersSetAsync() { if (QueryMessageId is > 0 && QueryMessageId != _messageId) { _messageId = QueryMessageId.Value; await LoadReports(); } }
+    private async Task LoadMessages() { _loading = true; _error = null; _success = null; ApiClientResult<IReadOnlyList<BatchMessageItem>> result = await Service.BatchMessages(_batchId, _token.Token); _messages = result.Value ?? []; _error = result.ErrorMessage; _messageId = 0; _reports = []; _loading = false; }
+    private async Task SelectMessage(long id) { _messageId = id; await LoadReports(); }
+    private async Task LoadReports() { _loading = true; _error = null; ApiClientResult<IReadOnlyList<DeliveryReportItem>> result = await Service.List(_messageId, _token.Token); _reports = result.Value ?? []; _error = result.ErrorMessage; _loading = false; }
+    private async Task Ingest() { _saving = true; _error = null; _success = null; ApiClientResult<IngestDeliveryReportResponse> result = await Service.Ingest(new(_messageId, _status, _rawCode), _token.Token); _saving = false; if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _success = result.Value?.AppliedToReadModel == true ? "گزارش ثبت شد و وضعیت جاری پیام نیز تغییر کرد." : "گزارش ثبت شد؛ وضعیت جاری پیام به دلیل تقدم رویداد جدیدتر تغییر نکرد."; await LoadReports(); }
+    private static string DeliveryLabel(CurrentDeliveryStatus status) => status switch { CurrentDeliveryStatus.Pending => "در انتظار", CurrentDeliveryStatus.Delivered => "تحویل‌شده", CurrentDeliveryStatus.Undelivered => "تحویل‌نشده", CurrentDeliveryStatus.Expired => "منقضی", _ => "نامشخص" };
+    private static string ReportLabel(DeliveryReportStatus status) => status switch { DeliveryReportStatus.Delivered => "تحویل‌شده", DeliveryReportStatus.Undelivered => "تحویل‌نشده", DeliveryReportStatus.Expired => "منقضی", DeliveryReportStatus.Rejected => "ردشده", _ => "نامشخص" }; public void Dispose() { _token.Cancel(); _token.Dispose(); }
+}

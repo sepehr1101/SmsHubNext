@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/SmsHubNext.App/SmsHubNext.App.csproj" />
     <Project Path="src/SmsHubNext/SmsHubNext.csproj" />
   </Folder>
   <Folder Name="/tests/">

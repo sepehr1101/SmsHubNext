@@ -1,10 +1,9 @@
 namespace SmsHubNext.Features.Authentication;
 
 /// <summary>
-/// The activation switch for API-key enforcement. Calling this in the pipeline turns
-/// auth ON for every endpoint downstream; it is deliberately NOT called yet (the APIs
-/// stay open for testing). When ready, add <c>app.UseApiKeyAuthentication();</c> in
-/// <c>ApplicationBuilderExtensions.ConfigurePipeline</c> just before <c>MapControllers</c>.
+/// Optional activation switch for a future API-key-only route group. Do not register it
+/// globally: management routes use administrator JWTs and customer routes validate their
+/// API keys at the endpoint boundary.
 /// </summary>
 public static class ApiKeyAuthenticationBuilderExtensions
 {

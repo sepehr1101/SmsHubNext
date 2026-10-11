@@ -9,7 +9,7 @@
 - IIS با ASP.NET Core Module
 - دسترسی outbound از سرور برنامه به provider پیامک، مثلا Magfa، Kavenegar یا sms.ir
 - دسترسی inbound مورد نیاز برای APIهای سازمانی
-- یک اپلیکیشن بیرونی که JWT معتبر با همین `Issuer`، `Audience` و کلید مشترک صادر کند
+- دسترسی محلی مدیر سرور برای ساخت اولین کلید مدیریتی
 
 ## 2. تنظیمات برنامه
 
@@ -29,7 +29,7 @@
     "Key": "REPLACE_WITH_THE_SHARED_JWT_SIGNING_KEY",
     "Issuer": "https://aban360.ir/",
     "Audience": "Any",
-    "AccessTokenExpirationMinutes": 560,
+    "AccessTokenExpirationMinutes": 15,
     "RefreshTokenExpirationMinutes": 810,
     "AllowMultipleLoginsFromTheSameUser": false,
     "AllowSignoutAllUserActiveClients": true
@@ -79,7 +79,25 @@
 
 ### 4.1 دریافت JWT مدیریتی
 
-همه Controller APIها بجز ارسال واقعی با JWT محافظت می‌شوند. از اپلیکیشن صادرکننده JWT، یک access token معتبر بگیرید و در درخواست‌های مدیریتی استفاده کنید:
+همه Controller APIها بجز ارسال واقعی و endpointهای احراز کلید با JWT مدیریتی محافظت می‌شوند. ابتدا روی خود سرور یک کلید مدیریتی بسازید:
+
+```powershell
+.\SmsHubNext.exe setup create-admin-key `
+  --request .\database-request.json `
+  --name "First administrator" `
+  --result .\admin-key-result.json
+```
+
+فرمان migrationهای اجرا‌نشده را اعمال می‌کند و کلید خام را فقط در فیلد `administrator.apiKey` همین نتیجه برمی‌گرداند. فایل نتیجه را به secret store منتقل و سپس نسخه روی دیسک را حذف کنید. اجرای دوباره فرمان برای بازیابی یا چرخش کلید، یک کلید مدیریتی تازه می‌سازد و کلیدهای قبلی را خودکار لغو نمی‌کند.
+
+سپس کلید را با درخواست زیر به JWT کوتاه‌عمر تبدیل کنید:
+
+```http
+POST /auth/token
+X-Api-Key: shn_...
+```
+
+توکن برگشتی را در درخواست‌های مدیریتی استفاده کنید:
 
 ```http
 Authorization: Bearer <access-token>
@@ -267,7 +285,8 @@ curl -X POST https://SERVER/messages ^
 
 ## 6. چک‌لیست قبل از استفاده واقعی
 
-- JWT key، issuer و audience با اپلیکیشن صادرکننده token یکی است.
+- JWT signing key تصادفی و خارج از source control نگهداری می‌شود.
+- کلید مدیریتی اولیه در secret store قرار گرفته و فایل نتیجه setup حذف شده است.
 - connection string production درست است.
 - Data Protection key ring روی مسیر پایدار و امن قرار دارد.
 - provider account واقعی ساخته شده و secret دارد.

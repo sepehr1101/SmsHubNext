@@ -1,0 +1,24 @@
+<header class="admin-topbar">
+    <button class="admin-menu-button" type="button" aria-label="باز کردن منو" @onclick="OnMenuClick">
+        <MudIcon Icon="@Icons.Material.Rounded.Menu" />
+    </button>
+    <div class="admin-search">
+        <MudIcon Icon="@Icons.Material.Rounded.Search" />
+        <input type="search" placeholder="جست‌وجو در پنل…" aria-label="جست‌وجو در پنل" />
+        <kbd>Ctrl K</kbd>
+    </div>
+    <div class="admin-topbar-actions">
+        <button type="button" class="admin-icon-button" aria-label="اعلان‌ها">
+            <MudIcon Icon="@Icons.Material.Rounded.NotificationsNone" /><i></i>
+        </button>
+        <div class="admin-user">
+            <span class="admin-user-copy"><b>Admin</b><small>مدیر سامانه</small></span>
+            <span class="admin-avatar">A</span>
+        </div>
+    </div>
+</header>
+
+@code {
+    [Parameter, EditorRequired]
+    public EventCallback OnMenuClick { get; set; }
+}
