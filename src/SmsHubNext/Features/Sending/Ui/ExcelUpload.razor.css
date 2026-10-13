@@ -1,0 +1,4 @@
+.excel-upload{display:grid;gap:16px;padding:24px;margin-bottom:24px;border:1px solid #dce4ef;border-radius:18px;background:#fff;color:#142c4e}
+.excel-upload h2,.excel-upload p{margin:0}.excel-upload p,.excel-upload small{color:#62748d;line-height:1.9}
+.excel-upload label{display:grid;gap:8px}.excel-upload input:not([type=checkbox]),.excel-upload textarea{padding:12px;border:1px solid #ccd8e7;border-radius:10px;background:#f8fafd;color:#142c4e;font:inherit;width:100%;box-sizing:border-box}
+.excel-upload .excel-header-option{display:flex;align-items:center;gap:10px}.excel-upload .excel-error{color:#b42318}.excel-upload button{justify-self:start}

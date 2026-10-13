@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Scalar.AspNetCore;
 using Serilog;
-using SmsHubNext.Features.Landing;
 using SmsHubNext.Shared.Health;
 using SmsHubNext.Shared.Http;
 
@@ -34,9 +33,7 @@ public static class ApplicationBuilderExtensions
             app.MapScalarApiReference();
         }
 
-        // Human-friendly production landing page. The machine-readable service
-        // metadata remains available separately for diagnostics and tooling.
-        app.MapGet("/", () => ServiceLandingPage.Render(openApiEnabled)).ExcludeFromDescription();
+        // The root is the Blazor landing page; service metadata remains available separately.
         app.MapGet("/service-info", () => new
         {
             service = "SmsHubNext",
@@ -73,9 +70,11 @@ public static class ApplicationBuilderExtensions
         // enabled globally here.
         app.UseAuthentication();
         app.UseAuthorization();
+        app.UseAntiforgery();
 
         app.MapControllers();
         MapHealthEndpoints(app);
+        app.MapManagementUi();
 
         return app;
     }

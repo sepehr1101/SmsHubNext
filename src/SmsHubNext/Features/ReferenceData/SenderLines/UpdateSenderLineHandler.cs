@@ -30,6 +30,10 @@ public sealed class UpdateSenderLineHandler
         if (senderLine is null)
             return Error.NotFound("sender_lines.not_found", UserMessages.ReferenceData.SenderLineNotFound);
 
+        Result routeValidation = await SenderLineRouteRules.Validate(connection, senderLine.ProviderId, request.UseEsb, cancellationToken);
+        if (routeValidation.IsFailure)
+            return routeValidation.Error!;
+
         Result references = await ValidateReferences(connection, senderLine.ProviderId, request, cancellationToken);
         if (references.IsFailure)
             return references.Error!;
@@ -44,6 +48,7 @@ public sealed class UpdateSenderLineHandler
                 request.CustomerId,
                 request.ProviderAccountId,
                 request.IsActive,
+                request.UseEsb,
             },
             cancellationToken: cancellationToken));
 

@@ -2,6 +2,8 @@ using System.Data;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.Authentication;
+using SmsHubNext.Features.Providers;
+using SmsHubNext.Features.Providers.Esb;
 using SmsHubNext.Features.Tariffs;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Enums;
@@ -31,11 +33,13 @@ public sealed class SendMessagesHandler
 {
     private readonly Db _db;
     private readonly TimeProvider _clock;
+    private readonly EsbOptions _esbOptions;
 
-    public SendMessagesHandler(Db db, TimeProvider clock)
+    public SendMessagesHandler(Db db, TimeProvider clock, EsbOptions? esbOptions = null)
     {
         _db = db;
         _clock = clock;
+        _esbOptions = esbOptions ?? new EsbOptions();
     }
 
     /// <param name="identity">
@@ -160,7 +164,7 @@ public sealed class SendMessagesHandler
     }
 
     // Resolve the requested sender line to its keys; it must exist and be active to send.
-    private static async Task<Result<SenderLineRow>> ResolveSenderLineAsync(
+    private async Task<Result<SenderLineRow>> ResolveSenderLineAsync(
         SqlConnection connection, string lineNumber, short customerId, CancellationToken cancellationToken)
     {
         SenderLineRow? senderLine = await connection.QuerySingleOrDefaultAsync<SenderLineRow>(new CommandDefinition(
@@ -174,6 +178,17 @@ public sealed class SendMessagesHandler
             return Error.Validation("sending.inactive_sender_line", UserMessages.Sending.InactiveSenderLine);
         if (!senderLine.IsSharedLine && senderLine.CustomerId is not null && senderLine.CustomerId != customerId)
             return Error.Validation("sending.sender_line_not_allowed", UserMessages.Sending.SenderLineNotAllowed);
+        if (senderLine.UseEsb)
+        {
+            if (!string.Equals(senderLine.ProviderCode, ProviderCodes.Provider4040, StringComparison.OrdinalIgnoreCase))
+                return Error.Validation("sending.esb_provider_unsupported", "مسیر ESB فقط برای ارائه‌دهنده 4040 پشتیبانی می‌شود.");
+            if (!_esbOptions.Enabled)
+                return Error.Validation("sending.esb_disabled", "اتصال ESB فعال نیست؛ تنظیمات Esb را بررسی کنید.");
+            // ESB has its own configured OAuth client; a direct provider account is not used.
+            return senderLine;
+        }
+        if (string.Equals(senderLine.ProviderCode, ProviderCodes.Provider4040, StringComparison.OrdinalIgnoreCase))
+            return Error.Validation("sending.4040_direct_unsupported", "برای ارسال 4040 مسیر ESB را فعال کنید؛ مسیر مستقیم هنوز پیکربندی نشده است.");
         if (senderLine.ProviderAccountId is null)
             return Error.Validation("sending.provider_credentials_required", UserMessages.Sending.ProviderCredentialsRequired);
         if (senderLine.ProviderAccountIsActive != true)

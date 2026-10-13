@@ -532,6 +532,22 @@ Not expected. If a response type becomes shared across multiple operations, extr
 
 ---
 
+# ADR-019
+
+## Single host for Blazor UI and external API
+
+**Status:** Accepted — explicitly requested by the project owner on 2026-10-11.
+
+The separately executable `SmsHubNext.App` is merged into `src/SmsHubNext`, restoring the one-project, one-deployable architecture. Blazor components, static assets, controllers, database access and workers share the existing ASP.NET Core host. Feature UI lives under `Features/<feature>/Ui`; reusable layouts and the app/router live under `Components`.
+
+UI services call the existing feature handlers directly and reuse their contracts. They do not call the host through HTTP or exchange management JWTs internally. The UI boundary requires an administrator cookie session and resolves the configured API key on every operation, checking its access level and preserving active/expiry/revocation/CIDR rules and audit actor IDs. Sending resolves a customer key and leaves prepaid accounting and idempotency inside the existing send handler. Unexpected failures are logged and projected to page errors.
+
+Management page routes use `/admin/**`, avoiding collisions with the unchanged external resource routes. External management controllers explicitly authenticate with JWT bearer; UI cookies cannot grant API access. The existing development-only login remains development-only; this merge does not add production password authentication. Configuration is consolidated into the main host under `ManagementUi`, with no API base URL.
+
+This removes the second startup project, port configuration, token cache and HTTP failure path. It intentionally couples the UI to the application's feature contracts, which is appropriate for this small monolith and avoids maintaining copied DTOs. The external API remains available to customer integrations.
+
+---
+
 # Future Reconsideration
 
 These decisions are intentionally conservative.

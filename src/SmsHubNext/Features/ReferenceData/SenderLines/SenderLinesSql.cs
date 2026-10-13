@@ -2,14 +2,16 @@ namespace SmsHubNext.Features.ReferenceData.SenderLines;
 
 internal static class SenderLinesSql
 {
+    public const string GetProviderCode =
+        "SELECT Code FROM dbo.Provider WHERE Id = @ProviderId AND DeletedAtUtc IS NULL;";
     public const string List =
-        "SELECT Id, ProviderId, LineNumber, IsSharedLine, CustomerId, ProviderAccountId, IsActive FROM dbo.SenderLine WHERE DeletedAtUtc IS NULL ORDER BY Id;";
+        "SELECT Id, ProviderId, LineNumber, IsSharedLine, CustomerId, ProviderAccountId, IsActive, UseEsb FROM dbo.SenderLine WHERE DeletedAtUtc IS NULL ORDER BY Id;";
 
     public const string Insert =
         """
-        INSERT INTO dbo.SenderLine (ProviderId, LineNumber, IsSharedLine, CustomerId, ProviderAccountId, IsActive)
+        INSERT INTO dbo.SenderLine (ProviderId, LineNumber, IsSharedLine, CustomerId, ProviderAccountId, IsActive, UseEsb)
         OUTPUT INSERTED.Id
-        SELECT @ProviderId, @LineNumber, @IsSharedLine, @CustomerId, @ProviderAccountId, @IsActive
+        SELECT @ProviderId, @LineNumber, @IsSharedLine, @CustomerId, @ProviderAccountId, @IsActive, @UseEsb
         FROM dbo.Provider p
         WHERE p.Id = @ProviderId
           AND p.DeletedAtUtc IS NULL
@@ -54,7 +56,8 @@ internal static class SenderLinesSql
             IsSharedLine = @IsSharedLine,
             CustomerId = @CustomerId,
             ProviderAccountId = @ProviderAccountId,
-            IsActive = @IsActive
+            IsActive = @IsActive,
+            UseEsb = @UseEsb
         WHERE Id = @Id
           AND DeletedAtUtc IS NULL
           AND (@CustomerId IS NULL OR EXISTS (

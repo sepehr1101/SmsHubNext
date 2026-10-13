@@ -1,0 +1,9 @@
+@page "/admin/settings/overview"
+@page "/admin/business"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject NavigationManager Navigation
+
+@code {
+    protected override void OnInitialized() => Navigation.NavigateTo("/admin/settings", replace: true);
+}

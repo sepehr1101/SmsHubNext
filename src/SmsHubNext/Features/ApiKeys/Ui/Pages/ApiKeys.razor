@@ -1,0 +1,48 @@
+@page "/admin/api-keys"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject ApiKeysService Service
+@inject CustomersService Customers
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>کلیدهای API | SmsHub</PageTitle>
+<div class="admin-page-head"><button class="admin-button primary" disabled="@(!CanIssue)" @onclick="OpenCreate"><MudIcon Icon="@Icons.Material.Rounded.Add" /> صدور کلید</button></div>
+<FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
+@if (_issuedKey is not null) { <div class="api-key-reveal"><MudIcon Icon="@Icons.Material.Rounded.WarningAmber" /><div><b>این کلید فقط همین یک‌بار نمایش داده می‌شود</b><code>@_issuedKey</code><span>اکنون آن را در محل امن ذخیره کنید؛ API فقط هش SHA-256 را نگه می‌دارد.</span></div><button @onclick="CopyIssuedKey"><MudIcon Icon="@Icons.Material.Rounded.ContentCopy" /> کپی</button><button class="close" @onclick="() => _issuedKey = null"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></div> }
+<section class="admin-data-panel"><header><div><h2>کلیدهای مشتری</h2><span>کلید ابطال‌شده قابل بازیابی یا فعال‌سازی مجدد نیست.</span></div><label class="admin-header-select"><span>مشتری</span><select @bind="_customerId" @bind:after="LoadKeys"><option value="0">انتخاب کنید</option>@foreach (CustomerItem customer in _customers) { <option value="@customer.Id">@customer.Name</option> }</select></label></header><div class="admin-table-wrap"><AdminGrid T="ApiKeyItem" Items="@(_items)" Loading="_loading" Name="کلیدهای API" ExportColumns='@(new AdminExportColumn<ApiKeyItem>[] { new("عنوان", item => item.Name), new("پیشوند امن", item => item.KeyPrefix), new("سطح", item => AccessLabel(item.AccessLevel)), new("انقضا", item => item.ExpiresAtUtc), new("وضعیت", item => KeyState(item)) })'><PropertyColumn Property="item => item.Name" Title="عنوان"><CellTemplate><div><b>@context.Item.Name</b></div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.KeyPrefix" Title="پیشوند امن"><CellTemplate><div class="mono">@context.Item.KeyPrefix••••••••</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.AccessLevel" Title="سطح"><CellTemplate><div>@AccessLabel(context.Item.AccessLevel)</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.ExpiresAtUtc" Title="انقضا"><CellTemplate><div>@(context.Item.ExpiresAtUtc is null ? "بدون انقضا" : context.Item.ExpiresAtUtc.Value.ToString("yyyy/MM/dd"))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.IsActive" Title="وضعیت"><CellTemplate><div>@if (context.Item.RevokedAtUtc is not null) { <span class="admin-status-pill revoked"><i></i>باطل‌شده</span> } else { <StatusPill IsActive="context.Item.IsActive" /> }</div></CellTemplate></PropertyColumn>
+<TemplateColumn Title="عملیات" Sortable="false" Filterable="false" Hideable="false"><CellTemplate><div class="admin-row-actions"><a title="محدودیت IP" href="/admin/api-keys/@context.Item.Id/ip-restrictions"><MudIcon Icon="@Icons.Material.Rounded.Lan" /></a><button disabled="@(context.Item.RevokedAtUtc is not null)" @onclick="() => OpenEdit(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Edit" /></button><button class="danger" disabled="@(context.Item.RevokedAtUtc is not null)" title="ابطال دائمی" @onclick="() => Revoke(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Block" /></button></div></CellTemplate></TemplateColumn></AdminGrid></div></section>
+@if (_editorOpen) { <div class="admin-drawer-backdrop" @onclick="CloseEditor"></div><aside class="admin-editor"><header><div><h2>@(_editingId is null ? "صدور کلید جدید" : "ویرایش کلید")</h2><p>راز کلید جدید فقط یک‌بار پس از صدور نشان داده می‌شود.</p></div><button @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></header><div class="admin-editor-body"><label><span>عنوان کلید</span><input @bind="_name" placeholder="مثلاً سرویس قبوض" /></label><label><span>تاریخ انقضا UTC (اختیاری)</span><input type="datetime-local" @bind="_expiresAt" /></label>@if (_editingId is not null) { <label class="admin-checkbox"><input type="checkbox" @bind="_isActive" /> کلید فعال باشد</label> }</div><footer><button class="admin-button secondary" @onclick="CloseEditor">انصراف</button><button class="admin-button primary" disabled="@_saving" @onclick="Save">@(_editingId is null ? "صدور کلید" : "ذخیره")</button></footer></aside> }
+@code {
+    private readonly CancellationTokenSource _token = new(); private IReadOnlyList<CustomerItem> _customers = []; private IReadOnlyList<ApiKeyItem> _items = []; private short _customerId; private int? _editingId; private string _name = string.Empty; private DateTime? _expiresAt; private bool _isActive = true; private string? _issuedKey; private bool _loading = true; private bool _saving; private bool _editorOpen; private string? _error; private string? _success;
+    [SupplyParameterFromQuery(Name = "customerId")]
+    public int? SelectedCustomerId { get; set; }
+    private bool CanIssue => _customers.Any(item => item.Id == _customerId && item.IsActive);
+    protected override Task OnParametersSetAsync() => Load(); private async Task Load() { _loading = true; _error = null; UiResult<IReadOnlyList<CustomerItem>> customers = await Customers.List(_token.Token); _customers = customers.Value ?? []; _error = customers.ErrorMessage; if (SelectedCustomerId.HasValue)
+    {
+        CustomerItem? selectedCustomer = _customers.FirstOrDefault(item => item.Id == SelectedCustomerId.Value);
+        _customerId = selectedCustomer?.Id ?? (short)0;
+        _issuedKey = null;
+        _editorOpen = false;
+        _items = [];
+        if (selectedCustomer is null)
+        {
+            _customerId = 0;
+            _error ??= "مشتری انتخاب‌شده در دسترس نیست.";
+            _loading = false;
+            return;
+        }
+    }
+    else if (_customerId == 0 && _customers.Count > 0) _customerId = _customers.FirstOrDefault(item => item.IsActive)?.Id ?? (short)0; if (_error is null && _customerId != 0) await LoadKeys(); else _loading = false; }
+    private async Task LoadKeys() { _loading = true; _error = null; if (_customerId == 0) { _items = []; _loading = false; return; } UiResult<IReadOnlyList<ApiKeyItem>> result = await Service.List(_customerId, _token.Token); _items = result.Value ?? []; _error = result.ErrorMessage; _loading = false; }
+    private void OpenCreate() { if (!CanIssue) return; _editingId = null; _name = string.Empty; _expiresAt = null; _isActive = true; _editorOpen = true; } private void OpenEdit(ApiKeyItem item) { _editingId = item.Id; _name = item.Name; _expiresAt = item.ExpiresAtUtc; _isActive = item.IsActive; _editorOpen = true; } private void CloseEditor() => _editorOpen = false;
+    private async Task Save() { if (_customerId == 0 || string.IsNullOrWhiteSpace(_name)) { _error = "مشتری و عنوان کلید الزامی است."; return; } _saving = true; UiResult<string?> result; if (_editingId is null) { UiResult<IssueApiKeyResponse> issue = await Service.Issue(new IssueApiKeyRequest { CustomerId = _customerId, Name = _name.Trim(), ExpiresAtUtc = Utc(_expiresAt) }, _token.Token); if (issue.IsSuccess && issue.Value is not null) _issuedKey = issue.Value.Key; result = issue.IsSuccess ? UiResult<string?>.Success(null) : UiResult<string?>.Failure(issue.ErrorMessage!); } else result = await Service.Update(_editingId.Value, new UpdateApiKeyRequest { Name = _name.Trim(), ExpiresAtUtc = Utc(_expiresAt), IsActive = _isActive }, _token.Token); _saving = false; if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _editorOpen = false; _success = _editingId is null ? "کلید صادر شد؛ همین حالا آن را ذخیره کنید." : "کلید به‌روزرسانی شد."; await LoadKeys(); }
+    private async Task Revoke(ApiKeyItem item) { bool confirmed = await JS.InvokeAsync<bool>("confirm", $"کلید «{item.Name}» برای همیشه باطل شود؟ این عملیات قابل بازگشت نیست."); if (!confirmed) return; UiResult<string?> result = await Service.Revoke(item.Id, _token.Token); if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _success = $"کلید «{item.Name}» باطل شد."; await LoadKeys(); }
+    private async Task CopyIssuedKey() { if (_issuedKey is not null) await JS.InvokeVoidAsync("navigator.clipboard.writeText", _issuedKey); }
+    private static string KeyState(ApiKeyItem item) => item.RevokedAtUtc is not null ? "باطل‌شده" : item.IsActive ? "فعال" : "غیرفعال";
+    private static DateTime? Utc(DateTime? value) => value is null ? null : DateTime.SpecifyKind(value.Value, DateTimeKind.Utc); private static string AccessLabel(ApiKeyAccessLevel level) => level == ApiKeyAccessLevel.Administrator ? "مدیریت" : "ارسال مشتری"; public void Dispose() { _token.Cancel(); _token.Dispose(); }
+}

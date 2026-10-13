@@ -16,6 +16,8 @@ using SmsHubNext.Features.Inbound;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.Kavenegar;
 using SmsHubNext.Features.Providers.Magfa;
+using SmsHubNext.Features.Providers.Esb;
+using SmsHubNext.Features.Providers.Provider4040;
 using SmsHubNext.Features.Providers.SmsIr;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.Deployment;
@@ -84,11 +86,29 @@ public static class ServiceCollectionExtensions
         services.AddScoped<DevelopmentDataSeeder>();
 
         services.AddFeatureHandlers();
+        services.AddEsb(configuration);
         services.AddBackgroundDispatch(configuration, environment);
         services.AddDeliveryReportPolling(configuration);
         services.AddInboundPolling(configuration);
         services.AddApplicationHealthChecks();
+        services.AddManagementUi(configuration);
 
+        return services;
+    }
+
+    private static IServiceCollection AddEsb(this IServiceCollection services, IConfiguration configuration)
+    {
+        EsbOptions options = configuration.GetSection(EsbOptions.SectionName).Get<EsbOptions>() ?? new EsbOptions();
+        options.Validate();
+        services.AddSingleton(options);
+        services.AddSingleton<EsbAccessTokenProvider>();
+        services.AddHttpClient(EsbOptions.HttpClientName, (provider, client) =>
+            client.Timeout = provider.GetRequiredService<EsbOptions>().Timeout);
+        if (options.Enabled)
+        {
+            services.AddSingleton<Provider4040RouteResolver>();
+            services.AddHttpClient<ISmsProvider, Provider4040SmsProvider>(client => client.Timeout = options.Timeout);
+        }
         return services;
     }
 
@@ -215,7 +235,7 @@ public static class ServiceCollectionExtensions
 
         services.AddAuthorization(authorizationOptions =>
         {
-            AuthorizationPolicy administrators = new AuthorizationPolicyBuilder()
+            AuthorizationPolicy administrators = new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
                 .RequireAuthenticatedUser()
                 .RequireRole(AuthenticationPolicies.AdministratorRole)
                 .RequireClaim(
@@ -334,7 +354,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         IHostEnvironment environment)
     {
-        bool realProviderRegistered = false;
+        bool realProviderRegistered = configuration.GetValue<bool>("Esb:Enabled");
 
         MagfaOptions magfaOptions = configuration.GetSection(MagfaOptions.SectionName).Get<MagfaOptions>()
             ?? new MagfaOptions();

@@ -1,0 +1,41 @@
+@inject NavigationManager Navigation
+@using Microsoft.AspNetCore.Components.Routing
+@implements IDisposable
+
+<aside class="admin-sidebar @(_open ? "open" : null)">
+    <a class="admin-logo" href="/admin/dashboard"><span>S</span><strong dir="ltr">SMS<span>Hub</span></strong></a>
+    <nav class="admin-nav" aria-label="منوی مدیریت">
+        <NavLink href="/admin/dashboard" Match="NavLinkMatch.All" @onclick="Close"><MudIcon Icon="@Icons.Material.Rounded.Dashboard" /> داشبورد</NavLink>
+        @foreach (AdminMenuGroup group in AdminNavigation.Groups)
+        {
+            <a href="@group.Route" class="@(IsCurrent(group) ? "active" : null)" aria-current="@(IsCurrent(group) ? "page" : null)" @onclick="Close"><MudIcon Icon="@group.Icon" /> @group.Title</a>
+        }
+    </nav>
+</aside>
+@if (_open)
+{
+    <button class="admin-sidebar-backdrop" aria-label="بستن منو" @onclick="Close"></button>
+}
+@code {
+    private bool _open;
+    protected override void OnInitialized() => Navigation.LocationChanged += OnLocationChanged;
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        _ = InvokeAsync(() =>
+        {
+            _open = false;
+            StateHasChanged();
+        });
+    }
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+    public void Toggle() => _open = !_open;
+    private void Close() => _open = false;
+    private bool IsCurrent(AdminMenuGroup group)
+    {
+        string path = new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+        return (group.Route == "/admin/settings" && path.StartsWith("/admin/api-keys", StringComparison.OrdinalIgnoreCase))
+            || path.Equals(group.Route, StringComparison.OrdinalIgnoreCase)
+            || group.Cards.Any(card => path.Equals(card.Route, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(card.Route + "/", StringComparison.OrdinalIgnoreCase));
+    }
+}

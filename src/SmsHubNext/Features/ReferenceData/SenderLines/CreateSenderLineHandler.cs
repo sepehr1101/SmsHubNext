@@ -28,6 +28,9 @@ public sealed class CreateSenderLineHandler
             cancellationToken: cancellationToken));
         if (!providerExists)
             return Error.Validation("sender_lines.unknown_provider", UserMessages.ReferenceData.SenderLineUnknownProvider);
+        Result routeValidation = await SenderLineRouteRules.Validate(connection, request.ProviderId, request.UseEsb, cancellationToken);
+        if (routeValidation.IsFailure)
+            return routeValidation.Error!;
 
         if (request.CustomerId is short customerId)
         {
@@ -62,6 +65,7 @@ public sealed class CreateSenderLineHandler
                     request.CustomerId,
                     request.ProviderAccountId,
                     request.IsActive,
+                    request.UseEsb,
                 },
                 cancellationToken: cancellationToken));
 

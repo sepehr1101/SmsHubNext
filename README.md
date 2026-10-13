@@ -11,6 +11,8 @@
 
 ## Table of Contents
 
+**Run the application:** `dotnet run --project src/SmsHubNext`. This single project hosts the Blazor UI, external API, database access and background workers on the same address (development default: `http://localhost:5080`). The login page is `/login`, and management pages are under `/admin/`. See [the local run guide](docs/operations/local-run-fa.md) for development credentials and configuration.
+
 1. [Business Requirements Analysis](#1-business-requirements-analysis)
 2. [Domain Analysis](#2-domain-analysis)
 3. [Database Schema Proposal](#3-database-schema-proposal)
@@ -239,6 +241,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `ProviderId` | `TINYINT` | **FK** → `Provider` |
 | `LineNumber` | `VARCHAR(20)` | `3000…`, `1000…`, `4040…`; `NCIX` |
 | `ProviderAccountId` | `INT` | nullable **FK** → `ProviderAccount`; the account that owns this line |
+| `UseEsb` | `BIT` | default `0`; explicit ESB send route for the independent `4040` provider; OAuth credentials are configured under `Esb` |
 | `IsSharedLine` | `BIT` | shared (public) vs. dedicated (private) |
 | `IsActive` | `BIT` | |
 | `DeletedAtUtc` | `DATETIME2(3)` | nullable soft-delete marker |

@@ -1,0 +1,48 @@
+<section class="excel-upload">
+    <h2>ارسال از فایل اکسل</h2>
+    <p>هر سطر یک پیام مستقل می‌سازد. ستون‌ها را در قالب با [A]، [B] و … مشخص کنید. اولین برگه فایل خوانده می‌شود.</p>
+    <label><span>فایل اکسل (.xlsx، حداکثر ۵ مگابایت)</span><InputFile OnChange="ChooseFile" accept=".xlsx" disabled="@(_busy || Disabled)" /></label>
+    <label><span>ستون شماره موبایل</span><input @bind="_recipientColumn" dir="ltr" placeholder="D" maxlength="3" /></label>
+    <label><span>قالب پیامک</span><textarea @bind="_template" rows="5" maxlength="1800" placeholder="مشترک گرامی [A]، شناسه قبض شما [B] است. [C]"></textarea></label>
+    <label class="excel-header-option"><input type="checkbox" @bind="_skipFirstRow" /> سطر اول سرستون است؛ نادیده گرفته شود</label>
+    <small>شماره‌ها و شناسه‌های طولانی را در اکسل با قالب Text ذخیره کنید تا صفر ابتدا و دقت آن‌ها حفظ شود.</small>
+    @if (_error is not null) { <p role="alert" class="excel-error">@_error</p> }
+    <button class="admin-button secondary" disabled="@(_file is null || _busy || Disabled)" @onclick="Import">@(_busy ? "در حال پردازش…" : "ساخت و پیش‌نمایش پیام‌ها")</button>
+</section>
+
+@code {
+    [Parameter] public EventCallback<List<SendMessageDraft>> OnImport { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<bool> BusyChanged { get; set; }
+    private IBrowserFile? _file;
+    private string _recipientColumn = "D";
+    private string _template = "مشترک گرامی [A]\nشناسه قبض شما [B] است. این پیامک بابت یادآوری ارسال میگردد. [C]";
+    private bool _skipFirstRow = true;
+    private bool _busy;
+    private string? _error;
+    private void ChooseFile(InputFileChangeEventArgs args) { _file = args.File; _error = null; }
+    private async Task Import()
+    {
+        if (_file is null || _busy || Disabled) return;
+        _error = null;
+        _busy = true;
+        await BusyChanged.InvokeAsync(true);
+        try
+        {
+            if (!Path.GetExtension(_file.Name).Equals(".xlsx", StringComparison.OrdinalIgnoreCase) || _file.Size > ExcelMessageImport.MaxFileBytes)
+                throw new InvalidDataException("یک فایل xlsx با حجم حداکثر ۵ مگابایت انتخاب کنید.");
+            await using Stream upload = _file.OpenReadStream(ExcelMessageImport.MaxFileBytes);
+            using MemoryStream workbook = new();
+            await upload.CopyToAsync(workbook);
+            workbook.Position = 0;
+            string template = _template;
+            string column = _recipientColumn;
+            bool skip = _skipFirstRow;
+            List<SendMessageDraft> messages = await Task.Run(() => ExcelMessageImport.Read(workbook, template, column, skip));
+            await OnImport.InvokeAsync(messages);
+        }
+        catch (InvalidDataException exception) { _error = exception.Message; }
+        catch (Exception) { _error = "فایل قابل خواندن نیست؛ یک فایل سالم و بدون رمز با فرمت xlsx انتخاب کنید."; }
+        finally { _busy = false; await BusyChanged.InvokeAsync(false); }
+    }
+}

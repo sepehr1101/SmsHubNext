@@ -1,0 +1,31 @@
+@inherits LayoutComponentBase
+@using SmsHubNext.Features.Administration.Ui.Components
+
+<MudRTLProvider RightToLeft="true">
+    <MudThemeProvider />
+    <MudPopoverProvider />
+    <MudDialogProvider />
+    <MudSnackbarProvider />
+
+    <div class="admin-shell">
+        <div class="admin-grid-bg" aria-hidden="true"></div>
+        <AdminSidebar @ref="_sidebar" />
+        <div class="admin-main">
+            <AdminTopbar OnMenuClick="ToggleMenu" />
+            <main class="admin-content"><AdminBreadcrumb />@Body</main>
+        </div>
+    </div>
+</MudRTLProvider>
+
+<div id="blazor-error-ui" data-nosnippet>
+    خطایی رخ داده است. <a href="." class="reload">بارگذاری مجدد</a><span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private AdminSidebar? _sidebar;
+
+    private void ToggleMenu()
+    {
+        _sidebar?.Toggle();
+    }
+}

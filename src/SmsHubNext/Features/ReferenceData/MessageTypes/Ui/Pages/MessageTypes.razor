@@ -1,0 +1,33 @@
+@page "/admin/message-types"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject MessageTypesService Service
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>انواع پیام | SmsHub</PageTitle>
+<div class="admin-page-head"><button class="admin-button primary" @onclick="OpenCreate"><MudIcon Icon="@Icons.Material.Rounded.Add" /> نوع پیام جدید</button></div>
+<FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
+<div class="admin-rule-callout"><MudIcon Icon="@Icons.Material.Rounded.Info" /><p><b>شناسه و کد ثابت هستند</b><span>پس از ثبت، تنها نام و وضعیت قابل تغییرند؛ گزارش‌های تاریخی بر اساس همین شناسه گروه‌بندی می‌شوند.</span></p></div>
+<section class="admin-data-panel"><header><div><h2>طبقه‌بندی‌ها</h2><span>مانند قبض آب، اطلاع‌رسانی یا رمز یک‌بارمصرف</span></div></header><div class="admin-table-wrap"><AdminGrid T="MessageTypeItem" Items="@(_items)" Loading="_loading" Name="انواع پیام" ExportColumns='@(new AdminExportColumn<MessageTypeItem>[] { new("شناسه ثابت", item => item.Id), new("عنوان", item => item.Name), new("کد ماشین", item => item.Code), new("وضعیت", item => item.IsActive ? "فعال" : "غیرفعال") })'><PropertyColumn Property="item => item.Id" Title="شناسه ثابت"><CellTemplate><div class="mono">@context.Item.Id</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.Name" Title="عنوان"><CellTemplate><div><b>@context.Item.Name</b></div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.Code" Title="کد ماشین"><CellTemplate><div class="mono">@context.Item.Code</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.IsActive" Title="وضعیت"><CellTemplate><div><StatusPill IsActive="context.Item.IsActive" /></div></CellTemplate></PropertyColumn>
+<TemplateColumn Title="عملیات" Sortable="false" Filterable="false" Hideable="false"><CellTemplate><div class="admin-row-actions"><button @onclick="() => OpenEdit(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Edit" /></button><button class="danger" @onclick="() => Delete(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.DeleteOutline" /></button></div></CellTemplate></TemplateColumn></AdminGrid></div></section>
+@if (_editorOpen)
+{
+    <div class="admin-drawer-backdrop" @onclick="CloseEditor"></div><aside class="admin-editor"><header><div><h2>@(_editingId is null ? "نوع پیام جدید" : "ویرایش نوع پیام")</h2><p>مقادیر ثابت را با دقت انتخاب کنید.</p></div><button @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></header><div class="admin-editor-body">
+        <label><span>شناسه عددی (۱ تا ۲۵۵)</span><input type="number" min="1" max="255" @bind="_id" disabled="@(_editingId is not null)" /></label><label><span>عنوان</span><input @bind="_name" placeholder="مثلاً قبض آب" /></label><label><span>کد ثابت ASCII</span><input @bind="_code" dir="ltr" placeholder="water_bill" disabled="@(_editingId is not null)" /></label>@if (_editingId is not null) { <label class="admin-checkbox"><input type="checkbox" @bind="_isActive" /> فعال باشد</label> }
+    </div><footer><button class="admin-button secondary" @onclick="CloseEditor">انصراف</button><button class="admin-button primary" disabled="@_saving" @onclick="Save">@(_saving ? "در حال ذخیره…" : "ذخیره")</button></footer></aside>
+}
+@code {
+    private readonly CancellationTokenSource _disposeToken = new(); private IReadOnlyList<MessageTypeItem> _items = []; private byte? _editingId; private int _id = 1; private string _name = string.Empty; private string _code = string.Empty; private bool _isActive = true; private bool _loading = true; private bool _saving; private bool _editorOpen; private string? _error; private string? _success;
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() { _loading = true; _error = null; UiResult<IReadOnlyList<MessageTypeItem>> result = await Service.List(_disposeToken.Token); _items = result.Value ?? []; _error = result.ErrorMessage; _loading = false; }
+    private void OpenCreate() { _editingId = null; _id = 1; _name = string.Empty; _code = string.Empty; _isActive = true; _editorOpen = true; }
+    private void OpenEdit(MessageTypeItem item) { _editingId = item.Id; _id = item.Id; _name = item.Name; _code = item.Code; _isActive = item.IsActive; _editorOpen = true; }
+    private void CloseEditor() => _editorOpen = false;
+    private async Task Save() { if (_id is < 1 or > 255 || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_code)) { _error = "شناسه معتبر، عنوان و کد الزامی است."; return; } _saving = true; UiResult<string?> result; if (_editingId is null) { UiResult<CreateMessageTypeResponse> create = await Service.Create(new CreateMessageTypeRequest { Id = (byte)_id, Name = _name.Trim(), Code = _code.Trim() }, _disposeToken.Token); result = create.IsSuccess ? UiResult<string?>.Success(null) : UiResult<string?>.Failure(create.ErrorMessage!); } else { result = await Service.Update(_editingId.Value, new UpdateMessageTypeRequest { Name = _name.Trim(), IsActive = _isActive }, _disposeToken.Token); } _saving = false; if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _editorOpen = false; _success = "نوع پیام ذخیره شد."; await Load(); }
+    private async Task Delete(MessageTypeItem item) { bool confirmed = await JS.InvokeAsync<bool>("confirm", $"نوع پیام «{item.Name}» حذف منطقی شود؟"); if (!confirmed) return; UiResult<string?> result = await Service.Delete(item.Id, _disposeToken.Token); if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _success = $"نوع پیام «{item.Name}» حذف منطقی شد."; await Load(); }
+    public void Dispose() { _disposeToken.Cancel(); _disposeToken.Dispose(); }
+}

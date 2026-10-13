@@ -1,0 +1,49 @@
+@page "/admin/operations"
+@page "/admin/report-center"
+@page "/admin/settings"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@using SmsHubNext.Features.Administration.Ui.Components
+@using Microsoft.AspNetCore.Components.Routing
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>@Group.Title | SmsHub</PageTitle>
+
+<div class="admin-menu-cards">
+    @foreach (AdminMenuCard card in Group.Cards)
+    {
+        <a class="admin-menu-card" href="@card.Route">
+            <span class="admin-menu-icon"><MudIcon Icon="@card.Icon" /></span>
+            <h2>@card.Title</h2><p>@card.Description</p>
+        </a>
+    }
+</div>
+
+@code {
+    private AdminMenuGroup Group = AdminNavigation.Groups[0];
+
+    protected override void OnInitialized()
+    {
+        SelectGroup(Navigation.Uri);
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    private void SelectGroup(string location)
+    {
+        string path = new Uri(location).AbsolutePath.TrimEnd('/');
+        Group = AdminNavigation.Groups.FirstOrDefault(group =>
+            group.Route.Equals(path, StringComparison.OrdinalIgnoreCase)) ?? Group;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        _ = InvokeAsync(() =>
+        {
+            SelectGroup(args.Location);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

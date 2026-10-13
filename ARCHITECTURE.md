@@ -17,6 +17,7 @@ This is a small-to-medium **monolithic backend service** that should **stay simp
 - **Features don't call each other** — anything shared moves into `Shared/`.
 - **Explicit over generic** — straightforward code a developer grasps in a few minutes beats a clever abstraction.
 - **One project, one deployable.** A "feature" is just a folder.
+- **Blazor and API share that project and host.** Feature pages/components and their small UI services live under the feature's `Ui/` folder. UI services call the existing handlers with shared request/response types; there is no internal HTTP client, second port, or copied business logic. Management pages use `/admin/**` so the external resource routes retain their meaning. The authenticated UI boundary resolves current API-key identity for access checks and audit attribution; browser cookies do not authenticate management API calls (ADR-019).
 
 **Abstractions:** if an abstraction (interface/wrapper/base class) genuinely makes the code **simpler**, use it. If it mainly exists to satisfy a pattern or a "best practice," don't — write the concrete code. When several solutions are valid, pick the simpler one.
 
@@ -49,6 +50,8 @@ SmsHubNext/
 │  └─ SmsHubNext/                      # THE single deployable (ASP.NET Core, .NET 10)
 │     ├─ Program.cs                    # minimal composition root (builder → extensions → run)
 │     ├─ Extensions/                   # composition root wiring: DI, HTTP pipeline, DB bootstrap
+│     ├─ Components/                   # Blazor app, router and shared layouts
+│     ├─ wwwroot/                     # UI styles, scripts and local fonts
 │     │
 │     ├─ Features/                     # ← business capabilities (the bulk of the code)
 │     │   ├─ Sending/                  # accept + send messages (the core path)
@@ -60,6 +63,7 @@ SmsHubNext/
 │     │   ├─ ApiKeys/                  # issue/rotate/revoke; auth lookup
 │     │   ├─ Providers/                # ISmsProvider + provider adapters (the one real seam)
 │     │   └─ ReferenceData/            # GeoSection, SenderLine, MessageType, Customer admin
+│     │       # each feature may include Ui/Pages, Ui/Components and UI services
 │     │
 │     ├─ Shared/                       # SMALL, truly cross-cutting only
 │     │   ├─ Database/                 # connection helper, Dapper setup/type handlers

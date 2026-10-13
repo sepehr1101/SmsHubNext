@@ -1,0 +1,108 @@
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using MudBlazor
+@using SmsHubNext.Components.Layout
+@using SmsHubNext.Features.Administration.Ui.Components
+@using SmsHubNext.Features.Authentication.Ui
+@using SmsHubNext.Features.ReferenceData.Customers.Ui
+@using SmsHubNext.Features.ReferenceData.MessageTypes.Ui
+@using SmsHubNext.Features.ReferenceData.Providers.Ui
+@using SmsHubNext.Features.ProviderAccounts.Ui
+@using SmsHubNext.Features.ReferenceData.SenderLines.Ui
+@using SmsHubNext.Features.ReferenceData.GeoSections.Ui
+@using SmsHubNext.Features.Tariffs.Ui
+@using SmsHubNext.Features.ApiKeys.Ui
+@using SmsHubNext.Features.Billing.Ui
+@using SmsHubNext.Features.DispatchOperations.Ui
+@using SmsHubNext.Features.Reports.Ui
+@using SmsHubNext.Features.Inbound.Ui
+@using SmsHubNext.Features.DeliveryReports.Ui
+@using SmsHubNext.Features.Sending.Ui
+@using SmsHubNext.Features.Landing.Ui.Components
+@using SmsHubNext.Shared.Ui
+
+@using AddIpRestrictionRequest = SmsHubNext.Features.ApiKeys.AddIpRestrictionRequest
+@using ApiKeyAccessLevel = SmsHubNext.Features.Authentication.ApiKeyAccessLevel
+@using ApiKeyIpRestrictionItem = SmsHubNext.Features.ApiKeys.ApiKeyIpRestriction
+@using ApiKeyItem = SmsHubNext.Features.ApiKeys.ApiKey
+@using BalanceTransactionItem = SmsHubNext.Features.Billing.BalanceTransaction
+@using BalanceTransactionType = SmsHubNext.Shared.Enums.BalanceTransactionType
+@using BatchDetails = SmsHubNext.Features.Batches.Batch
+@using BatchEventDetails = SmsHubNext.Features.Batches.BatchEvent
+@using BatchMessageDetails = SmsHubNext.Features.Batches.BatchMessage
+@using BatchMessageItem = SmsHubNext.Features.Batches.BatchMessage
+@using BatchStatus = SmsHubNext.Shared.Enums.BatchStatus
+@using BatchStatusReason = SmsHubNext.Shared.Enums.BatchStatusReason
+@using CostQuote = SmsHubNext.Features.Tariffs.CostQuote
+@using CreateCustomerRequest = SmsHubNext.Features.ReferenceData.Customers.CreateCustomerRequest
+@using CreateCustomerResponse = SmsHubNext.Features.ReferenceData.Customers.CreateCustomerResponse
+@using CreateGeoSectionRequest = SmsHubNext.Features.ReferenceData.GeoSections.CreateGeoSectionRequest
+@using CreateGeoSectionResponse = SmsHubNext.Features.ReferenceData.GeoSections.CreateGeoSectionResponse
+@using CreateMessageTypeRequest = SmsHubNext.Features.ReferenceData.MessageTypes.CreateMessageTypeRequest
+@using CreateMessageTypeResponse = SmsHubNext.Features.ReferenceData.MessageTypes.CreateMessageTypeResponse
+@using CreateProviderAccountRequest = SmsHubNext.Features.ProviderAccounts.CreateProviderAccountRequest
+@using CreateProviderAccountResponse = SmsHubNext.Features.ProviderAccounts.CreateProviderAccountResponse
+@using CreateProviderRequest = SmsHubNext.Features.ReferenceData.Providers.CreateProviderRequest
+@using CreateProviderResponse = SmsHubNext.Features.ReferenceData.Providers.CreateProviderResponse
+@using CreateSenderLineRequest = SmsHubNext.Features.ReferenceData.SenderLines.CreateSenderLineRequest
+@using CreateSenderLineResponse = SmsHubNext.Features.ReferenceData.SenderLines.CreateSenderLineResponse
+@using CreateTariffRateRequest = SmsHubNext.Features.Tariffs.CreateTariffRateRequest
+@using CreateTariffRequest = SmsHubNext.Features.Tariffs.CreateTariffRequest
+@using CreateTariffResponse = SmsHubNext.Features.Tariffs.CreateTariffResponse
+@using CurrentDeliveryStatus = SmsHubNext.Shared.Enums.DeliveryStatus
+@using CustomerBalanceItem = SmsHubNext.Features.Billing.CustomerBalance
+@using CustomerItem = SmsHubNext.Features.ReferenceData.Customers.Customer
+@using DeliveryReportItem = SmsHubNext.Features.DeliveryReports.DeliveryReport
+@using DeliveryReportStatus = SmsHubNext.Shared.Enums.DeliveryReportStatus
+@using DispatchBatchStatusCount = SmsHubNext.Features.DispatchOperations.DispatchBatchStatusCount
+@using DispatchFailureReasonCount = SmsHubNext.Features.DispatchOperations.DispatchFailureReasonCount
+@using DispatchMessageStatusCount = SmsHubNext.Features.DispatchOperations.DispatchMessageStatusCount
+@using DispatchOperationsBatchPage = SmsHubNext.Features.DispatchOperations.DispatchOperationsBatchPage
+@using DispatchOperationsBatchRow = SmsHubNext.Features.DispatchOperations.DispatchOperationsBatchRow
+@using DispatchOperationsSummary = SmsHubNext.Features.DispatchOperations.DispatchOperationsSummary
+@using DispatchQueueTotals = SmsHubNext.Features.DispatchOperations.DispatchQueueTotals
+@using GeoSectionItem = SmsHubNext.Features.ReferenceData.GeoSections.GeoSection
+@using GeoSectionType = SmsHubNext.Shared.Enums.GeoSectionType
+@using InboundMessageItem = SmsHubNext.Features.Inbound.InboundMessage
+@using IngestDeliveryReportRequest = SmsHubNext.Features.DeliveryReports.IngestDeliveryReportRequest
+@using IngestDeliveryReportResponse = SmsHubNext.Features.DeliveryReports.IngestDeliveryReportResponse
+@using IssueApiKeyRequest = SmsHubNext.Features.ApiKeys.IssueApiKeyRequest
+@using IssueApiKeyResponse = SmsHubNext.Features.ApiKeys.IssueApiKeyResponse
+@using JalaliMonthMessageReportRow = SmsHubNext.Features.Reports.JalaliMonthMessageReportRow
+@using MessageBatchEventType = SmsHubNext.Shared.Enums.MessageBatchEventType
+@using MessageReportStats = SmsHubNext.Features.Reports.MessageReportStats
+@using MessageReportSummary = SmsHubNext.Features.Reports.MessageReportSummary
+@using MessageSendStatus = SmsHubNext.Shared.Enums.SendStatus
+@using MessageTypeItem = SmsHubNext.Features.ReferenceData.MessageTypes.MessageType
+@using MessageTypeReportRow = SmsHubNext.Features.Reports.MessageTypeReportRow
+@using ProviderAccountItem = SmsHubNext.Features.ProviderAccounts.ProviderAccount
+@using ProviderItem = SmsHubNext.Features.ReferenceData.Providers.Provider
+@using ProviderMessageReportRow = SmsHubNext.Features.Reports.ProviderMessageReportRow
+@using QuoteRequest = SmsHubNext.Features.Tariffs.QuoteRequest
+@using QuoteSmsEncoding = SmsHubNext.Shared.Sms.SmsEncoding
+@using RetryDispatchResponse = SmsHubNext.Features.Batches.RetryDispatchResponse
+@using SendMessageItem = SmsHubNext.Features.Sending.SendMessageItem
+@using SendMessagesRequest = SmsHubNext.Features.Sending.SendMessagesRequest
+@using SendMessagesResponse = SmsHubNext.Features.Sending.SendMessagesResponse
+@using SendStatus = SmsHubNext.Shared.Enums.SendStatus
+@using SenderLineItem = SmsHubNext.Features.ReferenceData.SenderLines.SenderLine
+@using SmsEncoding = SmsHubNext.Shared.Sms.SmsEncoding
+@using TariffItem = SmsHubNext.Features.Tariffs.TariffResponse
+@using TariffRateItem = SmsHubNext.Features.Tariffs.TariffRate
+@using TopUpRequest = SmsHubNext.Features.Billing.TopUpRequest
+@using TopUpResponse = SmsHubNext.Features.Billing.TopUpResponse
+@using UpdateApiKeyRequest = SmsHubNext.Features.ApiKeys.UpdateApiKeyRequest
+@using UpdateCustomerRequest = SmsHubNext.Features.ReferenceData.Customers.UpdateCustomerRequest
+@using UpdateGeoSectionRequest = SmsHubNext.Features.ReferenceData.GeoSections.UpdateGeoSectionRequest
+@using UpdateIpRestrictionRequest = SmsHubNext.Features.ApiKeys.UpdateIpRestrictionRequest
+@using UpdateMessageTypeRequest = SmsHubNext.Features.ReferenceData.MessageTypes.UpdateMessageTypeRequest
+@using UpdateProviderAccountRequest = SmsHubNext.Features.ProviderAccounts.UpdateProviderAccountRequest
+@using UpdateProviderRequest = SmsHubNext.Features.ReferenceData.Providers.UpdateProviderRequest
+@using UpdateSenderLineRequest = SmsHubNext.Features.ReferenceData.SenderLines.UpdateSenderLineRequest
+@using UpdateTariffRequest = SmsHubNext.Features.Tariffs.UpdateTariffRequest
+@using MessageReportRequest = SmsHubNext.Features.Reports.MessageReportRequest

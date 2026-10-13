@@ -1,0 +1,52 @@
+@page "/admin/provider-accounts"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject ProviderAccountsService Service
+@inject ProvidersService Providers
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>حساب‌های ارائه‌دهنده | SmsHub</PageTitle>
+<div class="admin-page-head"><button class="admin-button primary" @onclick="OpenCreate"><MudIcon Icon="@Icons.Material.Rounded.Add" /> حساب جدید</button></div>
+<FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
+<div class="admin-rule-callout"><MudIcon Icon="@Icons.Material.Rounded.EnhancedEncryption" /><p><b>راز حساب رمزنگاری می‌شود</b><span>رمز عبور یا API Key در سامانه رمزنگاری و فقط وجود آن با عبارت «ثبت شده» گزارش می‌شود.</span></p></div>
+
+<section class="admin-data-panel"><header><div><h2>حساب‌های عملیاتی</h2><span>هر خط ارسال می‌تواند به یکی از این حساب‌ها متصل شود.</span></div></header><div class="admin-card-list provider-accounts-list">
+    @if (!_loading && _items.Count == 0) { <div class="admin-empty">حساب ارائه‌دهنده‌ای ثبت نشده است.</div> }
+    @foreach (ProviderAccountItem item in _items)
+    {
+        <article><span class="admin-list-icon"><MudIcon Icon="@Icons.Material.Rounded.Key" /></span><div><h3>@item.DisplayName</h3><p><code>@item.ProviderCode</code> · @AuthLabel(item.AuthType)</p></div><span class="admin-secret-state @(item.HasSecret ? "ready" : "missing")"><MudIcon Icon="@(item.HasSecret ? Icons.Material.Rounded.Lock : Icons.Material.Rounded.LockOpen)" /> @(item.HasSecret ? "راز ثبت شده" : "بدون راز")</span><StatusPill IsActive="item.IsActive" /><div class="admin-row-actions"><button title="ویرایش" @onclick="() => OpenEdit(item)"><MudIcon Icon="@Icons.Material.Rounded.Edit" /></button><button class="danger" title="حذف منطقی" @onclick="() => Delete(item)"><MudIcon Icon="@Icons.Material.Rounded.DeleteOutline" /></button></div></article>
+    }
+</div></section>
+
+@if (_editorOpen)
+{
+    <div class="admin-drawer-backdrop" @onclick="CloseEditor"></div><aside class="admin-editor"><header><div><h2>@(_editingId is null ? "حساب اتصال جدید" : "ویرایش حساب اتصال")</h2><p>فیلدهای لازم بر اساس ارائه‌دهنده نمایش داده می‌شوند.</p></div><button @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></header><div class="admin-editor-body">
+        <label><span>ارائه‌دهنده</span><select @bind="_providerCode" disabled="@(_editingId is not null)"><option value="">انتخاب کنید</option>@foreach (ProviderItem provider in _providers.Where(item => item.IsActive)) { <option value="@provider.Code">@provider.Name (@provider.Code)</option> }</select></label>
+        <label><span>نام نمایشی حساب</span><input @bind="_displayName" placeholder="مثلاً حساب اصلی مگفا" /></label>
+        @if (IsMagfa)
+        {
+            <label><span>نام کاربری مگفا</span><input @bind="_username" dir="ltr" autocomplete="off" /></label><label><span>دامنه مگفا</span><input @bind="_domain" dir="ltr" placeholder="magfa" /></label><label><span>@(_editingId is null ? "رمز عبور" : "رمز عبور جدید (اختیاری)")</span><input type="password" @bind="_secret" dir="ltr" autocomplete="new-password" /></label>
+        }
+        else if (!string.IsNullOrWhiteSpace(_providerCode))
+        {
+            <label><span>@(_editingId is null ? "API Key" : "API Key جدید (اختیاری)")</span><input type="password" @bind="_secret" dir="ltr" autocomplete="new-password" /></label>
+        }
+        <label class="admin-checkbox"><input type="checkbox" @bind="_isActive" /> حساب فعال باشد</label>
+    </div><footer><button class="admin-button secondary" @onclick="CloseEditor">انصراف</button><button class="admin-button primary" disabled="@_saving" @onclick="Save">@(_saving ? "در حال ذخیره…" : "ذخیره امن")</button></footer></aside>
+}
+
+@code {
+    private readonly CancellationTokenSource _disposeToken = new();
+    private IReadOnlyList<ProviderAccountItem> _items = []; private IReadOnlyList<ProviderItem> _providers = []; private int? _editingId; private string _providerCode = string.Empty; private string _displayName = string.Empty; private string _username = string.Empty; private string _domain = string.Empty; private string _secret = string.Empty; private bool _isActive = true; private bool _loading = true; private bool _saving; private bool _editorOpen; private string? _error; private string? _success;
+    private bool IsMagfa => string.Equals(_providerCode, "magfa", StringComparison.OrdinalIgnoreCase);
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() { _loading = true; _error = null; Task<UiResult<IReadOnlyList<ProviderAccountItem>>> accountsTask = Service.List(_disposeToken.Token); Task<UiResult<IReadOnlyList<ProviderItem>>> providersTask = Providers.List(_disposeToken.Token); await Task.WhenAll(accountsTask, providersTask); UiResult<IReadOnlyList<ProviderAccountItem>> accounts = await accountsTask; UiResult<IReadOnlyList<ProviderItem>> providers = await providersTask; _items = accounts.Value ?? []; _providers = providers.Value ?? []; _error = accounts.ErrorMessage ?? providers.ErrorMessage; _loading = false; }
+    private void OpenCreate() { _editingId = null; _providerCode = string.Empty; _displayName = string.Empty; _username = string.Empty; _domain = string.Empty; _secret = string.Empty; _isActive = true; _editorOpen = true; }
+    private void OpenEdit(ProviderAccountItem item) { _editingId = item.Id; _providerCode = item.ProviderCode; _displayName = item.DisplayName; _username = item.Settings.TryGetValue("username", out string? username) ? username : string.Empty; _domain = item.Settings.TryGetValue("domain", out string? domain) ? domain : string.Empty; _secret = string.Empty; _isActive = item.IsActive; _editorOpen = true; }
+    private void CloseEditor() => _editorOpen = false;
+    private async Task Save() { if (string.IsNullOrWhiteSpace(_providerCode) || string.IsNullOrWhiteSpace(_displayName) || (_editingId is null && string.IsNullOrWhiteSpace(_secret)) || (IsMagfa && (string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_domain)))) { _error = "اطلاعات الزامی حساب را کامل کنید."; return; } _saving = true; Dictionary<string,string> settings = IsMagfa ? new() { ["username"] = _username.Trim(), ["domain"] = _domain.Trim() } : new(); string authType = IsMagfa ? "UsernamePasswordDomain" : "ApiKey"; UiResult<string?> result; if (_editingId is null) { UiResult<CreateProviderAccountResponse> create = await Service.Create(new CreateProviderAccountRequest { ProviderCode = _providerCode, DisplayName = _displayName.Trim(), AuthType = authType, Settings = settings, Secret = _secret, IsActive = _isActive }, _disposeToken.Token); result = create.IsSuccess ? UiResult<string?>.Success(null) : UiResult<string?>.Failure(create.ErrorMessage!); } else { result = await Service.Update(_editingId.Value, new UpdateProviderAccountRequest { ProviderCode = _providerCode, DisplayName = _displayName.Trim(), AuthType = authType, Settings = settings, Secret = string.IsNullOrWhiteSpace(_secret) ? null : _secret, IsActive = _isActive }, _disposeToken.Token); } _saving = false; if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _editorOpen = false; _success = "حساب ارائه‌دهنده با موفقیت ذخیره شد."; await Load(); }
+    private async Task Delete(ProviderAccountItem item) { bool confirmed = await JS.InvokeAsync<bool>("confirm", $"حساب «{item.DisplayName}» حذف منطقی شود؟ خطوط متصل باید پیش از حذف بررسی شوند."); if (!confirmed) return; UiResult<string?> result = await Service.Delete(item.Id, _disposeToken.Token); if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _success = $"حساب «{item.DisplayName}» حذف منطقی شد."; await Load(); }
+    private static string AuthLabel(string authType) => authType == "UsernamePasswordDomain" ? "نام کاربری و رمز" : "کلید API";
+    public void Dispose() { _disposeToken.Cancel(); _disposeToken.Dispose(); }
+}

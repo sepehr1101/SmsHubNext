@@ -1,0 +1,52 @@
+@inject AuthenticationStateProvider Authentication
+
+<header class="admin-topbar">
+    <button class="admin-menu-button" type="button" aria-label="باز کردن منو" @onclick="OnMenuClick">
+        <MudIcon Icon="@Icons.Material.Rounded.Menu" />
+    </button>
+    <div class="admin-search">
+        <MudIcon Icon="@Icons.Material.Rounded.Search" />
+        <input type="search" placeholder="جست‌وجو در پنل…" aria-label="جست‌وجو در پنل" />
+        <kbd>Ctrl K</kbd>
+    </div>
+    <div class="admin-topbar-actions">
+        <button type="button" class="admin-icon-button" aria-label="اعلان‌ها">
+            <MudIcon Icon="@Icons.Material.Rounded.NotificationsNone" /><i></i>
+        </button>
+        <div class="admin-account" @onkeydown="HandleKey">
+            <button type="button" class="admin-user" aria-label="منوی حساب کاربری" aria-expanded="@_accountOpen" aria-controls="admin-account-options" @onclick="ToggleAccount">
+                <span class="admin-user-copy"><b>@_userName</b><small>مدیر سامانه</small></span>
+                <span class="admin-avatar">@_userName[..1]</span>
+            </button>
+            @if (_accountOpen)
+            {
+                <button class="admin-account-backdrop" type="button" tabindex="-1" aria-label="بستن منوی حساب" @onclick="CloseAccount"></button>
+                <div class="admin-account-options" id="admin-account-options">
+                    <a href="/admin/me" @onclick="CloseAccount"><MudIcon Icon="@Icons.Material.Rounded.PersonOutline" /> اطلاعات من</a>
+                    <form method="post" action="/auth/logout" data-enhance="false">
+                        <AntiforgeryToken />
+                        <button type="submit"><MudIcon Icon="@Icons.Material.Rounded.Logout" /> خروج از حساب</button>
+                    </form>
+                </div>
+            }
+        </div>
+    </div>
+</header>
+
+@code {
+    [Parameter, EditorRequired]
+    public EventCallback OnMenuClick { get; set; }
+    private bool _accountOpen;
+    private string _userName = "کاربر";
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState state = await Authentication.GetAuthenticationStateAsync();
+        _userName = string.IsNullOrWhiteSpace(state.User.Identity?.Name) ? "کاربر" : state.User.Identity.Name;
+    }
+    private void ToggleAccount() => _accountOpen = !_accountOpen;
+    private void CloseAccount() => _accountOpen = false;
+    private void HandleKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") CloseAccount();
+    }
+}

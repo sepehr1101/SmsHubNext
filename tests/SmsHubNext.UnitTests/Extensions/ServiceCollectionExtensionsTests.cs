@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Infrastructure;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -7,6 +10,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using SmsHubNext.Extensions;
 using SmsHubNext.Features.Authentication;
+using SmsHubNext.Features.Authentication.Ui;
+using SmsHubNext.Features.ReferenceData.Customers.Ui;
+using SmsHubNext.Shared.Ui;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.SmsIr;
 using Xunit;
@@ -29,6 +35,7 @@ public sealed class ServiceCollectionExtensionsTests
 
         Assert.NotNull(administrator);
         Assert.Same(administrator, options.DefaultPolicy);
+        Assert.Equal([JwtBearerDefaults.AuthenticationScheme], administrator.AuthenticationSchemes);
         Assert.Contains(
             administrator.Requirements,
             requirement => requirement is RolesAuthorizationRequirement roles &&
@@ -37,6 +44,45 @@ public sealed class ServiceCollectionExtensionsTests
             administrator.Requirements,
             requirement => requirement is ClaimsAuthorizationRequirement claim &&
                 claim.ClaimType == AuthenticationClaimTypes.ApiKeyId);
+    }
+
+    [Theory]
+    [InlineData("/", DevelopmentAccount.AuthenticationScheme)]
+    [InlineData("/login", DevelopmentAccount.AuthenticationScheme)]
+    [InlineData("/admin/customers", DevelopmentAccount.AuthenticationScheme)]
+    [InlineData("/_blazor/negotiate", DevelopmentAccount.AuthenticationScheme)]
+    [InlineData("/auth/logout", DevelopmentAccount.AuthenticationScheme)]
+    [InlineData("/customers", JwtBearerDefaults.AuthenticationScheme)]
+    [InlineData("/auth/token", JwtBearerDefaults.AuthenticationScheme)]
+    [InlineData("/messages", JwtBearerDefaults.AuthenticationScheme)]
+    public void Combined_host_selects_authentication_by_surface(string path, string expectedScheme)
+    {
+        ServiceCollection services = new();
+        services.AddLogging();
+        services.AddApplicationServices(Configuration(), Environment(Environments.Development));
+        using ServiceProvider provider = services.BuildServiceProvider();
+        PolicySchemeOptions options = provider.GetRequiredService<IOptionsMonitor<PolicySchemeOptions>>()
+            .Get("Application");
+        DefaultHttpContext context = new();
+        context.Request.Path = path;
+
+        Assert.Equal(expectedScheme, options.ForwardDefaultSelector!(context));
+    }
+
+    [Fact]
+    public void Ui_policy_and_services_are_registered_in_the_single_host()
+    {
+        ServiceCollection services = new();
+        services.AddApplicationServices(Configuration(), Environment(Environments.Development));
+        using ServiceProvider provider = services.BuildServiceProvider();
+        AuthorizationOptions options = provider.GetRequiredService<IOptions<AuthorizationOptions>>().Value;
+        AuthorizationPolicy? ui = options.GetPolicy(DevelopmentAccount.ManagementPolicy);
+
+        Assert.NotNull(ui);
+        Assert.Equal([DevelopmentAccount.AuthenticationScheme], ui.AuthenticationSchemes);
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(UiOperations));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(CustomersService) &&
+            descriptor.Lifetime == ServiceLifetime.Scoped);
     }
 
     [Fact]
@@ -50,6 +96,25 @@ public sealed class ServiceCollectionExtensionsTests
         ServiceDescriptor? provider = services.LastOrDefault(descriptor => descriptor.ServiceType == typeof(ISmsProvider));
         Assert.NotNull(provider);
         Assert.Equal(typeof(LoopbackSmsProvider), provider.ImplementationType);
+    }
+
+    [Fact]
+    public void Esb_registers_4040_without_enabling_magfa_or_loopback()
+    {
+        ServiceCollection services = new();
+        services.AddLogging();
+        IConfiguration configuration = Configuration(new Dictionary<string, string?>
+        {
+            ["Esb:Enabled"] = "true", ["Esb:Username"] = "client", ["Esb:Password"] = "secret",
+            ["Esb:TerminalDeliveryStatuses:1"] = "Delivered",
+        });
+        services.AddApplicationServices(configuration, Environment(Environments.Production));
+        using ServiceProvider provider = services.BuildServiceProvider();
+        ISmsProvider registered = Assert.Single(provider.GetServices<ISmsProvider>());
+        Assert.Equal("4040", registered.Name);
+        Assert.False(registered.SupportsIdempotentResend);
+        Assert.Equal(SmsHubNext.Shared.Enums.DeliveryReportStatus.Delivered,
+            provider.GetRequiredService<SmsHubNext.Features.Providers.Esb.EsbOptions>().TerminalDeliveryStatuses[1]);
     }
 
     [Fact]

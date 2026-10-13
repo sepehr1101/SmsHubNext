@@ -1,0 +1,52 @@
+@using Microsoft.AspNetCore.Components.Routing
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<nav class="admin-breadcrumb" aria-label="مسیر صفحه">
+    <a href="/admin/dashboard">پنل مدیریت</a><span aria-hidden="true">/</span>
+    @if (_group is not null && _title != _group.Title)
+    {
+        <a href="@_group.Route">@_group.Title</a><span aria-hidden="true">/</span>
+    }
+    @if (_customerKeys) { <a href="/admin/customers">مشتریان</a><span aria-hidden="true">/</span> }
+    <h1 aria-current="page">@_title</h1>
+</nav>
+
+@code {
+    private bool _customerKeys;
+    private string _title = "داشبورد";
+    private AdminMenuGroup? _group;
+    protected override void OnInitialized()
+    {
+        Update();
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+    private void Update()
+    {
+        string path = new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+        if (path == "/admin/me")
+        {
+            _group = null;
+            _customerKeys = false;
+            _title = "اطلاعات من";
+            return;
+        }
+        _customerKeys = path.StartsWith("/admin/api-keys", StringComparison.OrdinalIgnoreCase);
+        if (_customerKeys)
+        {
+            _group = AdminNavigation.Groups.First(group => group.Route == "/admin/settings");
+            _title = path.Contains("ip-restrictions", StringComparison.OrdinalIgnoreCase) ? "محدودیت IP کلید" : "کلیدهای API";
+            return;
+        }
+        _group = AdminNavigation.Groups.FirstOrDefault(group => group.Route == path
+            || group.Cards.Any(card => path == card.Route || path.StartsWith(card.Route + "/", StringComparison.OrdinalIgnoreCase)));
+        AdminMenuCard? card = _group?.Cards.FirstOrDefault(item => path == item.Route || path.StartsWith(item.Route + "/", StringComparison.OrdinalIgnoreCase));
+        _title = card?.Title ?? _group?.Title ?? "داشبورد";
+    }
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        Update();
+        _ = InvokeAsync(StateHasChanged);
+    }
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

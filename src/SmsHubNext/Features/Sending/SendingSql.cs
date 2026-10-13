@@ -12,6 +12,8 @@ internal static class SendingSql
             sl.CustomerId,
             sl.IsActive,
             sl.ProviderAccountId,
+            sl.UseEsb,
+            p.Code AS ProviderCode,
             pa.IsActive AS ProviderAccountIsActive,
             DATALENGTH(pa.SecretEncrypted) AS SecretLength
         FROM dbo.SenderLine sl

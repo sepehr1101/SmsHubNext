@@ -19,6 +19,7 @@ public sealed class CreateSenderLineRequest
 
     /// <summary>New lines are active by default; set false to register a line that cannot yet send.</summary>
     public bool IsActive { get; init; } = true;
+    public bool UseEsb { get; init; }
 
     public Result Validate()
     {

@@ -1,0 +1,11 @@
+@page "/admin/settings/general"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+
+<PageTitle>تنظیمات عمومی | SmsHub</PageTitle>
+<div class="admin-general-facts">
+    <article><span>نام سامانه</span><strong>SmsHubNext</strong></article>
+    <article><span>واحد پول</span><strong>ریال ایران</strong></article>
+    <article><span>تقویم گزارش</span><strong>شمسی</strong></article>
+    <article><span>زمان ذخیره رویدادها</span><strong>UTC</strong></article>
+</div>

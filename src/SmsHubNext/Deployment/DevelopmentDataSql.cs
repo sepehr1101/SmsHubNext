@@ -48,6 +48,44 @@ internal static class DevelopmentDataSql
             UPDATE dbo.Provider SET Name = N'مگفا', BaseUrl = 'https://sms.magfa.com', IsActive = 1, DeletedAtUtc = NULL, DeletedByApiKeyId = NULL WHERE Id = @ProviderId;
 
         DECLARE @ProviderAccountId INT;
+        DECLARE @Provider4040Id TINYINT;
+        SELECT @Provider4040Id = Id FROM dbo.Provider WHERE Code = '4040';
+        IF @Provider4040Id IS NULL
+        BEGIN
+            INSERT INTO dbo.Provider (Name, Code, BaseUrl, IsActive)
+            VALUES (N'4040', '4040', 'https://esb.abfaisfahan.com:8243', 1);
+            SET @Provider4040Id = CONVERT(TINYINT, SCOPE_IDENTITY());
+        END
+        ELSE
+            UPDATE dbo.Provider SET IsActive = 1
+            WHERE Id = @Provider4040Id AND DeletedAtUtc IS NULL;
+
+        IF NOT EXISTS (SELECT 1 FROM dbo.SenderLine WHERE ProviderId = @Provider4040Id AND LineNumber = '40401403')
+            INSERT INTO dbo.SenderLine (ProviderId, LineNumber, IsSharedLine, CustomerId, ProviderAccountId, IsActive, UseEsb)
+            VALUES (@Provider4040Id, '40401403', 0, @CustomerId, NULL, 1, 1);
+        ELSE
+            UPDATE dbo.SenderLine
+            SET UseEsb = 1, IsActive = 1, IsSharedLine = 0, CustomerId = @CustomerId, ProviderAccountId = NULL
+            WHERE ProviderId = @Provider4040Id AND LineNumber = '40401403' AND DeletedAtUtc IS NULL;
+
+        -- Development-only prices, not the provider's commercial tariff. Global fallback
+        -- covers every seeded message type and both Latin/Persian test bodies.
+        DECLARE @Encoding4040 TINYINT = 0;
+        WHILE @Encoding4040 <= 1
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM dbo.Tariff
+                WHERE ProviderId = @Provider4040Id AND MessageTypeId IS NULL AND Encoding = @Encoding4040)
+            BEGIN
+                INSERT INTO dbo.Tariff (ProviderId, MessageTypeId, Encoding, EffectiveFromUtc, Currency, IsActive)
+                VALUES (@Provider4040Id, NULL, @Encoding4040, '2026-01-01', 'IRR', 1);
+                DECLARE @Tariff4040Id INT = CONVERT(INT, SCOPE_IDENTITY());
+                INSERT INTO dbo.TariffRate (TariffId, MinChars, MaxChars, PricePerSegment)
+                VALUES (@Tariff4040Id, 1, NULL, 1500);
+            END;
+            SET @Encoding4040 = @Encoding4040 + 1;
+        END;
+
         SELECT @ProviderAccountId = pa.Id FROM dbo.ProviderAccount pa WHERE pa.ProviderId = @ProviderId AND pa.DisplayName = N'حساب آزمایشی مگفا';
         IF @ProviderAccountId IS NULL
         BEGIN
