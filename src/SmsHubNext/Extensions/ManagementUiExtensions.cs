@@ -34,6 +34,7 @@ public static class ManagementUiExtensions
         services.AddHttpContextAccessor();
         services.Configure<ManagementUiOptions>(configuration.GetSection(ManagementUiOptions.SectionName));
         services.AddScoped<UiOperations>();
+        services.AddScoped<SmsHubNext.Features.Administration.Ui.ApplicationErrorsService>();
         services.AddScoped<CustomersService>();
         services.AddScoped<ProvidersService>();
         services.AddScoped<MessageTypesService>();
@@ -44,6 +45,8 @@ public static class ManagementUiExtensions
         services.AddScoped<ApiKeysService>();
         services.AddScoped<BillingService>();
         services.AddScoped<DispatchOperationsService>();
+        services.AddScoped<LiveDispatchService>();
+        services.AddSingleton<SmsHubNext.Features.DispatchOperations.LiveDispatchCache>();
         services.AddScoped<ReportsService>();
         services.AddScoped<InboundMessagesService>();
         services.AddScoped<DeliveryReportsService>();

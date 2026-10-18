@@ -92,15 +92,18 @@ public sealed class ExcelSendingTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Insufficient_balance_rolls_back_excel_batch_and_never_calls_provider()
+    public async Task Insufficient_balance_accepts_excel_batch_and_dispatches_with_debt()
     {
         ApiKeyIdentity identity = await CreateIdentity(500m);
         using MemoryStream workbook = Workbook(true, [Row("علی", "00123", "09120000001")]);
         List<SendMessageDraft> drafts = ExcelMessageImport.Read(workbook, "مشترک [A] قبض [B]", "D", true);
         Result<SendMessagesResponse> result = await new SendMessagesHandler(_db, TimeProvider.System).Handle(Request(drafts), identity, CancellationToken.None);
-        Assert.True(result.IsFailure);
-        Assert.Equal("sending.insufficient_balance", result.Error!.Code);
-        await AssertNoSend(identity, 500m);
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        Assert.Equal(-500m, await Balance(connection, identity.CustomerId));
+        Assert.True(await Dispatcher().DispatchNextBatchAsync(CancellationToken.None));
+        Assert.Single(_provider.Requests);
+        Assert.Equal(-500m, await Balance(connection, identity.CustomerId));
     }
 
     [Fact]

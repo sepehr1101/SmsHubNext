@@ -1,0 +1,149 @@
+@page "/admin/reports/search"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@using SmsHubNext.Features.Reports
+@using SmsHubNext.Shared.Enums
+@inject ReportsService Service
+@inject TimeProvider Clock
+@implements IDisposable
+
+<PageTitle>جست‌وجوی پیامک | SmsHub</PageTitle>
+<section class="admin-data-panel">
+    <header><div><h2>جست‌وجوی پیامک</h2></div></header>
+    <form class="message-search-form" @onsubmit="Search" @onsubmit:preventDefault>
+        <label><span>جست‌وجو بر اساس</span><select @bind="_field"><option value="@MessageSearchField.BillId">شناسه قبض</option><option value="@MessageSearchField.PayId">شناسه پرداخت</option><option value="@MessageSearchField.MobileNumber">شماره تلفن</option></select></label>
+        <label><span>مقدار جست‌وجو</span><input type="search" @bind="_value" dir="ltr" maxlength="31" aria-label="شناسه قبض، شناسه پرداخت یا شماره تلفن" placeholder="مقدار کامل؛ اختیاری" /></label>
+        <label><span>از تاریخ شمسی</span><input @bind="_from" dir="ltr" maxlength="10" placeholder="۱۴۰۵/۰۷/۰۱" required /></label>
+        <label><span>از ساعت (ایران)</span><input @bind="_fromTime" dir="ltr" maxlength="5" placeholder="۰۰:۰۰" required /></label>
+        <label><span>تا تاریخ شمسی</span><input @bind="_to" dir="ltr" maxlength="10" placeholder="۱۴۰۵/۰۷/۳۰" required /></label>
+        <label><span>تا ساعت (ایران)</span><input @bind="_toTime" dir="ltr" maxlength="5" placeholder="۲۳:۵۹" required /></label>
+        <button class="admin-button primary" type="submit" disabled="_loading">جست‌وجو</button>
+    </form>
+    <FeatureNotice Loading="_loading" Error="@_error" OnRetry="Search" />
+    @if (_searched)
+    {
+        <div class="admin-table-wrap">
+            <AdminGrid T="MessageSearchRow" Items="_items" Loading="_loading" PageLocal="true" ShowSearch="false" Name="جست‌وجوی پیامک" ExportColumns="Columns">
+                <PropertyColumn Property="item => item.Id" Title="شناسه پیام"><CellTemplate>@PersianDisplay.Number(context.Item.Id)</CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.SubmittedAtUtc" Title="زمان ثبت (ایران)"><CellTemplate>@SmsHubNext.Features.Reports.Ui.MessageDiagnosticText.Time(context.Item.SubmittedAtUtc)</CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.MobileNumber" Title="شماره تلفن"><CellTemplate><span dir="ltr">@PersianDisplay.Text(context.Item.MobileNumber)</span></CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.BillId" Title="شناسه قبض"><CellTemplate>@PersianDisplay.Text(context.Item.BillId)</CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.PayId" Title="شناسه پرداخت"><CellTemplate>@PersianDisplay.Text(context.Item.PayId)</CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.CustomerName" Title="مشتری" />
+                <PropertyColumn Property="item => item.ProviderName" Title="ارائه‌دهنده" />
+                <PropertyColumn Property="item => item.Status" Title="وضعیت ارسال"><CellTemplate>@SendLabel(context.Item.Status)</CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.DeliveryStatus" Title="وضعیت تحویل"><CellTemplate>@DeliveryLabel(context.Item.DeliveryStatus)</CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.TotalCost" Title="هزینه (ریال)"><CellTemplate>@PersianDisplay.Number(context.Item.TotalCost, "N0")</CellTemplate></PropertyColumn>
+                <TemplateColumn Title="متن پیام" Sortable="false" Filterable="false"><CellTemplate>@if (context.Item.Body is null) { <span>متن در دسترس نیست</span> } else { <details><summary>نمایش متن</summary><div class="message-search-body">@context.Item.Body</div></details> }</CellTemplate></TemplateColumn>
+                <TemplateColumn Title="عیب‌یابی" Sortable="false" Filterable="false" Hideable="false"><CellTemplate><button type="button" class="admin-button secondary" @onclick="() => Select(context.Item.Id)">جزئیات و کپی گزارش</button></CellTemplate></TemplateColumn>
+            </AdminGrid>
+        </div>
+        <div class="admin-pagination">
+            <button type="button" disabled="@(_loading || _history.Count == 0)" @onclick="Previous">صفحه قبل</button>
+            <span>صفحه @PersianDisplay.Number(_history.Count + 1)</span>
+            <button type="button" disabled="@(_loading || _next is null)" @onclick="Next">صفحه بعد</button>
+        </div>
+    }
+</section>
+@if (_selected is long selected) { <div @ref="_diagnosticElement" tabindex="-1"><MessageDiagnosticPanel @key="selected" MessageId="selected" Close="CloseDetails" /></div> }
+
+@code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly Stack<MessageSearchCursor?> _history = new();
+    private string _from = string.Empty;
+    private string _to = string.Empty;
+    private string _value = string.Empty;
+    private string _fromTime = "۰۰:۰۰";
+    private string _toTime = "۲۳:۵۹";
+    private long? _selected;
+    private ElementReference _diagnosticElement;
+    private bool _focusDetails;
+    private MessageSearchField _field = MessageSearchField.MobileNumber;
+    private bool _loading;
+    private bool _searched;
+    private string? _error;
+    private SearchMessagesRequest? _query;
+    private MessageSearchCursor? _next;
+    private IReadOnlyList<MessageSearchRow> _items = [];
+    private static readonly AdminExportColumn<MessageSearchRow>[] Columns =
+    [
+        new("شناسه پیام", item => item.Id), new("زمان ثبت (UTC)", item => item.SubmittedAtUtc),
+        new("شماره تلفن", item => item.MobileNumber), new("شناسه قبض", item => item.BillId), new("شناسه پرداخت", item => item.PayId),
+        new("مشتری", item => item.CustomerName), new("ارائه‌دهنده", item => item.ProviderName),
+        new("وضعیت ارسال", item => SendLabel(item.Status)), new("وضعیت تحویل", item => DeliveryLabel(item.DeliveryStatus)),
+        new("هزینه (ریال)", item => item.TotalCost), new("متن پیام", item => item.Body),
+    ];
+
+    protected override void OnInitialized()
+    {
+        string today = PersianDisplay.Date(IranTime.FromUtc(Clock.GetUtcNow()), "yyyy/MM/dd");
+        _from = today;
+        _to = today;
+    }
+
+    private async Task Search()
+    {
+        if (_loading) return;
+        SearchMessagesRequest request = new() { FromJalali = _from, ToJalali = _to, FromTime = _fromTime, ToTime = _toTime, IranLocalTime = true, Field = _field, Value = _value };
+        _selected = null;
+        _history.Clear();
+        _query = null;
+        _items = [];
+        _next = null;
+        _searched = true;
+        await Load(request);
+    }
+
+    private async Task<bool> Load(SearchMessagesRequest request)
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            UiResult<MessageSearchPage> result = await Service.Search(request, _lifetime.Token);
+            if (!result.IsSuccess || result.Value is null) { _error = result.ErrorMessage; return false; }
+            _query = request;
+            _items = result.Value.Items;
+            _next = result.Value.Next;
+            return true;
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task Next()
+    {
+        if (_loading || _query is null || _next is null) return;
+        _selected = null;
+        MessageSearchCursor? current = _query.Before;
+        if (await Load(_query with { Before = _next })) _history.Push(current);
+    }
+
+    private async Task Previous()
+    {
+        if (_loading || _query is null || _history.Count == 0) return;
+        _selected = null;
+        if (await Load(_query with { Before = _history.Peek() })) _history.Pop();
+    }
+
+    private static string SendLabel(SendStatus status) => status switch
+    {
+        SendStatus.Queued => "در صف", SendStatus.Submitted => "ثبت ارائه‌دهنده", SendStatus.Sent => "ارسال‌شده",
+        SendStatus.Rejected => "ردشده", SendStatus.AwaitingConfirmation => "انتظار تأیید", _ => "نامشخص",
+    };
+    private static string DeliveryLabel(DeliveryStatus status) => status switch
+    {
+        DeliveryStatus.Pending => "در انتظار", DeliveryStatus.Delivered => "تحویل‌شده", DeliveryStatus.Undelivered => "تحویل‌نشده",
+        DeliveryStatus.Expired => "منقضی", _ => "نامشخص",
+    };
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusDetails && _selected is not null)
+        {
+            _focusDetails = false;
+            await _diagnosticElement.FocusAsync();
+        }
+    }
+    private void Select(long id) { _selected = id; _focusDetails = true; }
+    private void CloseDetails() => _selected = null;
+}

@@ -92,7 +92,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | **Message** | The central **fact**: one SMS send. Carries text reference, recipient, references, Jalali date, cost snapshot, **send-lifecycle status**, a **denormalized current `DeliveryStatus`** (read model), and a FK to its `MessageBatch`. |
 | **Message Body** | The exact sent text (1:1 with Message), separated for storage/retention. |
 | **Delivery Report** | An **append-only** status event for a message; full history. The current state is projected onto `Message.DeliveryStatus`. |
-| **Customer Balance** | A customer's current **prepaid** balance (IRR); one row per customer. Debited atomically at batch accept. |
+| **Customer Balance** | A customer's current **signed** balance (IRR); one row per customer. Debited atomically at batch accept. |
 | **Balance Transaction** | Append-only money **ledger** (top-up / debit / refund / adjustment) for audit and reconciliation against `CustomerBalance`. |
 | **Message Batch Event** | An **operational event store** (append-only, ~90-day retention) recording a batch's lifecycle timeline (dispatch started, retry, provider timeout, …) for troubleshooting/monitoring — *not* a business-audit table. |
 | **Provider Account** | A provider-specific sending account. Stores `AuthType`, non-sensitive `SettingsJson`, and one encrypted sensitive secret; sender lines point to the account that owns them. |
@@ -206,6 +206,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 **Indexes:** `NCIX UNIQUE (KeyHash)` — auth lookup on every send; `NCIX (CustomerId)` — list a tenant's keys.
 
 **Why a separate table:** a customer holds **many** keys (rotation, per-system), each with its own lifecycle. **Why hash-only:** if the DB leaks, plaintext keys must not; authenticate by hashing the presented key and seeking `KeyHash`; `KeyPrefix` identifies a key without exposing it. Customer keys authenticate send calls directly. Administrator keys are owned by one hidden system customer and may only be exchanged for a short-lived management JWT; keeping them in this table preserves the existing `DeletedByApiKeyId`/`RevokedByApiKeyId` audit chain. Token exchange is rate-limited by source IP. *Alternative:* plaintext/encrypted keys — rejected (breach liability / unnecessary).
+
+**Secret renewal:** administrators can use the management UI or `POST /api-keys/{id}/renew` (administrator JWT required) to atomically replace a non-revoked key's hash and public prefix. The response returns the new plaintext secret once; the old secret immediately fails subsequent authentication. The key ID, audit references, customer, access level, active state, expiry and IP restrictions stay unchanged. Renewal does not reactivate an inactive/expired key or undo permanent revocation. Existing administrator JWTs retain their normal lifetime. Store the returned secret before leaving the page and update the consuming service; renewal has no overlap window.
 
 ### 4.3 `ApiKeyIpRestriction` (optional)
 | Column | Type | Notes |
@@ -338,6 +340,7 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 - **NCIX 2:** `(ProviderId, ProviderMessageId)` — resolve an incoming DLR to its `Id`.
 - **NCIX 3 (filtered):** `(CustomerId, ClientCorrelatedId) WHERE ClientCorrelatedId IS NOT NULL` — idempotency + client lookups.
 - **NCIX 4 (filtered):** `(BillId) WHERE BillId IS NOT NULL` — bill history.
+- **Batch browsing (additive, migration 0033):** `(SubmitDateJalali, MessageBatchId, Id)` — seek a selected batch and page its messages by ID. This is a key-only index: the storage/write cost buys bounded batch-detail reads without a fact-table scan; no status or text columns are included.
 - **Nonclustered columnstore on cold partitions** — analytics, incl. the join-free success rate. `PayId` not indexed by default.
 
 **The performant success-rate solution (this revision):** `DeliveryStatus` is **denormalized onto the fact** and upserted by DLR ingestion, so success rate is a **direct columnstore `GROUP BY ProviderId, DeliveryStatus`** — no window, no join. The classic objection (in-place updates fighting the columnstore) does **not** apply here: delivery reaches a **terminal** state within minutes–hours, while the columnstore is only built on **cold** partitions — so updates land on the hot rowstore partition and the columnstore never absorbs them. `DeliveryStatus` is also **in no index**, so its update never moves a row or churns an index.
@@ -405,14 +408,14 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 
 **Lifecycle timestamps — deliberately only three.** `Status` is the authoritative current state; `ReceivedAtUtc` / `DispatchStartedAtUtc` / `FinishedAtUtc` are **fixed milestones** that make operational *aggregates* (queue wait, dispatch duration, avg-by-provider) cheap columnstore scans with no joins; `StatusChangedAtUtc` is the **rolling** "entered current state" marker that makes the live "held > 30 min" alert a trivial indexed filter. We deliberately do **not** add a timestamp per status (`HeldAtUtc`, `FailedAtUtc`, …) — that is mostly-null noise; `StatusChangedAtUtc` + current `Status` covers "time in *this* state" for any status, and the *historical* timeline (when it entered Held the 2nd time, retries, timeouts) lives in `MessageBatchEvent` (§4.16).
 
-### 4.14 `CustomerBalance` — prepaid balance (1 row/customer)
+### 4.14 `CustomerBalance` — signed balance (1 row/customer)
 | Column | Type | Notes |
 |---|---|---|
 | `CustomerId` | `SMALLINT` | **PK = FK** → `Customer` (1:1), `CIX` |
-| `Balance` | `DECIMAL(19,4)` | current available prepaid balance (IRR) |
+| `Balance` | `DECIMAL(19,4)` | current signed balance; negative = customer debt (IRR) |
 | `UpdatedAtUtc` | `DATETIME2(3)` | |
 
-**Why a current-balance column (not summed from the ledger):** affordability must be checked on every send; reading one row is O(1) where summing the ledger is O(n). The ledger (§4.15) is the audit trail and must reconcile to this column. **Overspend-proof debit** is a single atomic statement — `UPDATE CustomerBalance SET Balance = Balance - @cost WHERE CustomerId=@id AND Balance >= @cost` — where a `0` rowcount means insufficient funds. No SELECT-then-UPDATE race; per-customer single-row contention; deadlock-safe (see §8).
+**Why a current-balance column (not summed from the ledger):** affordability must be checked on every send; reading one row is O(1) where summing the ledger is O(n). The ledger (§4.15) is the audit trail and must reconcile to this column. **Overspend-proof debit** is a single atomic statement — `UPDATE CustomerBalance SET Balance = Balance - @cost WHERE CustomerId=@id` — where a `0` rowcount means insufficient funds. No SELECT-then-UPDATE race; per-customer single-row contention; deadlock-safe (see §8).
 
 ### 4.15 `BalanceTransaction` — append-only money ledger
 | Column | Type | Notes |
@@ -577,6 +580,7 @@ The current `DeliveryStatus` lives on `Message` (fast reads); the full event his
 | `Message NCIX (ProviderId, ProviderMessageId)` | Resolve incoming DLR → message; locate the row to update `DeliveryStatus` | DLR handling would otherwise scan |
 | `Message Filtered NCIX (CustomerId, ClientCorrelatedId) WHERE NOT NULL` | Idempotency + client lookups | Nulls/transactional unindexed |
 | `Message Filtered NCIX (BillId) WHERE NOT NULL` | Bill-history seeks | Nulls excluded |
+| `Message NCIX (SubmitDateJalali, MessageBatchId, Id)` (0033) | Paginated message reads for a selected batch | Key-only; status changes do not maintain it |
 | `DeliveryReport CIX (SubmitDateJalali, MessageId, ReceivedAtUtc DESC)` | Message report-history reads | — |
 | **Nonclustered columnstore on cold partitions** (both facts) | All aggregate reporting | Off hot partitions to protect writes |
 
@@ -590,9 +594,9 @@ The current `DeliveryStatus` lives on `Message` (fast reads); the full event his
 ### 8.5 Delivery-report handling (append + narrow hot update)
 - An arriving DLR is matched via `Message NCIX (ProviderId, ProviderMessageId)` (seek), then: (1) **inserted** into `DeliveryReport` (history), and (2) used to **update `Message.DeliveryStatus`/`DeliveredAtUtc`** — a single-column, **un-indexed**, hot-partition (rowstore) update. No row movement, no index churn, no columnstore impact. Status only ever advances toward a terminal value, so updates are bounded and idempotent.
 
-### 8.6 Prepaid balance debit (overspend-safe, deadlock-safe)
-- The accept-time charge is **one atomic statement** — `UPDATE CustomerBalance SET Balance = Balance - @cost WHERE CustomerId=@id AND Balance >= @cost` — then an append to `BalanceTransaction`, in a short transaction (consistent order: `CustomerBalance` → `BalanceTransaction`).
-- A `0` rowcount = insufficient funds → the batch is rejected (`Status = Rejected / InsufficientCustomerBalance`); no SELECT-then-UPDATE race, no overspend.
+### 8.6 Atomic balance debit (negative balances allowed)
+- The accept-time charge is **one atomic statement** — `UPDATE CustomerBalance SET Balance = Balance - @cost WHERE CustomerId=@id` — then an append to `BalanceTransaction`, in a short transaction (consistent order: `CustomerBalance` → `BalanceTransaction`).
+- Negative balances are allowed (user decision 2026-10-14): lack of customer credit does not block acceptance or dispatch retries. First use initializes a zero balance under update/range locks in the same transaction; every debit is recorded in the ledger.
 - Contention is a **single row keyed by `CustomerId`** — different tenants never contend; concurrent batches for one tenant serialize briefly on that row. No deadlock risk given the consistent access order.
 
 ### 8.7 Read pattern (reporting isolation)
@@ -654,7 +658,11 @@ All six reviewer questions were resolved in favor of the design as presented:
 5. **API key model — ✅ sufficient.** Hashed `ApiKey` + optional `ApiKeyIpRestriction`; scopes and per-message attribution remain additive options (§9).
 6. **Partition cadence — ✅ Jalali-monthly.** Weekly remains an additive fallback if a hot partition grows too large.
 7. **Request accounting — ✅ `MessageBatch` added.** One row per API call (counts, cost rollups, API-key attribution, batch idempotency) + a `MessageBatchId` FK on `Message`; dimension keys stay denormalized on the fact (not moved up).
-8. **Billing model — ✅ prepaid.** `CustomerBalance` (current) + append-only `BalanceTransaction` ledger; overspend-safe atomic debit at batch accept. *Business rules adopted:* immediate-debit + refund-on-failure (no reserved/available split); refund only messages the provider **rejects at submission** (not delivery failures). Provider low-credit ⇒ batch `Held`, messages stay `Queued`, no refund.
+8. **Billing model — ✅ debt allowed (2026-10-14).** `CustomerBalance` (current) + append-only `BalanceTransaction` ledger; atomic debit allowing negative balances at batch accept. *Business rules adopted:* immediate-debit + refund-on-failure (no reserved/available split); refund only messages the provider **rejects at submission** (not delivery failures). Provider low-credit ⇒ batch `Held`, messages stay `Queued`, no refund.
 9. **Batch operational visibility — ✅ current state + 3 timestamps + event store.** `MessageBatch.Status` is authoritative; `ReceivedAtUtc`/`DispatchStartedAtUtc`/`FinishedAtUtc` (fixed milestones) + `StatusChangedAtUtc` (rolling) cover operational aggregates and stuck-batch alerts — **no per-status timestamp columns**. Granular history lives in `MessageBatchEvent`, an **operational event store** (append-only, ~90-day retention), explicitly *not* a business-audit table.
 
 > **The data model is locked for the current phase.** Changes from here should be additive (§9) unless a decision above is explicitly reopened.
+
+### Operational acceptance evidence (0034)
+
+`DispatchAcceptance` is a narrow operational companion table, separate from the locked business fact/dimension model: `Id BIGINT PRIMARY KEY` is the accepted message identity; `AcceptedAtUtc DATETIME2(3)` is when the host confirmed provider acceptance; `ProviderId TINYINT` identifies its provider. A time index supports the bounded ten-minute dashboard query. The guarded message status transition writes this row atomically through `OUTPUT INTO`; polling completion cannot erase it. Existing messages are not backfilled. Reconciliation records confirmation time, since the provider's original acceptance instant is unavailable. No body, credentials or raw provider payload is stored. Retention is operationally configurable; this increment does not automate deletion. See [live dispatch operations](docs/operations/live-dispatch-fa.md) for counter semantics and limits.

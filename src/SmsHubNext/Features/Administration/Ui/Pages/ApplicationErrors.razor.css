@@ -1,0 +1,8 @@
+.error-log-range { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; padding: 1.25rem; }
+.error-log-range label { display: grid; gap: .5rem; flex: 1 1 16rem; color: #334155; }
+.error-log-range ::deep input { width: 100%; border: 1px solid #94a3b8; border-radius: .5rem; padding: .65rem; background: #fff; color: #0f172a; font: inherit; }
+.error-log-message { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 36rem; }
+.error-log-details { min-width: 10rem; }
+.error-log-details summary { cursor: pointer; color: #1d4ed8; }
+.error-log-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 45rem; max-height: 24rem; overflow: auto; font: inherit; text-align: left; }
+.error-log-notice { margin: .5rem 1.25rem; color: #334155; }

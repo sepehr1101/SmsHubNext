@@ -1,0 +1,3 @@
+.delivery-batch-range { display: flex; flex-wrap: wrap; gap: 1rem; padding: 1.25rem; align-items: end; }
+.delivery-batch-range label { display: grid; gap: .5rem; flex: 1 1 10rem; color: #334155; }
+.delivery-batch-range input { width: 100%; padding: .65rem; border: 1px solid #94a3b8; border-radius: .5rem; color: #0f172a; background: #fff; font: inherit; }

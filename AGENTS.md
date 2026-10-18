@@ -65,9 +65,9 @@ These are the load-bearing choices from `README.md`. Don't silently contradict t
 
 ## 5. Domain glossary (quick reference)
 
-17 tables: Customer · ApiKey · ApiKeyIpRestriction · Provider · SenderLine · MessageType · GeoSection (self-referencing) · Tariff · TariffRate · Message (fact + current `DeliveryStatus` + `MessageBatchId`) · MessageBody · DeliveryReport (append-only status history) · MessageBatch (one per API call: accounting/attribution/idempotency + dispatch `Status`/holds + 3 lifecycle timestamps) · CustomerBalance (prepaid, 1/customer) · BalanceTransaction (append-only money ledger) · MessageBatchEvent (operational event store, append-only, ~90-day retention) · ProviderAccount (provider auth settings + encrypted secret).
+17 tables: Customer · ApiKey · ApiKeyIpRestriction · Provider · SenderLine · MessageType · GeoSection (self-referencing) · Tariff · TariffRate · Message (fact + current `DeliveryStatus` + `MessageBatchId`) · MessageBody · DeliveryReport (append-only status history) · MessageBatch (one per API call: accounting/attribution/idempotency + dispatch `Status`/holds + 3 lifecycle timestamps) · CustomerBalance (signed balance, 1/customer) · BalanceTransaction (append-only money ledger) · MessageBatchEvent (operational event store, append-only, ~90-day retention) · ProviderAccount (provider auth settings + encrypted secret).
 
-Recipient = `MobileNumber` on the message (ad-hoc, no Subscriber table). Caller references on the message: `ClientCorrelatedId` (idempotency), `BillId`, `PayId` (all nullable). **Billing is prepaid:** atomic overspend-safe debit at batch accept; provider low-credit ⇒ batch `Held`, messages stay `Queued`.
+Recipient = `MobileNumber` on the message (ad-hoc, no Subscriber table). Caller references on the message: `ClientCorrelatedId` (idempotency), `BillId`, `PayId` (all nullable). **Billing allows debt (user decision 2026-10-14):** atomic debit at batch accept even with zero/negative balance; provider low-credit ⇒ batch `Held`, messages stay `Queued`.
 
 Full table-by-table detail lives in **`README.md`** — read it before changing the schema.
 
@@ -103,6 +103,18 @@ Full table-by-table detail lives in **`README.md`** — read it before changing 
 * **Never use `DateTime.UtcNow`/`DateTime.Now` directly — inject `TimeProvider`.** Take `TimeProvider` via the constructor (registered as `TimeProvider.System`) and read `_clock.GetUtcNow().UtcDateTime`, so time is controllable in tests. Tests construct with `TimeProvider.System` (or a fake). SQL-side defaults (`SYSUTCDATETIME()`) are fine where the DB owns the timestamp.
 * **Reduce duplication with small private helpers; favour simplicity over abstraction.** When you see repeated mapping/persistence/error-handling, extract a small helper or a shared static (like `SqlServerErrors`). Prefer a straightforward implementation over an overly abstract one — don't add interfaces or layers that aren't pulling their weight.
 
+### UI table conventions (apply to every new or revised management table)
+
+* Provide exactly one search input per table; do not duplicate page-level and grid-level search fields.
+* Keep toolbar actions together as icon-only controls: Excel export, filters, column visibility, and add (when needed). Show add as a plus icon beside the other actions, not as a separate text button.
+* Use an Excel icon in green for Excel export. Use appropriate filter and column icons for the other actions.
+* Give every toolbar icon a Persian hover tooltip and an accessible Persian label; also expose the tooltip on keyboard focus.
+* All filter buttons, options, operators, and actions must use Persian text, including any built-in grid filter UI.
+* Do not add redundant explanatory copy above tables, such as “۲ مورد فعال و قابل مدیریت”.
+* Keep input labels and table text comfortably readable, with sufficient contrast against the panel background.
+* Use neutral blue-gray alternate table rows (#f3f6fa) and hover backgrounds (#e9f0f8); do not use pink or purple row striping.
+* Use the bundled Vazirmatn font throughout management UI and overlays. Format display dates as Jalali using DNTPersianUtils.Core and display numbers with Persian digits (including pagination). Keep raw values typed for sorting/calculation, preserve UTC timestamp semantics, and normalize Persian/Arabic digits for search and date-query inputs; never modify API secrets or machine identifiers.
+
 ## 8. Resolved review decisions (locked)
 
 All resolved in favor of the design as presented (README §10):
@@ -114,5 +126,13 @@ All resolved in favor of the design as presented (README §10):
 5. API keys — **hashed `ApiKey` + optional `ApiKeyIpRestriction`** sufficient (scopes/attribution additive later).
 6. Partition cadence — **Jalali-monthly** (weekly is an additive fallback).
 7. Request accounting — **`MessageBatch`** added (one per API call) + `MessageBatchId` FK on `Message`; fact keys stay denormalized (not moved up).
-8. Billing — **prepaid**: `CustomerBalance` + `BalanceTransaction` ledger; atomic debit; immediate-debit + refund only on provider submission-reject.
+8. Billing — **signed balance; debt allowed (2026-10-14)**: `CustomerBalance` + `BalanceTransaction` ledger; atomic debit; immediate-debit + refund only on provider submission-reject.
 9. Batch ops visibility — authoritative `MessageBatch.Status` + 3 timestamps (`ReceivedAtUtc`/`DispatchStartedAtUtc`/`FinishedAtUtc` + rolling `StatusChangedAtUtc`); **no per-status timestamps**. Granular timeline in `MessageBatchEvent` (operational event store, append-only, ~90-day retention — **not** business audit).
+
+## Live dispatch monitoring (2026-10-18)
+
+`/admin/dispatch-live` reads existing send/delivery states; `DispatchAcceptance` (migration 0034) records the guarded acceptance transition atomically for a ten-second UTC chart. This is operational evidence, not a second dispatch queue. Never infer handset delivery from `Submitted`, or backfill missing provider acceptance times from request receipt. See `docs/operations/live-dispatch-fa.md`.
+
+## Single-message resend (2026-10-18)
+
+`POST /messages/{messageId}/resend` accepts a customer API key and a required request UUID. Delivery-report UI uses the same resend handler through the administrator UI boundary. Resends create a new single-message batch using current validation/pricing/billing; source history is immutable. Only rejected submissions or accepted messages with definite delivery outcomes are eligible; queued/uncertain outcomes and missing text are blocked. Billing customer comes from the stored source, while administrator actions retain the actual administrator ApiKeyId. The `resend:{sourceId}:{requestId:N}` client batch/correlation key preserves linkage and idempotency. See `docs/operations/resend-message-api-fa.md`.

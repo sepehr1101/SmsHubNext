@@ -30,6 +30,13 @@ internal static class ApiKeysSql
         WHERE Id = @Id AND RevokedAtUtc IS NULL;
         """;
 
+    public const string Renew =
+        """
+        UPDATE dbo.ApiKey
+        SET KeyPrefix = @KeyPrefix, KeyHash = @KeyHash
+        WHERE Id = @Id AND RevokedAtUtc IS NULL;
+        """;
+
     public const string Revoke =
         """
         UPDATE dbo.ApiKey

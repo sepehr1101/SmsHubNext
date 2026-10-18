@@ -282,3 +282,11 @@ h1:focus { outline: none; }
         right: 0.75rem;
         top: 0.5rem;
     }
+
+/* Persian typography also covers MudBlazor controls rendered in overlay portals. */
+.admin-shell,.admin-shell .mono,.admin-shell code,
+.mud-typography,.mud-input,.mud-input-label,.mud-button-root,.mud-table-cell,
+.mud-select,.mud-list-item,.mud-menu,.mud-popover,.mud-tooltip,.mud-dialog {
+    font-family:var(--app-font-family) !important;
+}
+.admin-shell .mono { font-variant-numeric:tabular-nums; }

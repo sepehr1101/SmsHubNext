@@ -1,0 +1,116 @@
+@page "/admin/settings/errors"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@using SmsHubNext.Features.Administration
+@using SmsHubNext.Features.Administration.Ui
+@inject ApplicationErrorsService Service
+@inject TimeProvider Clock
+@implements IDisposable
+
+<PageTitle>خطاهای نرم‌افزار | SmsHub</PageTitle>
+
+<FeatureNotice Loading="_loading" Error="@_error" OnRetry="Load" />
+<section class="admin-data-panel">
+    <header><div><h2>خطاهای نرم‌افزار</h2></div></header>
+    <div class="error-log-range">
+        <label><span>از تاریخ و ساعت شمسی (تهران)</span><PersianDateTimeInput @bind-Value="_from" Required="true" ValidityChanged="valid => _fromValid = valid" /></label>
+        <label><span>تا تاریخ و ساعت شمسی (تهران)</span><PersianDateTimeInput @bind-Value="_to" Required="true" ValidityChanged="valid => _toValid = valid" /></label>
+        <button class="admin-button primary" disabled="@(_loading || !_fromValid || !_toValid || _from is null || _to is null)" @onclick="Load">نمایش خطاها</button>
+        <span>حداکثر بازه: ۳۱ روز</span>
+    </div>
+    @if (_truncated)
+    {
+        <p role="status" class="error-log-notice">فقط ۱۰۰۰ خطای جدیدتر نمایش داده می‌شود؛ برای دیدن بقیه، بازه را کوچک‌تر کنید.</p>
+    }
+    @if (_skippedLines > 0)
+    {
+        <p role="status" class="error-log-notice">@PersianDisplay.Number(_skippedLines) سطر ناقص یا ناخوانا در فایل لاگ نادیده گرفته شد.</p>
+    }
+    @if (_searched)
+    {
+        <div class="admin-table-wrap">
+            <AdminGrid T="ApplicationError" Items="_items" Loading="_loading" Name="خطاهای نرم‌افزار" ExportColumns="ExportColumns">
+                <PropertyColumn Property="item => item.Timestamp" Title="زمان (تهران)"><CellTemplate>@PersianDisplay.Date(ApplicationLogTime.ToTehran(context.Item.Timestamp), "yyyy/MM/dd HH:mm:ss")</CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.Level" Title="سطح"><CellTemplate>@(context.Item.Level == "Fatal" ? "بحرانی" : "خطا")</CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.Message" Title="پیام"><CellTemplate><div class="error-log-message">@context.Item.Message</div></CellTemplate></PropertyColumn>
+                <PropertyColumn Property="item => item.Source" Title="بخش نرم‌افزار" />
+                <PropertyColumn Property="item => item.TraceId" Title="شناسه پیگیری" />
+                <TemplateColumn Title="جزئیات" Sortable="false" Filterable="false" Hideable="false">
+                    <CellTemplate>
+                        @if (!string.IsNullOrEmpty(context.Item.Exception))
+                        {
+                            <details class="error-log-details"><summary>جزئیات خطا</summary><pre dir="ltr">@context.Item.Exception</pre></details>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+            </AdminGrid>
+        </div>
+    }
+</section>
+
+@code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private DateTime? _from;
+    private DateTime? _to;
+    private bool _fromValid = true;
+    private bool _toValid = true;
+    private bool _loading;
+    private bool _searched;
+    private bool _truncated;
+    private int _skippedLines;
+    private string? _error;
+    private IReadOnlyList<ApplicationError> _items = [];
+    private static readonly AdminExportColumn<ApplicationError>[] ExportColumns =
+    [
+        new("زمان (تهران)", item => ApplicationLogTime.ToTehran(item.Timestamp)),
+        new("سطح", item => item.Level == "Fatal" ? "بحرانی" : "خطا"),
+        new("پیام", item => item.Message),
+        new("بخش نرم‌افزار", item => item.Source),
+        new("شناسه پیگیری", item => item.TraceId),
+        new("جزئیات", item => item.Exception),
+    ];
+
+    protected override void OnInitialized()
+    {
+        DateTime now = ApplicationLogTime.ToTehran(Clock.GetUtcNow());
+        _from = now.Date;
+        _to = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
+    }
+
+    private async Task Load()
+    {
+        if (_loading || !_fromValid || !_toValid || _from is null || _to is null) return;
+        _error = null;
+        _items = [];
+        _truncated = false;
+        _skippedLines = 0;
+        _searched = true;
+        if (_from > _to)
+        {
+            _error = "زمان شروع باید پیش از پایان باشد.";
+            return;
+        }
+        _loading = true;
+        try
+        {
+            // Include all seconds of the selected final minute.
+            DateTime fromUtc = ApplicationLogTime.ToUtc(_from.Value);
+            DateTime toUtc = ApplicationLogTime.ToUtc(_to.Value).AddMinutes(1).AddTicks(-1);
+            UiResult<ApplicationErrorResults> result = await Service.List(fromUtc, toUtc, _lifetime.Token);
+            _error = result.ErrorMessage;
+            if (result.IsSuccess && result.Value is not null)
+            {
+                _items = result.Value.Items;
+                _truncated = result.Value.Truncated;
+                _skippedLines = result.Value.SkippedLines;
+            }
+        }
+        finally { _loading = false; }
+    }
+
+    public void Dispose()
+    {
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
+}

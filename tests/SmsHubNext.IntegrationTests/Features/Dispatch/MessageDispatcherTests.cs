@@ -72,6 +72,15 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
             new { Id = batchId });
         Assert.Equal(0, withoutProviderId);
 
+        long acceptances = await connection.ExecuteScalarAsync<long>(
+            "SELECT COUNT_BIG(*) FROM dbo.DispatchAcceptance a JOIN dbo.Message m ON m.Id = a.Id WHERE m.MessageBatchId = @Id;", new { Id = batchId });
+        Assert.Equal(2, acceptances);
+        // Terminal polling rows can disappear without deleting acceptance evidence.
+        await connection.ExecuteAsync("DELETE FROM dbo.DeliveryReportPoll WHERE MessageId IN (SELECT Id FROM dbo.Message WHERE MessageBatchId = @Id);", new { Id = batchId });
+        Assert.False(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
+        Assert.Equal(acceptances, await connection.ExecuteScalarAsync<long>(
+            "SELECT COUNT_BIG(*) FROM dbo.DispatchAcceptance a JOIN dbo.Message m ON m.Id = a.Id WHERE m.MessageBatchId = @Id;", new { Id = batchId }));
+
         // No refunds: the balance reflects only the original debit.
         Assert.Equal(8000m, await BalanceAsync(customerId));
     }
@@ -142,7 +151,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.Equal(BatchStatusReason.InvalidProviderCredentials, failure.BatchStatusReason);
         Assert.Equal(403, failure.ProviderResultCode);
         Assert.NotNull(failure.Detail);
-        Assert.Contains("before submission", failure.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("پیش از ثبت", failure.Detail, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-material", failure.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(events.Value, batchEvent =>
             batchEvent.EventType == MessageBatchEventType.AwaitingConfirmation);
@@ -473,15 +482,36 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         return balance.Value.Balance;
     }
 
-    private async Task<(long BatchId, short CustomerId)> SendBatchAsync(int messageCount)
+    [Fact]
+    public async Task Refunded_batch_can_be_retried_with_zero_balance_and_records_debt_once()
+    {
+        (long batchId, short customerId) = await SendBatchAsync(1, initialBalance: 0);
+        Assert.Equal(-1000m, await BalanceAsync(customerId));
+        Assert.True(await Dispatcher(_ => ProviderDispatchResult.DefinitelyNotSubmitted(403, "invalid credentials"))
+            .DispatchNextBatchAsync(CancellationToken.None));
+        Assert.Equal(0m, await BalanceAsync(customerId));
+
+        RetryDispatchHandler retry = new(_db, TimeProvider.System);
+        Result<RetryDispatchResponse> result = await retry.Handle(batchId, CancellationToken.None);
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(-1000m, await BalanceAsync(customerId));
+        Assert.True((await retry.Handle(batchId, CancellationToken.None)).IsFailure);
+        Assert.Equal(-1000m, await BalanceAsync(customerId));
+        Assert.True(await Dispatcher(_ => ProviderDispatchResult.Accepted("debt-retry"))
+            .DispatchNextBatchAsync(CancellationToken.None));
+        Assert.Equal(-1000m, await BalanceAsync(customerId));
+    }
+
+    private async Task<(long BatchId, short CustomerId)> SendBatchAsync(int messageCount, decimal initialBalance = 10000m)
     {
         await ProviderAccountTestData.AssignActiveMagfaAccountToDefaultTestLineAsync(_db);
         Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
             .Handle(new CreateCustomerRequest { Name = "disp", Code = $"disp-{Guid.NewGuid():N}" }, CancellationToken.None);
         short customerId = customer.Value.Id;
 
-        await new TopUpHandler(_db)
-            .Handle(new TopUpRequest { CustomerId = customerId, Amount = 10000m }, CancellationToken.None);
+        if (initialBalance > 0)
+            await new TopUpHandler(_db)
+                .Handle(new TopUpRequest { CustomerId = customerId, Amount = initialBalance }, CancellationToken.None);
 
         Result<IssueApiKeyResponse> key = await new IssueApiKeyHandler(_db)
             .Handle(new IssueApiKeyRequest { CustomerId = customerId, Name = "k" }, CancellationToken.None);

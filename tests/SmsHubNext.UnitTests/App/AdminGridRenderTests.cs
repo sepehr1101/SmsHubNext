@@ -14,8 +14,12 @@ namespace SmsHubNext.UnitTests.App;
 
 public sealed class AdminGridRenderTests
 {
-    [Fact]
-    public async Task Shared_grid_renders_typed_columns_and_persian_controls()
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public async Task Shared_grid_renders_one_search_and_persian_icon_controls(bool pageLocal, bool showSearch)
     {
         ServiceCollection services = new();
         services.AddLogging();
@@ -39,15 +43,30 @@ public sealed class AdminGridRenderTests
                 ["Items"] = new GridRow[] { new("شرکت آب") },
                 ["ExportColumns"] = new AdminExportColumn<GridRow>[] { new("مشتری", row => row.Name) },
                 ["ChildContent"] = columns,
+                ["PageLocal"] = pageLocal,
+                ["ShowSearch"] = showSearch,
+                ["OnAdd"] = EventCallback.Factory.Create(new object(), () => { }),
+                ["AddLabel"] = "مشتری جدید",
             });
             Microsoft.AspNetCore.Components.Web.HtmlRendering.HtmlRootComponent page =
                 await renderer.RenderComponentAsync<AdminGrid<GridRow>>(parameters);
             string html = WebUtility.HtmlDecode(page.ToHtmlString());
             Assert.Contains("شرکت آب", html);
-            Assert.Contains("جست‌وجو در جدول", html);
+            Assert.Equal(showSearch, html.Contains("جست‌وجو در جدول", StringComparison.Ordinal));
             Assert.Contains("ستون‌ها", html);
-            Assert.Contains("خروجی Excel", html);
-            Assert.Contains("تعداد در صفحه", html);
+            Assert.Contains("aria-label=\"خروجی اکسل\"", html);
+            Assert.Contains("aria-label=\"فیلترها\"", html);
+            Assert.Contains("aria-label=\"نمایش ستون‌ها\"", html);
+            Assert.Contains("aria-label=\"مشتری جدید\"", html);
+            Assert.Contains("admin-grid-icon excel", html);
+            Assert.Equal(showSearch ? 1 : 0, System.Text.RegularExpressions.Regex.Matches(html, "type=\"search\"").Count);
+            Assert.DoesNotContain("جست‌وجو و مرتب‌سازی در صفحه بارگذاری‌شده", html);
+            if (!pageLocal)
+            {
+                Assert.Contains("تعداد در صفحه", html);
+                Assert.Contains("۱ تا ۱ از ۱", html);
+                Assert.Contains(">۲۵</option>", html);
+            }
         });
     }
 

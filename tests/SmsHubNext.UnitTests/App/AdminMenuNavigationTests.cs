@@ -24,6 +24,7 @@ public class AdminMenuNavigationTests
             Microsoft.AspNetCore.Components.Web.HtmlRendering.HtmlRootComponent page =
                 await renderer.RenderComponentAsync<MenuHub>();
             Assert.Contains("/admin/settings/general", page.ToHtmlString());
+            Assert.Contains("/admin/settings/errors", page.ToHtmlString());
 
             navigation.Go("admin/operations");
             Assert.Contains("/admin/send", page.ToHtmlString());
@@ -31,10 +32,12 @@ public class AdminMenuNavigationTests
 
             navigation.Go("admin/report-center");
             Assert.Contains("/admin/reports", page.ToHtmlString());
+            Assert.Contains("/admin/reports/search", page.ToHtmlString());
             Assert.DoesNotContain("/admin/send", page.ToHtmlString());
 
             navigation.Go("admin/settings");
             Assert.Contains("/admin/settings/general", page.ToHtmlString());
+            Assert.Contains("/admin/settings/errors", page.ToHtmlString());
             Assert.DoesNotContain("/admin/reports", page.ToHtmlString());
         });
     }

@@ -5,11 +5,10 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
-<PageTitle>انواع پیام | SmsHub</PageTitle>
-<div class="admin-page-head"><button class="admin-button primary" @onclick="OpenCreate"><MudIcon Icon="@Icons.Material.Rounded.Add" /> نوع پیام جدید</button></div>
+<PageTitle>دسته بندی پیام | SmsHub</PageTitle>
+
 <FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
-<div class="admin-rule-callout"><MudIcon Icon="@Icons.Material.Rounded.Info" /><p><b>شناسه و کد ثابت هستند</b><span>پس از ثبت، تنها نام و وضعیت قابل تغییرند؛ گزارش‌های تاریخی بر اساس همین شناسه گروه‌بندی می‌شوند.</span></p></div>
-<section class="admin-data-panel"><header><div><h2>طبقه‌بندی‌ها</h2><span>مانند قبض آب، اطلاع‌رسانی یا رمز یک‌بارمصرف</span></div></header><div class="admin-table-wrap"><AdminGrid T="MessageTypeItem" Items="@(_items)" Loading="_loading" Name="انواع پیام" ExportColumns='@(new AdminExportColumn<MessageTypeItem>[] { new("شناسه ثابت", item => item.Id), new("عنوان", item => item.Name), new("کد ماشین", item => item.Code), new("وضعیت", item => item.IsActive ? "فعال" : "غیرفعال") })'><PropertyColumn Property="item => item.Id" Title="شناسه ثابت"><CellTemplate><div class="mono">@context.Item.Id</div></CellTemplate></PropertyColumn>
+<section class="admin-data-panel"><header><div><h2>دسته بندی پیام</h2></div></header><div class="admin-table-wrap"><AdminGrid OnAdd="OpenCreate" AddLabel="نوع پیام جدید" T="MessageTypeItem" Items="@(_items)" Loading="_loading" Name="دسته بندی پیام" ExportColumns='@(new AdminExportColumn<MessageTypeItem>[] { new("شناسه ثابت", item => item.Id), new("عنوان", item => item.Name), new("کد ماشین", item => item.Code), new("وضعیت", item => item.IsActive ? "فعال" : "غیرفعال") })'><PropertyColumn Property="item => item.Id" Title="شناسه ثابت"><CellTemplate><div class="mono">@(PersianDisplay.Number(context.Item.Id))</div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.Name" Title="عنوان"><CellTemplate><div><b>@context.Item.Name</b></div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.Code" Title="کد ماشین"><CellTemplate><div class="mono">@context.Item.Code</div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.IsActive" Title="وضعیت"><CellTemplate><div><StatusPill IsActive="context.Item.IsActive" /></div></CellTemplate></PropertyColumn>

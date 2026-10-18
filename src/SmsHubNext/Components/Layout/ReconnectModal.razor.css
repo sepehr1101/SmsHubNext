@@ -22,6 +22,9 @@
 
 #components-reconnect-modal {
     background-color: white;
+    color: #203954;
+    font-family: Vazirmatn, sans-serif;
+    line-height: 1.9;
     width: 20rem;
     margin: 20vh auto;
     padding: 2rem;
@@ -90,7 +93,9 @@
 
 #components-reconnect-modal button {
     border: 0;
-    background-color: #6b9ed2;
+    font: inherit;
+    cursor: pointer;
+    background-color: #285f96;
     color: white;
     padding: 4px 24px;
     border-radius: 4px;
@@ -101,7 +106,7 @@
     }
 
     #components-reconnect-modal button:active {
-        background-color: #6b9ed2;
+        background-color: #285f96;
     }
 
 .components-rejoining-animation {
@@ -154,4 +159,9 @@
         height: 80px;
         opacity: 0;
     }
+}
+
+#components-reconnect-modal button:focus-visible {
+    outline: 2px solid #203954;
+    outline-offset: 3px;
 }

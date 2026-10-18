@@ -1,0 +1,21 @@
+@using SmsHubNext.Features.DispatchOperations
+    <section class="admin-data-panel live-chart">
+        <h2>پذیرش موفق سرویس‌دهنده در ۱۰ دقیقه اخیر</h2>
+        <p>هر ستون یک بازه کامل ۱۰ثانیه‌ای است؛ زمان ثبت تأیید پذیرش در سرور، مستقل از مرورگر. پذیرش‌های تأییدشده پس از پاسخ نامشخص، در زمان تأیید شمرده می‌شوند. فقط رخدادهای ثبت‌شده پس از نصب این قابلیت.</p>
+        <div class="live-bars" role="img" aria-label="نمودار تعداد پذیرش در بازه‌های ده ثانیه‌ای">
+        @foreach (LiveBucket bucket in Snapshot.Buckets)
+        {
+            <div class="live-bar-slot"><div class="live-bar" style="height:@Height(bucket.Count)%" title="@($"{Time(bucket.StartUtc)} تا {Time(bucket.StartUtc.AddSeconds(10))}: {N(bucket.Count)}")"></div></div>
+        }
+        </div>
+        <div class="live-chart-axis"><span>@Time(Snapshot.Buckets[0].StartUtc)</span><span>بیشینه: @N(Snapshot.Buckets.Max(item => item.Count))</span><span>@Time(Snapshot.Buckets[^1].StartUtc.AddSeconds(10))</span></div>
+        @if (Disconnected) { <p role="alert">نمودار آخرین داده معتبر را نشان می‌دهد؛ فاصله قطع ارتباط، صفر محسوب نمی‌شود.</p> }
+        <details><summary>جدول مقادیر دقیق نمودار</summary>@foreach (LiveBucket bucket in Snapshot.Buckets) { <div>@Time(bucket.StartUtc) — @N(bucket.Count)</div> }</details>
+    </section>
+@code {
+    [Parameter, EditorRequired] public LiveSnapshot Snapshot { get; set; } = null!;
+    [Parameter] public bool Disconnected { get; set; }
+    private static string N(long value) => PersianDisplay.Number(value);
+    private static string Time(DateTime value) => PersianDisplay.Date(IranTime.FromUtc(new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc))), "yyyy/MM/dd HH:mm:ss");
+    private string Height(long value) => (value * 100d / Math.Max(1, Snapshot.Buckets.Max(item => item.Count))).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+}

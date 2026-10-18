@@ -16,7 +16,7 @@ namespace SmsHubNext.Features.Sending;
 /// <summary>
 /// Accepts a send request and persists it: resolves the sender line, prices each
 /// message (frozen cost snapshot, README §6.3), then in one transaction debits the
-/// prepaid balance (overspend-safe), writes the <c>MessageBatch</c> header, the money
+/// customer balance (negative balances allowed), writes the <c>MessageBatch</c> header, the money
 /// ledger entry, and one <c>Message</c> (Queued) + <c>MessageBody</c> per recipient.
 ///
 /// The per-recipient rows are the heavy part of an accept (up to <c>MaxMessages</c>), so the
@@ -59,6 +59,23 @@ public sealed class SendMessagesHandler
                 UserMessages.Auth.CustomerKeyRequired);
         }
 
+        return await AcceptAsync(request, new SendActor(identity.ApiKeyId, identity.CustomerId, false), cancellationToken);
+    }
+
+    // Only the resend use case may select a different billing customer, derived from the stored
+    // source message. Keep the real administrator key as actor; never impersonate a customer key.
+    internal Task<Result<SendMessagesResponse>> AcceptResend(
+        SendMessagesRequest request, ApiKeyIdentity identity, short customerId, CancellationToken cancellationToken)
+    {
+        if (identity.AccessLevel != ApiKeyAccessLevel.Administrator &&
+            (identity.AccessLevel != ApiKeyAccessLevel.Customer || identity.CustomerId != customerId))
+            return Task.FromResult(Result.Failure<SendMessagesResponse>(Error.Forbidden("sending.resend_forbidden", "اجازه ارسال مجدد این پیام را ندارید.")));
+        return AcceptAsync(request, new SendActor(identity.ApiKeyId, customerId, identity.AccessLevel == ApiKeyAccessLevel.Administrator), cancellationToken);
+    }
+
+    private async Task<Result<SendMessagesResponse>> AcceptAsync(
+        SendMessagesRequest request, SendActor identity, CancellationToken cancellationToken)
+    {
         Result validation = request.Validate();
         if (validation.IsFailure)
             return validation.Error!;
@@ -116,7 +133,7 @@ public sealed class SendMessagesHandler
     private static async Task<Result> ValidateReferencesAsync(
         SqlConnection connection,
         SendMessagesRequest request,
-        ApiKeyIdentity identity,
+        SendActor identity,
         CancellationToken cancellationToken)
     {
         bool customerExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
@@ -129,7 +146,7 @@ public sealed class SendMessagesHandler
 
         bool apiKeyBelongsToCustomer = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
             SendingSql.ApiKeyBelongsToCustomer,
-            new { identity.ApiKeyId, identity.CustomerId },
+            new { identity.ApiKeyId, identity.CustomerId, identity.Administrator },
             cancellationToken: cancellationToken));
 
         if (!apiKeyBelongsToCustomer)
@@ -277,7 +294,7 @@ public sealed class SendMessagesHandler
     private async Task<Result<SendMessagesResponse>> PersistAsync(
         SqlConnection connection,
         SendMessagesRequest request,
-        ApiKeyIdentity identity,
+        SendActor identity,
         SenderLineRow senderLine,
         IReadOnlyList<PricedMessage> priced,
         byte[] requestHash,
@@ -339,8 +356,7 @@ public sealed class SendMessagesHandler
         }
     }
 
-    // Overspend-safe debit in a single atomic statement (README §4.14): returns the post-debit balance,
-    // or a validation failure when funds are insufficient (no row updated) so nothing is persisted.
+    // Debit and initialize the balance inside the acceptance transaction; debt is allowed.
     private static async Task<Result<decimal>> DebitBalanceAsync(
         SqlConnection connection, SqlTransaction transaction, short customerId, decimal amount, CancellationToken cancellationToken)
     {
@@ -351,7 +367,7 @@ public sealed class SendMessagesHandler
             cancellationToken: cancellationToken));
 
         if (balanceAfter is null)
-            return Error.Validation("sending.insufficient_balance", UserMessages.Sending.InsufficientBalance);
+            return Error.Validation("sending.unknown_reference", UserMessages.Sending.UnknownReference);
 
         return balanceAfter.Value;
     }
@@ -361,7 +377,7 @@ public sealed class SendMessagesHandler
         SqlConnection connection,
         SqlTransaction transaction,
         SendMessagesRequest request,
-        ApiKeyIdentity identity,
+        SendActor identity,
         SenderLineRow senderLine,
         int messageCount,
         int segmentCount,
@@ -470,6 +486,8 @@ public sealed class SendMessagesHandler
     }
 
     private sealed record RateRow(int TariffId, string Currency, decimal PricePerSegment);
+
+    private sealed record SendActor(int ApiKeyId, short CustomerId, bool Administrator);
 
     private sealed record ExistingBatchRow(long BatchId, int AcceptedCount, byte[]? RequestHash);
 }

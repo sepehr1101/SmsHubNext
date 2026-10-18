@@ -28,6 +28,22 @@ public sealed class AdminExcelExportTests
     }
 
     [Fact]
+    public void Workbook_formats_dates_as_jalali_and_retains_numeric_money_cells()
+    {
+        byte[] bytes = AdminExcelExport.Create(["تاریخ", "مبلغ"], [[new DateTime(2024, 3, 20, 23, 45, 0, DateTimeKind.Utc), 1200.25m]]);
+        using MemoryStream stream = new(bytes);
+        using ZipArchive archive = new(stream);
+        using Stream sheet = archive.GetEntry("xl/worksheets/sheet1.xml")!.Open();
+        XDocument document = XDocument.Load(sheet);
+        XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        XElement date = document.Descendants(ns + "c").Single(cell => cell.Attribute("r")?.Value == "A2");
+        XElement money = document.Descendants(ns + "c").Single(cell => cell.Attribute("r")?.Value == "B2");
+        Assert.Equal("۱۴۰۳/۰۱/۰۱ ۲۳:۴۵", date.Value);
+        Assert.Equal("inlineStr", date.Attribute("t")?.Value);
+        Assert.Equal("1200.25", money.Value);
+        Assert.Null(money.Attribute("t"));
+    }
+    [Fact]
     public void Workbook_escapes_persian_text_and_supports_columns_after_Z()
     {
         string[] headers = Enumerable.Range(1, 28).Select(index => $"ستون {index}").ToArray();

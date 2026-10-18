@@ -27,6 +27,7 @@
     <PackageReference Include="Microsoft.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />
     <PackageReference Include="MudBlazor" />
+    <PackageReference Include="DNTPersianUtils.Core" />
     <PackageReference Include="MiniExcel" />
     <!-- Data access: hand-written SQL (ADR-002, ADR-003) -->
     <PackageReference Include="Dapper" />
@@ -38,6 +39,7 @@
     <PackageReference Include="dbup-sqlserver" />
     <!-- Structured logging -->
     <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
 
 </Project>

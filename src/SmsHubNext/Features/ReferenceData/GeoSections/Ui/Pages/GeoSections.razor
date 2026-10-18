@@ -6,9 +6,9 @@
 @implements IDisposable
 
 <PageTitle>مناطق جغرافیایی | SmsHub</PageTitle>
-<div class="admin-page-head"><button class="admin-button primary" @onclick="OpenCreate"><MudIcon Icon="@Icons.Material.Rounded.Add" /> بخش جدید</button></div>
+
 <FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
-<section class="admin-data-panel"><header><div><h2>درخت جغرافیایی</h2><span>والد، نوع بخش و مسیر پس از ایجاد تغییر نمی‌کنند.</span></div></header><div class="admin-table-wrap"><AdminGrid T="GeoSectionItem" Items="@(OrderedItems)" Loading="_loading" Name="مناطق جغرافیایی" ExportColumns='@(new AdminExportColumn<GeoSectionItem>[] { new("عنوان", item => item.Name), new("نوع", item => TypeLabel(item.SectionType)), new("کد", item => item.Code), new("مسیر", item => item.Path), new("وضعیت", item => item.IsActive ? "فعال" : "غیرفعال") })'><PropertyColumn Property="item => item.Name" Title="عنوان"><CellTemplate><div><span class="geo-name" style="padding-inline-start:@($"{Depth(context.Item) * 20}px")"><i></i><b>@context.Item.Name</b></span></div></CellTemplate></PropertyColumn>
+<section class="admin-data-panel"><header><div><h2>درخت جغرافیایی</h2></div></header><div class="admin-table-wrap"><AdminGrid OnAdd="OpenCreate" AddLabel="بخش جدید" T="GeoSectionItem" Items="@(OrderedItems)" Loading="_loading" Name="مناطق جغرافیایی" ExportColumns='@(new AdminExportColumn<GeoSectionItem>[] { new("عنوان", item => item.Name), new("نوع", item => TypeLabel(item.SectionType)), new("کد", item => item.Code), new("مسیر", item => item.Path), new("وضعیت", item => item.IsActive ? "فعال" : "غیرفعال") })'><PropertyColumn Property="item => item.Name" Title="عنوان"><CellTemplate><div><span class="geo-name" style="padding-inline-start:@($"{Depth(context.Item) * 20}px")"><i></i><b>@context.Item.Name</b></span></div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.SectionType" Title="نوع"><CellTemplate><div>@TypeLabel(context.Item.SectionType)</div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.Code" Title="کد"><CellTemplate><div class="mono">@context.Item.Code</div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.Path" Title="مسیر"><CellTemplate><div class="mono">@context.Item.Path</div></CellTemplate></PropertyColumn>

@@ -8,8 +8,16 @@ namespace SmsHubNext.Features.Reports.Ui;
 
 public sealed class ReportsService(
     UiOperations operations,
-    MessageReportsHandler messageReportsHandler)
+    MessageReportsHandler messageReportsHandler,
+    SearchMessagesHandler searchMessagesHandler,
+    MessageDiagnosticsHandler messageDiagnosticsHandler)
 {
+    public Task<UiResult<MessageDiagnostics>> Diagnostics(long messageId, bool live, CancellationToken token) =>
+        operations.Run((identity, cancellationToken) => messageDiagnosticsHandler.Handle(messageId, live, cancellationToken), token);
+
+    public Task<UiResult<MessageSearchPage>> Search(SearchMessagesRequest request, CancellationToken token) =>
+        operations.Run((identity, cancellationToken) => searchMessagesHandler.Handle(request, cancellationToken), token);
+
     public Task<UiResult<MessageReportSummary>> Summary(MessageReportRequest request, CancellationToken token) =>
         operations.Run((identity, cancellationToken) => messageReportsHandler.Summary(request, cancellationToken), token);
 

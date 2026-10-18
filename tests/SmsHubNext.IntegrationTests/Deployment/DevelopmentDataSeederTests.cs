@@ -39,9 +39,51 @@ public sealed class DevelopmentDataSeederTests : IAsyncLifetime
         ISecretProtector protector = new DataProtectionSecretProtector(new EphemeralDataProtectionProvider());
         DevelopmentDataSeeder seeder = new(_db, protector);
         await seeder.Seed(CancellationToken.None);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(CancellationToken.None);
+        byte originalBillTypeId = await connection.QuerySingleAsync<byte>("SELECT Id FROM dbo.MessageType WHERE Code = 'water_bill';");
+        await connection.ExecuteAsync("""
+            INSERT INTO dbo.MessageType (Id, Name, Code, IsActive)
+            SELECT CONVERT(TINYINT, MAX(CONVERT(INT, Id)) + 1), N'نوع پیام قبلی', 'obsolete_seed_type', 1
+            FROM dbo.MessageType;
+            """);
         await seeder.Seed(CancellationToken.None);
 
-        await using SqlConnection connection = await _db.OpenConnectionAsync(CancellationToken.None);
+        Assert.Equal(235, await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.GeoSection WHERE DeletedAtUtc IS NULL;"));
+        Assert.Equal(195, await connection.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM dbo.GeoSection zone
+            INNER JOIN dbo.GeoSection region ON region.Id = zone.ParentGeoSectionId
+            INNER JOIN dbo.GeoSection province ON province.Id = region.ParentGeoSectionId
+            WHERE zone.SectionType = 3 AND region.SectionType = 2 AND province.Code = 'isfahan'
+                AND zone.Path = CONCAT(region.Path, zone.Id, '/');
+            """));
+        Assert.Equal(1, await connection.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM dbo.GeoSection zone
+            INNER JOIN dbo.GeoSection region ON region.Id = zone.ParentGeoSectionId
+            WHERE zone.Code = '131301' AND region.Code = 'region-131301';
+            """));
+        Assert.Equal(0, await connection.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM dbo.GeoSection
+            WHERE Code IN ('tehran', 'shemiranat', 'afjeh') AND DeletedAtUtc IS NULL;
+            """));
+
+        string[] expectedTypeNames = ["قبض", "وصول مطالبات آب بها", "وصول مطالبات انشعاب", "اطلاع رسانی", "OTP", "فرایند خدمات", "واحد gis"];
+        string[] actualTypeNames = (await connection.QueryAsync<string>(
+            "SELECT Name FROM dbo.MessageType WHERE IsActive = 1 AND DeletedAtUtc IS NULL;")).ToArray();
+        Assert.Equal(expectedTypeNames.OrderBy(name => name), actualTypeNames.OrderBy(name => name));
+        Assert.Equal(originalBillTypeId, await connection.QuerySingleAsync<byte>("SELECT Id FROM dbo.MessageType WHERE Code = 'water_bill';"));
+        Assert.Equal(1, await connection.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM dbo.MessageType
+            WHERE Code = 'obsolete_seed_type' AND IsActive = 0
+                AND DeletedAtUtc IS NOT NULL AND DeletedByApiKeyId IS NOT NULL;
+            """));
+        string[] catalogCodes = ["1000", "2000", "5000", "asanak", "farazsms", "ghasedak", "kavenegar", "smsir"];
+        foreach (string code in catalogCodes)
+        {
+            Assert.Equal(1, await connection.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM dbo.Provider WHERE Code = @Code AND IsActive = 0 AND DeletedAtUtc IS NULL;",
+                new { Code = code }));
+        }
         byte providerId = await connection.QuerySingleAsync<byte>("SELECT Id FROM dbo.Provider WHERE Code = '4040';");
         Result<IReadOnlyList<SenderLine>> lines = await new ListSenderLinesHandler(_db).Handle(CancellationToken.None);
         SenderLine line = Assert.Single(lines.Value, item => item.LineNumber == "40401403");

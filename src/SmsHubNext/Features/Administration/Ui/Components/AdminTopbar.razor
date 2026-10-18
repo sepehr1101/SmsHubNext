@@ -1,18 +1,10 @@
 @inject AuthenticationStateProvider Authentication
 
 <header class="admin-topbar">
-    <button class="admin-menu-button" type="button" aria-label="باز کردن منو" @onclick="OnMenuClick">
+    <button class="admin-menu-button" type="button" aria-label="باز یا بسته کردن منو" title="باز یا بسته کردن منو" aria-controls="admin-sidebar" @onclick="OnMenuClick">
         <MudIcon Icon="@Icons.Material.Rounded.Menu" />
     </button>
-    <div class="admin-search">
-        <MudIcon Icon="@Icons.Material.Rounded.Search" />
-        <input type="search" placeholder="جست‌وجو در پنل…" aria-label="جست‌وجو در پنل" />
-        <kbd>Ctrl K</kbd>
-    </div>
     <div class="admin-topbar-actions">
-        <button type="button" class="admin-icon-button" aria-label="اعلان‌ها">
-            <MudIcon Icon="@Icons.Material.Rounded.NotificationsNone" /><i></i>
-        </button>
         <div class="admin-account" @onkeydown="HandleKey">
             <button type="button" class="admin-user" aria-label="منوی حساب کاربری" aria-expanded="@_accountOpen" aria-controls="admin-account-options" @onclick="ToggleAccount">
                 <span class="admin-user-copy"><b>@_userName</b><small>مدیر سامانه</small></span>

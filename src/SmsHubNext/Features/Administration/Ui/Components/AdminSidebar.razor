@@ -2,7 +2,7 @@
 @using Microsoft.AspNetCore.Components.Routing
 @implements IDisposable
 
-<aside class="admin-sidebar @(_open ? "open" : null)">
+<aside id="admin-sidebar" class="admin-sidebar @(_open ? "open" : null)" @onkeydown="HandleKey">
     <a class="admin-logo" href="/admin/dashboard"><span>S</span><strong dir="ltr">SMS<span>Hub</span></strong></a>
     <nav class="admin-nav" aria-label="منوی مدیریت">
         <NavLink href="/admin/dashboard" Match="NavLinkMatch.All" @onclick="Close"><MudIcon Icon="@Icons.Material.Rounded.Dashboard" /> داشبورد</NavLink>
@@ -28,7 +28,15 @@
         });
     }
     public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
-    public void Toggle() => _open = !_open;
+    public void Toggle()
+    {
+        _open = !_open;
+        StateHasChanged();
+    }
+    private void HandleKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") Close();
+    }
     private void Close() => _open = false;
     private bool IsCurrent(AdminMenuGroup group)
     {

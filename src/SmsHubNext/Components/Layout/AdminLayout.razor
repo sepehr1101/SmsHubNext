@@ -7,7 +7,7 @@
     <MudDialogProvider />
     <MudSnackbarProvider />
 
-    <div class="admin-shell">
+    <div class="admin-shell @(_sidebarCollapsed ? "sidebar-collapsed" : null)">
         <div class="admin-grid-bg" aria-hidden="true"></div>
         <AdminSidebar @ref="_sidebar" />
         <div class="admin-main">
@@ -23,9 +23,11 @@
 
 @code {
     private AdminSidebar? _sidebar;
+    private bool _sidebarCollapsed;
 
     private void ToggleMenu()
     {
+        _sidebarCollapsed = !_sidebarCollapsed;
         _sidebar?.Toggle();
     }
 }

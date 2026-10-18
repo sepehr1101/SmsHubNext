@@ -63,8 +63,8 @@ public sealed class RetryDispatchHandler
             {
                 transaction.Rollback();
                 return Error.Validation(
-                    "batches.insufficient_balance_for_retry",
-                    UserMessages.Batches.InsufficientBalanceForRetry);
+                    "balances.unknown_customer",
+                    UserMessages.Balances.UnknownCustomer);
             }
 
             await connection.ExecuteAsync(new CommandDefinition(

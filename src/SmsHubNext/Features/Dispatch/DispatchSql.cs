@@ -78,6 +78,8 @@ internal static class DispatchSql
         SET Status = 2, ProviderMessageId = @ProviderMessageId,   -- Submitted
             AwaitingConfirmationSinceUtc = NULL,
             ConfirmationLookupCount = 0
+        OUTPUT INSERTED.Id, @Now, INSERTED.ProviderId
+            INTO dbo.DispatchAcceptance(Id, AcceptedAtUtc, ProviderId)
         WHERE Id = @Id AND Status IN (1, 6);                     -- Queued or AwaitingConfirmation
 
         INSERT INTO dbo.DeliveryReportPoll
@@ -154,7 +156,7 @@ internal static class DispatchSql
         UPDATE dbo.CustomerBalance
         SET Balance -= @Amount, UpdatedAtUtc = @Now
         OUTPUT INSERTED.Balance
-        WHERE CustomerId = @CustomerId AND Balance >= @Amount;
+        WHERE CustomerId = @CustomerId;
         """;
 
     public const string InsertRefundLedger =

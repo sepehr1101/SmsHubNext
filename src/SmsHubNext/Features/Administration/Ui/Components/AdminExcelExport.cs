@@ -1,4 +1,5 @@
 using System.Globalization;
+using SmsHubNext.Shared.Ui;
 using System.IO.Compression;
 using System.Xml.Linq;
 
@@ -43,7 +44,7 @@ public static class AdminExcelExport
     {
         if (value is byte or short or int or long or float or double or decimal)
             return new XElement(Sheet + "c", new XAttribute("r", address), new XElement(Sheet + "v", Convert.ToString(value, CultureInfo.InvariantCulture)));
-        string text = value is DateTime date ? date.ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture) : Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+        string text = value is DateTime date ? PersianDisplay.Date(date, "yyyy/MM/dd HH:mm") : Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
         return new XElement(Sheet + "c", new XAttribute("r", address), new XAttribute("t", "inlineStr"), new XElement(Sheet + "is", new XElement(Sheet + "t", new XAttribute(XNamespace.Xml + "space", "preserve"), text)));
     }
     private static string ColumnName(int index)

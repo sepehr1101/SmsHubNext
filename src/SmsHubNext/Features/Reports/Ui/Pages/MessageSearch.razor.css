@@ -1,0 +1,4 @@
+.message-search-form { display: flex; flex-wrap: wrap; gap: 1rem; padding: 1.25rem; align-items: end; }
+.message-search-form label { display: grid; gap: .5rem; flex: 1 1 12rem; color: #334155; }
+.message-search-form input, .message-search-form select { width: 100%; padding: .65rem; border: 1px solid #94a3b8; border-radius: .5rem; color: #0f172a; background: #fff; font: inherit; }
+.message-search-body { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 15rem; max-width: 30rem; }

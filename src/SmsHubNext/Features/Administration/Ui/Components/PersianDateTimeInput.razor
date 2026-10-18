@@ -1,0 +1,41 @@
+<input type="text" dir="ltr" value="@_text" @oninput="Change" placeholder="۱۴۰۵/۰۷/۰۱ ۱۲:۳۰" aria-invalid="@(_error is not null)" />
+@if (_error is not null)
+{
+    <small class="persian-date-error" role="alert">@_error</small>
+}
+
+@code {
+    [Parameter] public DateTime? Value { get; set; }
+    [Parameter] public EventCallback<DateTime?> ValueChanged { get; set; }
+    [Parameter] public EventCallback<bool> ValidityChanged { get; set; }
+    [Parameter] public bool Required { get; set; }
+    private string _text = string.Empty;
+    private string? _error;
+    private DateTime? _lastValue;
+    private bool _initialized;
+
+    protected override void OnParametersSet()
+    {
+        if (!_initialized || Value != _lastValue)
+        {
+            _initialized = true;
+            _lastValue = Value;
+            _text = Value is null ? string.Empty : PersianDisplay.Date(Value, "yyyy/MM/dd HH:mm");
+            _error = null;
+        }
+    }
+
+    private async Task Change(ChangeEventArgs args)
+    {
+        _text = Convert.ToString(args.Value) ?? string.Empty;
+        bool valid = PersianDisplay.TryParseDateTime(_text, out DateTime? parsed) && (!Required || parsed is not null);
+        _error = valid ? null : "تاریخ و ساعت شمسی معتبر با قالب ۱۴۰۵/۰۷/۰۱ ۱۲:۳۰ وارد کنید.";
+        await ValidityChanged.InvokeAsync(valid);
+        if (valid)
+        {
+            _text = parsed is null ? string.Empty : PersianDisplay.Date(parsed, "yyyy/MM/dd HH:mm");
+            _lastValue = parsed;
+            await ValueChanged.InvokeAsync(parsed);
+        }
+    }
+}

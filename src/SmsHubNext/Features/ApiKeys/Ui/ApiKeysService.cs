@@ -15,6 +15,7 @@ public sealed class ApiKeysService(
     IssueApiKeyHandler issueApiKeyHandler,
     UpdateApiKeyHandler updateApiKeyHandler,
     RevokeApiKeyHandler revokeApiKeyHandler,
+    RenewApiKeyHandler renewApiKeyHandler,
     ListIpRestrictionsHandler listIpRestrictionsHandler,
     AddIpRestrictionHandler addIpRestrictionHandler,
     UpdateIpRestrictionHandler updateIpRestrictionHandler,
@@ -31,6 +32,9 @@ public sealed class ApiKeysService(
 
     public Task<UiResult<string?>> Revoke(int id, CancellationToken token) =>
         operations.Run((identity, cancellationToken) => revokeApiKeyHandler.Handle(id, identity.ApiKeyId, cancellationToken), token);
+
+    public Task<UiResult<IssueApiKeyResponse>> Renew(int id, CancellationToken token) =>
+        operations.Run((identity, cancellationToken) => renewApiKeyHandler.Handle(id, cancellationToken), token);
 
     public Task<UiResult<IReadOnlyList<ApiKeyIpRestrictionItem>>> ListIpRestrictions(int apiKeyId, CancellationToken token) =>
         operations.Run((identity, cancellationToken) => listIpRestrictionsHandler.Handle(apiKeyId, cancellationToken), token);

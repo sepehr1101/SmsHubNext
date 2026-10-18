@@ -272,6 +272,10 @@ public sealed class MessageDispatcher
                     // AwaitingConfirmation and reconcile it before considering any resend.
                     inconclusive = true;
                     inconclusiveCount++;
+                    await InsertBatchEventAsync(connection, batch.Id, outcomeNow,
+                        MessageBatchEventType.AwaitingConfirmation, BatchStatus.Dispatching, null, null,
+                        $"پاسخ ثبت پیام {message.Id} ناقص یا نامشخص بود؛ برای تعیین پذیرش باید استعلام شود. جزئیات خام پاسخ ذخیره نمی‌شود.",
+                        cancellationToken);
                     continue;
                 }
 

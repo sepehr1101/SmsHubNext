@@ -41,7 +41,9 @@ internal static class SendingSql
         SELECT CAST(CASE WHEN EXISTS (
             SELECT 1
             FROM dbo.ApiKey
-            WHERE Id = @ApiKeyId AND CustomerId = @CustomerId
+            WHERE Id = @ApiKeyId
+              AND ((@Administrator = 0 AND AccessLevel = 0 AND CustomerId = @CustomerId)
+                   OR (@Administrator = 1 AND AccessLevel = 1))
         ) THEN 1 ELSE 0 END AS bit);
         """;
 
@@ -82,15 +84,16 @@ internal static class SendingSql
         ) THEN 1 ELSE 0 END AS bit);
         """;
 
-    // Overspend-safe debit: a single atomic statement. OUTPUT returns the post-debit
-    // balance, or no rows when funds are insufficient or the customer has no balance row
-    // (README §4.14/§8.6). No SELECT-then-UPDATE race.
+    // Serialize first-use initialization and debit; negative balances are allowed.
     public const string DebitBalance =
         """
+        IF NOT EXISTS (SELECT 1 FROM dbo.CustomerBalance WITH (UPDLOCK, HOLDLOCK) WHERE CustomerId = @CustomerId)
+            INSERT INTO dbo.CustomerBalance (CustomerId, Balance) VALUES (@CustomerId, 0);
+
         UPDATE dbo.CustomerBalance
         SET Balance -= @Amount, UpdatedAtUtc = SYSUTCDATETIME()
         OUTPUT INSERTED.Balance
-        WHERE CustomerId = @CustomerId AND Balance >= @Amount;
+        WHERE CustomerId = @CustomerId;
         """;
 
     public const string InsertBatch =

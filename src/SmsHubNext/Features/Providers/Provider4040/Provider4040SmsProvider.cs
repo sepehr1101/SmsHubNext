@@ -152,12 +152,16 @@ public sealed class Provider4040SmsProvider(
             return Error.Provider("4040.delivery_response", "پاسخ وضعیت تحویل 4040 معتبر نیست.");
         // Correlate by the complete smsId dictionary key, never the unrelated returned uid.
         if (!data.Dlrs.TryGetValue(id, out DeliveryEntry? entry))
-            return new ProviderDeliveryReport(id, null, 0);
+            return new ProviderDeliveryReport(id, null, 0) { HasProviderStatus = false };
         if (entry?.Dlr is not int raw)
             return Error.Provider("4040.delivery_response", "کد وضعیت تحویل 4040 در پاسخ وجود ندارد.");
         DeliveryReportStatus? status = options.TerminalDeliveryStatuses.TryGetValue(raw, out DeliveryReportStatus terminal)
             ? terminal : null;
-        return new ProviderDeliveryReport(id, status, raw);
+        return new ProviderDeliveryReport(id, status, raw)
+        {
+            ProviderSentAtRaw = entry.DateSent?.ToString(),
+            ProviderDlrAtRaw = entry.DateDlr?.ToString(),
+        };
     }
 
     public Task<Result<IReadOnlyList<ProviderInboundMessage>>> FetchInboundMessagesAsync(
@@ -173,10 +177,12 @@ public sealed class Provider4040SmsProvider(
     private sealed record SendResponse(ResponseResult? Result, ResponseStatus? Status);
     private sealed record ResponseResult(SendData? Data, ResponseStatus? Status);
     private sealed record ResponseStatus(int StatusCode);
-    private sealed record SendData(int? Status, [property: JsonPropertyName("smsids")] string[]? SmsIds);
+    private sealed record SendData([property: JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)] int? Status, [property: JsonPropertyName("smsids")] string[]? SmsIds);
     private sealed record DeliveryRequest([property: JsonPropertyName("_body")] string[] Body);
     private sealed record DeliveryResponse(DeliveryResult? Result, ResponseStatus? Status);
     private sealed record DeliveryResult(DeliveryData? Data, ResponseStatus? Status);
-    private sealed record DeliveryData(int? Status, Dictionary<string, DeliveryEntry?>? Dlrs);
-    private sealed record DeliveryEntry(int? Dlr, long? DateDlr, long? DateSent, string? Uid);
+    private sealed record DeliveryData([property: JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)] int? Status, Dictionary<string, DeliveryEntry?>? Dlrs);
+    private sealed record DeliveryEntry(
+        [property: JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)] int? Dlr,
+        JsonElement? DateDlr, JsonElement? DateSent, string? Uid);
 }

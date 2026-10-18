@@ -1,0 +1,16 @@
+.live-dispatch h1 { font-size:1.4rem; }
+.live-dispatch h2 { font-size:1.05rem; }
+.live-dispatch p { font-size:.85rem; line-height:1.9; }
+.live-chart { padding:1rem; margin-block:1rem; }
+.live-bars { height:150px; display:flex; align-items:end; direction:ltr; gap:2px; border-bottom:1px solid #a6b8cc; }
+.live-bar-slot { flex:1; height:100%; display:flex; align-items:end; }
+.live-bar { width:100%; background:#3577b8; min-height:1px; }
+.live-chart-axis { display:flex; justify-content:space-between; font-size:.75rem; margin-top:.4rem; }
+.live-filters { display:flex; flex-wrap:wrap; gap:.75rem; padding:1rem; align-items:end; }
+.live-filters label { display:grid; gap:.3rem; font-size:.85rem; }
+.live-filters input,.live-filters select { font:inherit; padding:.5rem; border:1px solid #9cabbd; border-radius:5px; color:#23364d; background:white; }
+.live-table { width:100%; border-collapse:collapse; font-size:.85rem; }
+.live-table td,.live-table th { padding:.7rem; text-align:right; border-bottom:1px solid #d6dfe9; }
+.live-table tbody tr:nth-child(even) { background:#f3f6fa; }
+.live-table tbody tr:hover { background:#e9f0f8; }
+.live-body { max-width:32rem; white-space:pre-wrap; overflow-wrap:anywhere; }

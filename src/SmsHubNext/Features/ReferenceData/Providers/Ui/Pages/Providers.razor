@@ -6,16 +6,36 @@
 @implements IDisposable
 
 <PageTitle>ارائه‌دهندگان | SmsHub</PageTitle>
-<div class="admin-page-head"><button class="admin-button primary" @onclick="OpenCreate"><MudIcon Icon="@Icons.Material.Rounded.Add" /> ارائه‌دهنده جدید</button></div>
 <FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
 
-<section class="admin-data-panel"><header><div><h2>ارائه‌دهندگان ثبت‌شده</h2><span>کد ارائه‌دهنده پس از ایجاد تغییر نمی‌کند.</span></div></header><div class="admin-card-list">
-    @if (!_loading && _items.Count == 0) { <div class="admin-empty">ارائه‌دهنده‌ای ثبت نشده است.</div> }
-    @foreach (ProviderItem item in _items)
-    {
-        <article><span class="admin-list-icon"><MudIcon Icon="@Icons.Material.Rounded.Hub" /></span><div><h3>@item.Name</h3><p><code>@item.Code</code> · شناسه @item.Id</p></div><StatusPill IsActive="item.IsActive" /><div class="admin-row-actions"><button title="ویرایش" @onclick="() => OpenEdit(item)"><MudIcon Icon="@Icons.Material.Rounded.Edit" /></button><button class="danger" title="حذف منطقی" @onclick="() => Delete(item)"><MudIcon Icon="@Icons.Material.Rounded.DeleteOutline" /></button></div></article>
-    }
-</div></section>
+<section class="admin-data-panel">
+    <header><div><h2>ارائه‌دهندگان</h2></div></header>
+    <div class="admin-table-wrap">
+        <AdminGrid T="ProviderItem" Items="_items" Loading="_loading" Name="ارائه‌دهندگان" OnAdd="OpenCreate" AddLabel="ارائه‌دهنده جدید"
+                   ExportColumns='@(new AdminExportColumn<ProviderItem>[] { new("شناسه", item => item.Id), new("نام", item => item.Name), new("کد ثابت", item => item.Code), new("وضعیت", item => item.IsActive ? "فعال" : "غیرفعال") })'>
+            <PropertyColumn Property="item => item.Id" Title="شناسه">
+                <CellTemplate><div class="mono">@(PersianDisplay.Number(context.Item.Id))</div></CellTemplate>
+            </PropertyColumn>
+            <PropertyColumn Property="item => item.Name" Title="نام">
+                <CellTemplate><div><b>@context.Item.Name</b></div></CellTemplate>
+            </PropertyColumn>
+            <PropertyColumn Property="item => item.Code" Title="کد ثابت">
+                <CellTemplate><div class="mono">@context.Item.Code</div></CellTemplate>
+            </PropertyColumn>
+            <PropertyColumn Property="item => item.IsActive" Title="وضعیت">
+                <CellTemplate><StatusPill IsActive="context.Item.IsActive" /></CellTemplate>
+            </PropertyColumn>
+            <TemplateColumn Title="عملیات" Sortable="false" Filterable="false" Hideable="false">
+                <CellTemplate>
+                    <div class="admin-row-actions">
+                        <MudTooltip Text="ویرایش" ShowOnFocus="true"><button type="button" aria-label="@($"ویرایش {context.Item.Name}")" @onclick="() => OpenEdit(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Edit" /></button></MudTooltip>
+                        <MudTooltip Text="حذف منطقی" ShowOnFocus="true"><button type="button" class="danger" aria-label="@($"حذف {context.Item.Name}")" @onclick="() => Delete(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.DeleteOutline" /></button></MudTooltip>
+                    </div>
+                </CellTemplate>
+            </TemplateColumn>
+        </AdminGrid>
+    </div>
+</section>
 
 @if (_editorOpen)
 {

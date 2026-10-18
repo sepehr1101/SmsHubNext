@@ -67,6 +67,9 @@ public sealed class CombinedHostTests
         using HttpResponseMessage unauthenticated = await client.GetAsync("/admin/dashboard");
         Assert.Equal(HttpStatusCode.Redirect, unauthenticated.StatusCode);
         Assert.Contains("/login", unauthenticated.Headers.Location!.ToString());
+        using HttpResponseMessage monitor = await client.GetAsync("/admin/dispatch-live");
+        Assert.Equal(HttpStatusCode.Redirect, monitor.StatusCode);
+        Assert.Contains("/login", monitor.Headers.Location!.ToString());
 
         using FormUrlEncodedContent invalidForm = new(new Dictionary<string, string>
         {
@@ -90,6 +93,10 @@ public sealed class CombinedHostTests
         Assert.Equal(HttpStatusCode.OK, dashboard.StatusCode);
         using HttpResponseMessage customersPage = await client.GetAsync("/admin/customers");
         Assert.Equal(HttpStatusCode.OK, customersPage.StatusCode);
+        using HttpResponseMessage livePage = await client.GetAsync("/admin/dispatch-live");
+        Assert.Equal(HttpStatusCode.OK, livePage.StatusCode);
+        // The host deliberately disables prerendering; interactive content arrives on the circuit.
+        Assert.Contains("blazor.web.js", await livePage.Content.ReadAsStringAsync());
 
         using HttpResponseMessage api = await client.GetAsync("/customers");
         Assert.Equal(HttpStatusCode.Unauthorized, api.StatusCode);
@@ -97,6 +104,13 @@ public sealed class CombinedHostTests
 
         using HttpResponseMessage send = await client.PostAsJsonAsync("/messages", new { });
         Assert.Equal(HttpStatusCode.Unauthorized, send.StatusCode);
+        using HttpResponseMessage resend = await client.PostAsJsonAsync("/messages/1/resend", new { requestId = Guid.NewGuid() });
+        Assert.Equal(HttpStatusCode.Unauthorized, resend.StatusCode);
+        Assert.Contains("auth.missing_key", await resend.Content.ReadAsStringAsync());
+
+        using HttpResponseMessage findMessages = await client.GetAsync("/messages?billId=123&fromJalali=1405/07/01&toJalali=1405/07/30");
+        Assert.Equal(HttpStatusCode.Unauthorized, findMessages.StatusCode);
+        Assert.Contains("auth.missing_key", await findMessages.Content.ReadAsStringAsync());
 
         using HttpResponseMessage health = await client.GetAsync("/health/live");
         Assert.Equal(HttpStatusCode.OK, health.StatusCode);

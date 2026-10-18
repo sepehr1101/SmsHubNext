@@ -1,0 +1,81 @@
+@using SmsHubNext.Features.Reports.Ui
+@inject ReportsService Service
+@inject IJSRuntime JS
+@implements IDisposable
+
+<section class="admin-data-panel diagnostic-panel" aria-label="جزئیات عیب‌یابی پیامک" aria-live="polite">
+    <header><h2>عیب‌یابی پیام @PersianDisplay.Number(MessageId)</h2></header>
+    <FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="() => Load(false)" />
+    <div class="diagnostic-actions">
+        <button type="button" class="admin-button secondary" disabled="@_loading" @onclick="() => Load(true)">استعلام زنده تحویل</button>
+        <button type="button" class="admin-button primary" disabled="@(_loading || _report is null)" @onclick="Copy">کپی گزارش عیب‌یابی</button>
+        <button type="button" class="admin-button secondary" @onclick="Close">بستن جزئیات</button>
+    </div>
+    @if (_report is not null)
+    {
+        <p class="diagnostic-assessment">@MessageDiagnosticText.Assessment(_report)</p>
+        <dl class="diagnostic-facts">
+            <div><dt>گیرنده</dt><dd dir="ltr">@PersianDisplay.Text(_report.Message.MobileNumber)</dd></div>
+            <div><dt>وضعیت دسته</dt><dd>@MessageDiagnosticText.Batch(_report.Message.BatchStatus) — @MessageDiagnosticText.Reason(_report.Message.StatusReason)</dd></div>
+            <div><dt>ثبت پیام</dt><dd>@MessageDiagnosticText.Time(_report.Message.SubmittedAtUtc)</dd></div>
+            <div><dt>شروع عملیات ارسال دسته</dt><dd>@MessageDiagnosticText.Time(_report.Message.DispatchStartedAtUtc)</dd></div>
+            <div><dt>مشاهده تحویل در سامانه</dt><dd>@MessageDiagnosticText.Time(_report.Message.DeliveredAtUtc)</dd></div>
+            <div><dt>شناسه دسته (BatchId)</dt><dd><a href="/admin/dispatch-operations/@_report.Message.MessageBatchId">@PersianDisplay.Number(_report.Message.MessageBatchId)</a></dd></div>
+            <div><dt>@(_report.Message.ProviderCode == "4040" ? "شناسه پیام / uid ارسالی ۴۰۴۰" : "شناسه داخلی پیام")</dt><dd dir="ltr">@PersianDisplay.Number(_report.Message.Id)</dd></div>
+            <div><dt>شناسه سرویس (smsId)</dt><dd dir="ltr">@(_report.Message.ProviderMessageId ?? "ثبت نشده")</dd></div>
+        </dl>
+        @if (_report.LiveError is not null) { <p role="status">@_report.LiveError</p> }
+        @if (_report.Live is { HasProviderStatus: true } live)
+        {
+            <p><b>کد زنده DLR: @PersianDisplay.Number(live.RawStatusCode)</b> — @MessageDiagnosticText.Dlr(_report.Message.ProviderCode, live.RawStatusCode)</p>
+            <p>زمان مشاهده پاسخ: @MessageDiagnosticText.Time(_report.LiveObservedAtUtc)</p>
+            <p>زمان‌های خام سرویس، با قالب و منطقه زمانی تأییدنشده: <span dir="ltr">DateSent: @(live.ProviderSentAtRaw ?? "—") / DateDlr: @(live.ProviderDlrAtRaw ?? "—")</span></p>
+        }
+        <p>زمان‌های بالا شمسی و به وقت ایران هستند. زمان مشاهده تحویل، الزاماً زمان واقعی رسیدن به گوشی نیست. استعلام زنده فقط وضعیت را می‌خواند.</p>
+        <h3>رویدادهای ارسال و خطاهای دسته</h3>
+        <p>این رویدادها متعلق به کل دسته‌اند؛ ارتباط قطعی با پیام فقط وقتی شناسه آن در شرح ثبت شده باشد مشخص است. علت ثبت‌نشده، نامشخص باقی می‌ماند. تعداد تلاش‌ها در سطح دسته است.</p>
+        @if (_report.Events.Count == 0) { <p>رویدادی نگهداری نشده است.</p> }
+        @foreach (DiagnosticEvent item in _report.Events)
+        {
+            <details><summary>@MessageDiagnosticText.Time(item.EventTimeUtc) — @MessageDiagnosticText.EventStage(item.EventType) — کد سرویس: @PersianDisplay.Number(item.ProviderResultCode)</summary><p>@item.Detail</p></details>
+        }
+        <p><a href="/admin/settings/errors">گزارش خطاهای داخلی سیستم</a> — برای تطبیق، شناسه پیام و دسته را از گزارش کامل بردارید؛ نبود شناسه در لاگ، ارتباط قطعی را اثبات نمی‌کند.</p>
+        <h3>تاریخچه ثبت‌شده تحویل</h3>
+        @if (_report.Deliveries.Count == 0) { <p>هنوز گزارش نهایی ذخیره نشده است. برای وضعیت فعلی، استعلام زنده را بزنید.</p> }
+        @foreach (DiagnosticDelivery item in _report.Deliveries)
+        {
+            <p>@MessageDiagnosticText.Time(item.ReceivedAtUtc) — کد @PersianDisplay.Number(item.RawStatusCode): @MessageDiagnosticText.StoredDlr(_report.Message.ProviderCode, item)</p>
+        }
+        <details open="@_copyFailed"><summary>گزارش کامل، رویدادها و متن قابل کپی</summary><textarea class="diagnostic-copy" readonly aria-label="متن گزارش عیب‌یابی برای کپی دستی">@MessageDiagnosticText.Copy(_report)</textarea></details>
+    }
+</section>
+
+@code {
+    [Parameter] public long MessageId { get; set; }
+    [Parameter] public EventCallback Close { get; set; }
+    private readonly CancellationTokenSource _lifetime = new();
+    private MessageDiagnostics? _report;
+    private bool _loading;
+    private bool _copyFailed;
+    private string? _error;
+    private string? _success;
+    protected override Task OnParametersSetAsync() => Load(false);
+    private async Task Load(bool live)
+    {
+        _loading = true; _error = null; _success = null;
+        try
+        {
+            UiResult<MessageDiagnostics> result = await Service.Diagnostics(MessageId, live, _lifetime.Token);
+            if (result.IsSuccess) _report = result.Value;
+            else _error = result.ErrorMessage;
+        }
+        finally { _loading = false; }
+    }
+    private async Task Copy()
+    {
+        if (_report is null) return;
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", MessageDiagnosticText.Copy(_report)); _success = "گزارش عیب‌یابی کپی شد."; _copyFailed = false; }
+        catch (JSException) { _copyFailed = true; _error = "کپی خودکار در این مرورگر ممکن نشد؛ متن گزارش کامل را انتخاب و کپی کنید."; }
+    }
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

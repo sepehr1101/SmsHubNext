@@ -1,4 +1,7 @@
 using DbUp.Engine;
+using Dapper;
+using Microsoft.Data.SqlClient;
+using SmsHubNext.Shared.Time;
 using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Batches;
@@ -82,7 +85,61 @@ public sealed class BatchesTests : IAsyncLifetime
         Assert.Equal(ErrorType.NotFound, events.Error!.Type);
     }
 
-    private async Task<long> SendBatchAsync()
+    [Fact]
+    public async Task Browse_filters_exact_received_time_and_pages_tied_timestamps_without_duplicates()
+    {
+        CancellationToken token = CancellationToken.None;
+        long firstId = await SendBatchAsync();
+        Batch original = (await new GetBatchHandler(_db).Handle(firstId, token)).Value;
+        ApiKeyIdentity identity = new(original.ApiKeyId, original.CustomerId, "test");
+        List<long> ids = [firstId];
+        for (int index = 0; index < 27; index++)
+        {
+            Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
+                new SendMessagesRequest { SenderLine = "30001234", MessageTypeId = 1, ClientBatchId = $"browse-{index}",
+                    Messages = [new SendMessageItem { Recipient = "989120000001", Text = "Browse" }] }, identity, token);
+            Assert.True(send.IsSuccess, send.Error?.Message);
+            ids.Add(send.Value.BatchId);
+        }
+        DateTime from = new(2026, 10, 17, 20, 30, 0, DateTimeKind.Utc);
+        DateTime end = from.AddMinutes(1);
+        await using SqlConnection connection = await _db.OpenConnectionAsync(token);
+        await connection.ExecuteAsync("UPDATE dbo.MessageBatch SET ReceivedAtUtc = @At, SubmitDateJalali = @Date",
+            new { At = from, Date = JalaliDate.FromUtc(from) });
+        await connection.ExecuteAsync("UPDATE dbo.MessageBatch SET ReceivedAtUtc = @At, SubmitDateJalali = @Date WHERE Id = @Id",
+            new { At = from.AddMilliseconds(-1), Date = JalaliDate.FromUtc(from.AddMilliseconds(-1)), Id = firstId });
+        await connection.ExecuteAsync("UPDATE dbo.MessageBatch SET ReceivedAtUtc = @At WHERE Id = @Id", new { At = end, Id = ids[^1] });
+
+        BrowseBatchesHandler handler = new(_db);
+        BrowseBatchesRequest query = new(from, end);
+        Result<BatchListPage> first = await handler.Handle(query, token);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Equal(25, first.Value.Items.Count);
+        Assert.NotNull(first.Value.Next);
+        BatchListPage second = (await handler.Handle(query with { Before = first.Value.Next }, token)).Value;
+        Assert.Single(second.Items);
+        Assert.Null(second.Next);
+        long[] found = first.Value.Items.Concat(second.Items).Select(item => item.Id).ToArray();
+        Assert.Equal(26, found.Distinct().Count());
+        Assert.DoesNotContain(firstId, found);
+        Assert.DoesNotContain(ids[^1], found);
+    }
+
+    [Fact]
+    public async Task Selected_batch_messages_are_loaded_in_bounded_pages()
+    {
+        long batchId = await SendBatchAsync(27);
+        ListBatchMessagesHandler handler = new(_db);
+        BatchMessagesPage first = (await handler.HandlePage(batchId, null, CancellationToken.None)).Value;
+        Assert.Equal(25, first.Items.Count);
+        Assert.NotNull(first.NextAfterId);
+        BatchMessagesPage second = (await handler.HandlePage(batchId, first.NextAfterId, CancellationToken.None)).Value;
+        Assert.Equal(2, second.Items.Count);
+        Assert.Null(second.NextAfterId);
+        Assert.Equal(27, first.Items.Concat(second.Items).Select(item => item.Id).Distinct().Count());
+    }
+
+    private async Task<long> SendBatchAsync(int messageCount = 2)
     {
         await ProviderAccountTestData.AssignActiveMagfaAccountToDefaultTestLineAsync(_db);
         Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
@@ -102,11 +159,8 @@ public sealed class BatchesTests : IAsyncLifetime
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
-                Messages =
-                [
-                    new SendMessageItem { Recipient = "989120000001", Text = "Hello" },
-                    new SendMessageItem { Recipient = "989120000002", Text = "World" },
-                ],
+                Messages = Enumerable.Range(0, messageCount).Select(index => new SendMessageItem
+                    { Recipient = $"98912000{index:0000}", Text = "Hello" }).ToList(),
             },
             new ApiKeyIdentity(key.Value.Id, customerId, key.Value.KeyPrefix),
             CancellationToken.None);

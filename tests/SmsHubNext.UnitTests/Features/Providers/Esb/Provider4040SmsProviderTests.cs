@@ -13,6 +13,30 @@ namespace SmsHubNext.UnitTests.Features.Providers.Esb;
 
 public sealed class Provider4040SmsProviderTests
 {
+    [Fact]
+    public async Task Delivery_reads_documented_string_codes_and_preserves_raw_provider_dates()
+    {
+        using GatewayHandler handler = new()
+        {
+            DeliveryResponse = """
+                {"result":{"data":{"status":"0","dlrs":{"test-id":{"dlr":"10","DateSent":"1405/07/26 12:30","DateDlr":1700000000,"uid":"123"}}},"status":{"statusCode":200}},"status":{"statusCode":200}}
+                """,
+        };
+        using HttpClient client = new(handler);
+        EsbOptions options = Options();
+        using EsbAccessTokenProvider tokens = new(new ClientFactory(handler), options, TimeProvider.System);
+        Provider4040SmsProvider provider = new(client, options, tokens, new Provider4040RouteResolver(new HashSet<string>()));
+        Result<IReadOnlyList<ProviderDeliveryReport>> result = await provider.GetDeliveryReportsAsync(["test-id"], CancellationToken.None);
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        ProviderDeliveryReport report = Assert.Single(result.Value);
+        Assert.True(report.HasProviderStatus);
+        Assert.Equal(10, report.RawStatusCode);
+        Assert.Null(report.Status);
+        Assert.Equal("1405/07/26 12:30", report.ProviderSentAtRaw);
+        Assert.Equal("1700000000", report.ProviderDlrAtRaw);
+        Assert.Equal(0, handler.Sends);
+    }
+
     private const string MessageId = "40401@1405@7@1510@Hawdy4AHJ@1@0@40401403@2556";
     private const string SuccessfulResponse =
         """
@@ -100,6 +124,7 @@ public sealed class Provider4040SmsProviderTests
         ProviderDeliveryReport report = Assert.Single(result.Value);
         Assert.Equal("another-id", report.ProviderMessageId);
         Assert.Null(report.Status);
+        Assert.False(report.HasProviderStatus);
     }
 
     [Fact]

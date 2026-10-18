@@ -47,6 +47,22 @@ internal static class DevelopmentDataSql
         ELSE
             UPDATE dbo.Provider SET Name = N'مگفا', BaseUrl = 'https://sms.magfa.com', IsActive = 1, DeletedAtUtc = NULL, DeletedByApiKeyId = NULL WHERE Id = @ProviderId;
 
+        -- Catalog only: configure real endpoints and adapters before activation.
+        -- Preserve existing configuration, including logically deleted provider codes.
+        INSERT INTO dbo.Provider (Name, Code, BaseUrl, IsActive)
+        SELECT catalog.Name, catalog.Code, 'https://configure-provider.invalid', 0
+        FROM (VALUES
+            (N'اپراتور 1000', '1000'),
+            (N'اپراتور 2000', '2000'),
+            (N'اپراتور 5000', '5000'),
+            (N'آسانک', 'asanak'),
+            (N'فراز اس‌ام‌اس', 'farazsms'),
+            (N'قاصدک', 'ghasedak'),
+            (N'کاوه‌نگار', 'kavenegar'),
+            (N'اس‌ام‌اس ایران', 'smsir')
+        ) catalog(Name, Code)
+        WHERE NOT EXISTS (SELECT 1 FROM dbo.Provider existing WHERE existing.Code = catalog.Code);
+
         DECLARE @ProviderAccountId INT;
         DECLARE @Provider4040Id TINYINT;
         SELECT @Provider4040Id = Id FROM dbo.Provider WHERE Code = '4040';
@@ -104,47 +120,40 @@ internal static class DevelopmentDataSql
                 DeletedByApiKeyId = NULL
             WHERE Id = @ProviderAccountId;
 
-        DECLARE @MessageTypeId TINYINT;
-        SELECT @MessageTypeId = Id FROM dbo.MessageType WHERE Code = 'water_bill';
-        IF @MessageTypeId IS NULL
-        BEGIN
-            SELECT @MessageTypeId = CONVERT(TINYINT, COALESCE(MAX(CONVERT(INT, Id)), 0) + 1) FROM dbo.MessageType;
-            INSERT INTO dbo.MessageType (Id, Name, Code, IsActive) VALUES (@MessageTypeId, N'قبض آب', 'water_bill', 1);
-        END;
+        DECLARE @SeedMessageTypes TABLE (SortOrder INT, Name NVARCHAR(80), Code VARCHAR(50));
+        INSERT INTO @SeedMessageTypes (SortOrder, Name, Code)
+        VALUES
+            (1, N'قبض', 'water_bill'),
+            (2, N'وصول مطالبات آب بها', 'water_debt_collection'),
+            (3, N'وصول مطالبات انشعاب', 'connection_debt_collection'),
+            (4, N'اطلاع رسانی', 'notification'),
+            (5, N'OTP', 'otp'),
+            (6, N'فرایند خدمات', 'service_process'),
+            (7, N'واحد gis', 'gis');
 
-        IF NOT EXISTS (SELECT 1 FROM dbo.MessageType WHERE Code = 'notification')
-        BEGIN
-            DECLARE @NotificationTypeId TINYINT;
-            SELECT @NotificationTypeId = CONVERT(TINYINT, COALESCE(MAX(CONVERT(INT, Id)), 0) + 1) FROM dbo.MessageType;
-            INSERT INTO dbo.MessageType (Id, Name, Code, IsActive) VALUES (@NotificationTypeId, N'اطلاع‌رسانی', 'notification', 1);
-        END;
+        -- Keep existing identifiers so historical messages and tariffs retain their references.
+        DECLARE @LastMessageTypeId INT = (SELECT COALESCE(MAX(CONVERT(INT, Id)), 0) FROM dbo.MessageType);
+        INSERT INTO dbo.MessageType (Id, Name, Code, IsActive)
+        SELECT CONVERT(TINYINT, @LastMessageTypeId + ROW_NUMBER() OVER (ORDER BY seed.SortOrder)), seed.Name, seed.Code, 1
+        FROM @SeedMessageTypes seed
+        WHERE NOT EXISTS (SELECT 1 FROM dbo.MessageType existing WHERE existing.Code = seed.Code);
 
-        DECLARE @ProvinceId INT;
-        SELECT @ProvinceId = Id FROM dbo.GeoSection WHERE Code = 'tehran';
-        IF @ProvinceId IS NULL
-        BEGIN
-            INSERT INTO dbo.GeoSection (ParentGeoSectionId, SectionType, Name, Code, Path) VALUES (NULL, 1, N'تهران', 'tehran', '');
-            SET @ProvinceId = CONVERT(INT, SCOPE_IDENTITY());
-            UPDATE dbo.GeoSection SET Path = CONCAT('/', @ProvinceId, '/') WHERE Id = @ProvinceId;
-        END;
+        UPDATE existing
+        SET Name = seed.Name, IsActive = 1, DeletedAtUtc = NULL, DeletedByApiKeyId = NULL
+        FROM dbo.MessageType existing
+        INNER JOIN @SeedMessageTypes seed ON seed.Code = existing.Code;
 
-        DECLARE @CityId INT;
-        SELECT @CityId = Id FROM dbo.GeoSection WHERE Code = 'shemiranat';
-        IF @CityId IS NULL
-        BEGIN
-            INSERT INTO dbo.GeoSection (ParentGeoSectionId, SectionType, Name, Code, Path) VALUES (@ProvinceId, 2, N'شمیرانات', 'shemiranat', '');
-            SET @CityId = CONVERT(INT, SCOPE_IDENTITY());
-            UPDATE dbo.GeoSection SET Path = CONCAT('/', @ProvinceId, '/', @CityId, '/') WHERE Id = @CityId;
-        END;
+        -- The development catalog is exactly the requested seven types; retain old rows for history.
+        UPDATE existing
+        SET IsActive = 0, DeletedAtUtc = SYSUTCDATETIME(),
+            DeletedByApiKeyId = (SELECT Id FROM dbo.ApiKey WHERE KeyHash = @AdministratorKeyHash)
+        FROM dbo.MessageType existing
+        WHERE existing.DeletedAtUtc IS NULL
+            AND NOT EXISTS (SELECT 1 FROM @SeedMessageTypes seed WHERE seed.Code = existing.Code);
 
-        DECLARE @ZoneId INT;
-        SELECT @ZoneId = Id FROM dbo.GeoSection WHERE Code = 'afjeh';
-        IF @ZoneId IS NULL
-        BEGIN
-            INSERT INTO dbo.GeoSection (ParentGeoSectionId, SectionType, Name, Code, Path) VALUES (@CityId, 3, N'افجه', 'afjeh', '');
-            SET @ZoneId = CONVERT(INT, SCOPE_IDENTITY());
-            UPDATE dbo.GeoSection SET Path = CONCAT('/', @ProvinceId, '/', @CityId, '/', @ZoneId, '/') WHERE Id = @ZoneId;
-        END;
+        DECLARE @MessageTypeId TINYINT = (SELECT Id FROM dbo.MessageType WHERE Code = 'water_bill');
+
+        """ + DevelopmentGeographySql.Seed + """
 
         DECLARE @SenderLineId SMALLINT;
         SELECT @SenderLineId = Id FROM dbo.SenderLine WHERE ProviderId = @ProviderId AND LineNumber = '3000123456';

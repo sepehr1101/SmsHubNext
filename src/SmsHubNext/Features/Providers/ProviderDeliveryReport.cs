@@ -14,4 +14,9 @@ namespace SmsHubNext.Features.Providers;
 /// </list>
 /// <see cref="RawStatusCode"/> is the provider-native code, kept verbatim for forensics.
 /// </summary>
-public sealed record ProviderDeliveryReport(string ProviderMessageId, DeliveryReportStatus? Status, int RawStatusCode);
+public sealed record ProviderDeliveryReport(string ProviderMessageId, DeliveryReportStatus? Status, int RawStatusCode)
+{
+    public bool HasProviderStatus { get; init; } = true;
+    public string? ProviderSentAtRaw { get; init; }
+    public string? ProviderDlrAtRaw { get; init; }
+}

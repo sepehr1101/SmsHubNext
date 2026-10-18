@@ -19,7 +19,7 @@ public sealed class BalancesController : BaseController
         _transactions = transactions;
     }
 
-    /// <summary>Get a customer's current prepaid balance.</summary>
+    /// <summary>Get a customer's current signed balance.</summary>
     [HttpGet]
     public async Task<IActionResult> Get([FromQuery] short customerId, CancellationToken cancellationToken) =>
         FromResult(await _get.Handle(customerId, cancellationToken));
