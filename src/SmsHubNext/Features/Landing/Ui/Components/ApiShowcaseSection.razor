@@ -1,0 +1,31 @@
+<section class="landing-section" id="api">
+    <div class="landing-container api-showcase">
+        <div class="api-copy reveal">
+            <span class="eyebrow">API روشن و قابل پیش‌بینی</span>
+            <h2>یک درخواست برای <span>پذیرش امن پیام‌ها</span></h2>
+            <p>هر درخواست یک Batch مستقل می‌سازد. پیام‌ها ابتدا اعتبارسنجی و قیمت‌گذاری می‌شوند و سپس به‌صورت غیرهم‌زمان برای Provider ارسال خواهند شد.</p>
+            <ul>
+                <li><MudIcon Icon="@Icons.Material.Rounded.CheckCircle" /><div><b>هویت از API Key</b><small>کلید مشتری از Header خوانده می‌شود، نه از بدنه درخواست.</small></div></li>
+                <li><MudIcon Icon="@Icons.Material.Rounded.CheckCircle" /><div><b>Idempotency در سطح Batch</b><small>تکرار امن درخواست بدون ایجاد هزینه و پیام تکراری.</small></div></li>
+                <li><MudIcon Icon="@Icons.Material.Rounded.CheckCircle" /><div><b>پاسخ سریع 202</b><small>پردازش و ارسال واقعی در پس‌زمینه ادامه پیدا می‌کند.</small></div></li>
+            </ul>
+        </div>
+        <div class="code-window reveal" dir="ltr">
+            <div class="code-header"><div><i></i><i></i><i></i></div><span>POST /messages</span><em>application/json</em></div>
+            <pre><code><span class="code-method">POST</span> /messages
+<span class="code-key">X-Api-Key:</span> shn_••••••••••••
+
+{
+  <span class="code-key">"senderLine"</span>: <span class="code-string">"3000..."</span>,
+  <span class="code-key">"messageTypeId"</span>: <span class="code-number">1</span>,
+  <span class="code-key">"clientBatchId"</span>: <span class="code-string">"invoice-1405-001"</span>,
+  <span class="code-key">"messages"</span>: [{
+    <span class="code-key">"recipient"</span>: <span class="code-string">"0912*******"</span>,
+    <span class="code-key">"text"</span>: <span class="code-string">"قبض دوره جدید صادر شد"</span>
+  }]
+}
+
+<span class="code-comment">// 202 Accepted · پردازش غیرهم‌زمان</span></code></pre>
+        </div>
+    </div>
+</section>

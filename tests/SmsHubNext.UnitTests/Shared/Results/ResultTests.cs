@@ -60,6 +60,7 @@ public class ResultTests
     [InlineData(ErrorType.NotFound)]
     [InlineData(ErrorType.Conflict)]
     [InlineData(ErrorType.Unauthorized)]
+    [InlineData(ErrorType.Forbidden)]
     [InlineData(ErrorType.Provider)]
     [InlineData(ErrorType.Unexpected)]
     public void Error_factories_set_the_matching_type(ErrorType type)
@@ -70,6 +71,7 @@ public class ResultTests
             ErrorType.NotFound => Error.NotFound("c", "m"),
             ErrorType.Conflict => Error.Conflict("c", "m"),
             ErrorType.Unauthorized => Error.Unauthorized("c", "m"),
+            ErrorType.Forbidden => Error.Forbidden("c", "m"),
             ErrorType.Provider => Error.Provider("c", "m"),
             _ => Error.Unexpected("c", "m"),
         };

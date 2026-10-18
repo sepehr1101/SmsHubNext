@@ -1,0 +1,13 @@
+.tariff-details { margin:0; display:grid; gap:10px; }
+.tariff-details > div { display:flex; justify-content:space-between; gap:16px; }
+.tariff-details dt { color:#536d8c; }
+.tariff-details dd { margin:0; color:#203954; font-weight:600; }
+.tariff-details-rates h3 { margin:0 0 12px; font-size:16px; }
+.tariff-details-rates table { width:100%; border-collapse:collapse; color:#203954; }
+.tariff-details-rates th,.tariff-details-rates td { padding:10px; text-align:start; border-bottom:1px solid #dce5ef; }
+.tariff-details-rates th { background:#e9f0f8; }
+.tariff-details-rates tbody tr:nth-child(even) { background:#f3f6fa; }
+.tariff-details-rates tbody tr:hover { background:#e9f0f8; }
+.tariff-details-rates p { color:#425b78; line-height:1.8; font-size:14px; }
+.tariff-editor-error { padding:12px; border:1px solid #e4a6a6; border-radius:8px; color:#9b2727; background:#fff3f3; }
+::deep .tariff-rate-editor label { color:#425b78; font-size:14px; }

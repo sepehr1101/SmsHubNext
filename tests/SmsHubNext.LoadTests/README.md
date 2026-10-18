@@ -89,3 +89,52 @@ The expected safety behavior is:
 
 The JSON timing and invariant report is written to
 `tests/SmsHubNext.LoadTests/results/live-invalid-credentials-<provider>.json`.
+
+## sms.ir Sandbox end-to-end load
+
+This is a separate, explicit opt-in profile. It contacts `https://api.sms.ir` with a Sandbox-type
+API key, but routes every message through the SmsHubNext HTTP API, SQL accounting, dispatcher, and
+the real sms.ir adapter. The disposable database and app containers are removed after the run.
+
+Set the three required values without placing the provider key in a command line or repository file:
+
+```powershell
+$env:SMSHUBNEXT_SMSIR_SANDBOX_API_KEY = '<SANDBOX_API_KEY>'
+$env:SMSHUBNEXT_SMSIR_SANDBOX_SENDER_LINE = '<SANDBOX_SENDER_LINE>'
+$env:SMSHUBNEXT_SMSIR_SANDBOX_RECIPIENT = '09120000000'
+```
+
+Start with a bounded rehearsal:
+
+```powershell
+./tests/SmsHubNext.LoadTests/run-smsir-sandbox.ps1 `
+    -MessageCount 1000 `
+    -RequestIntervalMs 1000 `
+    -IUnderstandThisContactsSmsIrSandbox
+```
+
+After the rehearsal succeeds, run the full profile:
+
+```powershell
+./tests/SmsHubNext.LoadTests/run-smsir-sandbox.ps1 `
+    -MessageCount 100000 `
+    -BatchSize 100 `
+    -RequestIntervalMs 1000 `
+    -IUnderstandThisContactsSmsIrSandbox
+```
+
+The full default produces 1,000 application batches and 1,000 sms.ir requests, with at least one
+second between provider request starts. Before load, a one-message probe must reach
+`DispatchCompleted`; authentication, configuration, and terminal dispatch failures stop the run.
+The API key is sent only to the local provider-account endpoint and is encrypted by the running app;
+the generated report contains no key and only the last four recipient digits.
+
+sms.ir Sandbox does not store send reports. Consequently `DeliveryReportPolling` is disabled only in
+this profile, while every submitted message must still have one durable `DeliveryReportPoll` row.
+The verifier also requires exact message/body/batch counts, unique client correlation ids, provider
+message ids, one debit per batch, no refunds, ledger/balance agreement, and a fully drained dispatch
+queue. Results are written to:
+
+```text
+tests/SmsHubNext.LoadTests/results/smsir-sandbox-100000.json
+```

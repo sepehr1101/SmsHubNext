@@ -1,0 +1,58 @@
+@page "/admin/providers"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject ProvidersService Service
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>ارائه‌دهندگان | SmsHub</PageTitle>
+<FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
+
+<section class="admin-data-panel">
+    <header><div><h2>ارائه‌دهندگان</h2></div></header>
+    <div class="admin-table-wrap">
+        <AdminGrid T="ProviderItem" Items="_items" Loading="_loading" Name="ارائه‌دهندگان" OnAdd="OpenCreate" AddLabel="ارائه‌دهنده جدید"
+                   ExportColumns='@(new AdminExportColumn<ProviderItem>[] { new("شناسه", item => item.Id), new("نام", item => item.Name), new("کد ثابت", item => item.Code), new("وضعیت", item => item.IsActive ? "فعال" : "غیرفعال") })'>
+            <PropertyColumn Property="item => item.Id" Title="شناسه">
+                <CellTemplate><div class="mono">@(PersianDisplay.Number(context.Item.Id))</div></CellTemplate>
+            </PropertyColumn>
+            <PropertyColumn Property="item => item.Name" Title="نام">
+                <CellTemplate><div><b>@context.Item.Name</b></div></CellTemplate>
+            </PropertyColumn>
+            <PropertyColumn Property="item => item.Code" Title="کد ثابت">
+                <CellTemplate><div class="mono">@context.Item.Code</div></CellTemplate>
+            </PropertyColumn>
+            <PropertyColumn Property="item => item.IsActive" Title="وضعیت">
+                <CellTemplate><StatusPill IsActive="context.Item.IsActive" /></CellTemplate>
+            </PropertyColumn>
+            <TemplateColumn Title="عملیات" Sortable="false" Filterable="false" Hideable="false">
+                <CellTemplate>
+                    <div class="admin-row-actions">
+                        <MudTooltip Text="ویرایش" ShowOnFocus="true"><button type="button" aria-label="@($"ویرایش {context.Item.Name}")" @onclick="() => OpenEdit(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Edit" /></button></MudTooltip>
+                        <MudTooltip Text="حذف منطقی" ShowOnFocus="true"><button type="button" class="danger" aria-label="@($"حذف {context.Item.Name}")" @onclick="() => Delete(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.DeleteOutline" /></button></MudTooltip>
+                    </div>
+                </CellTemplate>
+            </TemplateColumn>
+        </AdminGrid>
+    </div>
+</section>
+
+@if (_editorOpen)
+{
+    <div class="admin-drawer-backdrop" @onclick="CloseEditor"></div><aside class="admin-editor"><header><div><h2>@(_editingId is null ? "ارائه‌دهنده جدید" : "ویرایش ارائه‌دهنده")</h2><p>نشانی‌های اتصال عمومی‌اند؛ رمز حساب در ProviderAccount ثبت می‌شود.</p></div><button @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></header><div class="admin-editor-body">
+        <label><span>نام</span><input @bind="_name" placeholder="مثلاً مگفا" /></label><label><span>کد ثابت</span><input @bind="_code" dir="ltr" placeholder="magfa" disabled="@(_editingId is not null)" /></label><label><span>نشانی اصلی API</span><input @bind="_baseUrl" dir="ltr" placeholder="https://sms.magfa.com" /></label><label><span>نشانی جایگزین (اختیاری)</span><input @bind="_fallbackBaseUrl" dir="ltr" /></label>@if (_editingId is not null) { <label class="admin-checkbox"><input type="checkbox" @bind="_isActive" /> فعال باشد</label> }
+    </div><footer><button class="admin-button secondary" @onclick="CloseEditor">انصراف</button><button class="admin-button primary" disabled="@_saving" @onclick="Save">@(_saving ? "در حال ذخیره…" : "ذخیره")</button></footer></aside>
+}
+
+@code {
+    private readonly CancellationTokenSource _disposeToken = new(); private IReadOnlyList<ProviderItem> _items = []; private byte? _editingId; private string _name = string.Empty; private string _code = string.Empty; private string _baseUrl = string.Empty; private string? _fallbackBaseUrl; private bool _isActive = true; private bool _loading = true; private bool _saving; private bool _editorOpen; private string? _error; private string? _success;
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() { _loading = true; _error = null; UiResult<IReadOnlyList<ProviderItem>> result = await Service.List(_disposeToken.Token); _items = result.Value ?? []; _error = result.ErrorMessage; _loading = false; }
+    private void OpenCreate() { _editingId = null; _name = string.Empty; _code = string.Empty; _baseUrl = string.Empty; _fallbackBaseUrl = null; _isActive = true; _editorOpen = true; }
+    private void OpenEdit(ProviderItem item) { _editingId = item.Id; _name = item.Name; _code = item.Code; _baseUrl = string.Empty; _fallbackBaseUrl = null; _isActive = item.IsActive; _editorOpen = true; }
+    private void CloseEditor() => _editorOpen = false;
+    private async Task Save() { if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_code) || string.IsNullOrWhiteSpace(_baseUrl)) { _error = "نام، کد و نشانی اصلی الزامی است."; return; } _saving = true; UiResult<string?> result; if (_editingId is null) { UiResult<CreateProviderResponse> create = await Service.Create(new CreateProviderRequest { Name = _name.Trim(), Code = _code.Trim(), BaseUrl = _baseUrl.Trim(), FallbackBaseUrl = NullIfEmpty(_fallbackBaseUrl) }, _disposeToken.Token); result = create.IsSuccess ? UiResult<string?>.Success(null) : UiResult<string?>.Failure(create.ErrorMessage!); } else { result = await Service.Update(_editingId.Value, new UpdateProviderRequest { Name = _name.Trim(), BaseUrl = _baseUrl.Trim(), FallbackBaseUrl = NullIfEmpty(_fallbackBaseUrl), IsActive = _isActive }, _disposeToken.Token); } _saving = false; if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _editorOpen = false; _success = "ارائه‌دهنده ذخیره شد."; await Load(); }
+    private async Task Delete(ProviderItem item) { bool confirmed = await JS.InvokeAsync<bool>("confirm", $"ارائه‌دهنده «{item.Name}» حذف منطقی شود؟"); if (!confirmed) return; UiResult<string?> result = await Service.Delete(item.Id, _disposeToken.Token); if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _success = $"ارائه‌دهنده «{item.Name}» حذف منطقی شد."; await Load(); }
+    private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    public void Dispose() { _disposeToken.Cancel(); _disposeToken.Dispose(); }
+}

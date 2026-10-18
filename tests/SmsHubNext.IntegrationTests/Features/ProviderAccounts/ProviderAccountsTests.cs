@@ -7,6 +7,7 @@ using SmsHubNext.Features.ProviderAccounts;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.Kavenegar;
 using SmsHubNext.Features.Providers.Magfa;
+using SmsHubNext.Features.Providers.SmsIr;
 using SmsHubNext.Features.ReferenceData.SenderLines;
 using SmsHubNext.IntegrationTests.Shared;
 using SmsHubNext.Shared.Database;
@@ -58,6 +59,65 @@ public sealed class ProviderAccountsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Smsir_account_accepts_api_key_authentication_and_hides_the_secret()
+    {
+        Result<CreateProviderAccountResponse> created = await CreateSmsIrAccount("smsir-api-key");
+        Assert.True(created.IsSuccess, created.Error?.Message);
+
+        Result<ProviderAccount> read = await new GetProviderAccountHandler(_db).Handle(
+            created.Value.Id,
+            CancellationToken.None);
+
+        Assert.True(read.IsSuccess, read.Error?.Message);
+        Assert.Equal(ProviderCodes.SmsIr, read.Value.ProviderCode);
+        Assert.Equal(ProviderAccountAuthTypes.ApiKey, read.Value.AuthType);
+        Assert.True(read.Value.HasSecret);
+    }
+
+    [Fact]
+    public async Task Smsir_account_resolver_decrypts_the_key_for_its_assigned_sender_line()
+    {
+        Result<CreateProviderAccountResponse> account = await CreateSmsIrAccount("smsir-api-key");
+        Assert.True(account.IsSuccess, account.Error?.Message);
+
+        Result<CreateSenderLineResponse> senderLine = await new CreateSenderLineHandler(_db).Handle(
+            new CreateSenderLineRequest
+            {
+                ProviderId = 3,
+                LineNumber = "30004505000017",
+                IsSharedLine = true,
+                ProviderAccountId = account.Value.Id,
+            },
+            CancellationToken.None);
+        Assert.True(senderLine.IsSuccess, senderLine.Error?.Message);
+
+        SmsIrAccount? resolved = await new SmsIrAccountResolver(_db, _secretProtector).ResolveAsync(
+            "30004505000017",
+            CancellationToken.None);
+
+        Assert.NotNull(resolved);
+        Assert.Equal("smsir-api-key", resolved.ApiKey);
+    }
+
+    [Fact]
+    public async Task Smsir_secret_health_reports_healthy_for_a_decryptable_account()
+    {
+        Result<CreateProviderAccountResponse> account = await CreateSmsIrAccount("smsir-api-key");
+        Assert.True(account.IsSuccess, account.Error?.Message);
+
+        ProviderSecretsHealthCheck check = new(
+            _db,
+            _secretProtector,
+            new MagfaOptions(),
+            new KavenegarOptions(),
+            new SmsIrOptions { Enabled = true });
+
+        HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+    }
+
+    [Fact]
     public async Task Provider_secret_health_reports_healthy_for_decryptable_active_account()
     {
         Result<CreateProviderAccountResponse> created = await CreateMagfaAccount("password-1");
@@ -66,7 +126,8 @@ public sealed class ProviderAccountsTests : IAsyncLifetime
             _db,
             _secretProtector,
             new MagfaOptions { Enabled = true },
-            new KavenegarOptions());
+            new KavenegarOptions(),
+            new SmsIrOptions());
 
         HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
 
@@ -83,7 +144,8 @@ public sealed class ProviderAccountsTests : IAsyncLifetime
             _db,
             wrongProtector,
             new MagfaOptions { Enabled = true },
-            new KavenegarOptions());
+            new KavenegarOptions(),
+            new SmsIrOptions());
 
         HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
 
@@ -250,6 +312,19 @@ public sealed class ProviderAccountsTests : IAsyncLifetime
                 AuthType = ProviderAccountAuthTypes.ApiKey,
                 Settings = new Dictionary<string, string>(),
                 Secret = secret,
+            },
+            CancellationToken.None);
+
+    private async Task<Result<CreateProviderAccountResponse>> CreateSmsIrAccount(string secret) =>
+        await new CreateProviderAccountHandler(_db, _secretProtector).Handle(
+            new CreateProviderAccountRequest
+            {
+                ProviderCode = ProviderCodes.SmsIr,
+                DisplayName = "sms.ir Main Account",
+                AuthType = ProviderAccountAuthTypes.ApiKey,
+                Settings = new Dictionary<string, string>(),
+                Secret = secret,
+                IsActive = true,
             },
             CancellationToken.None);
 

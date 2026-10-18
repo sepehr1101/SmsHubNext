@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string] $InstallerPath,
@@ -42,7 +42,7 @@ try {
 
     $fullInstallerPath = [System.IO.Path]::GetFullPath($InstallerPath)
     if (-not (Test-Path -LiteralPath $fullInstallerPath -PathType Leaf)) {
-        throw 'The bundled .NET Hosting Bundle installer is missing.'
+        throw 'بسته نصب .NET Hosting Bundle در کنار نصب‌کننده پیدا نشد.'
     }
 
     $exitCode = Invoke-InstallerProcess `
@@ -51,7 +51,7 @@ try {
         -SuccessfulExitCodes @(0, 1641, 3010)
 
     if (-not (Test-HostingBundleInstalled)) {
-        throw '.NET Hosting Bundle installation completed but ASP.NET Core Module or runtime was not detected.'
+        throw 'نصب .NET Hosting Bundle پایان یافت، اما ماژول ASP.NET Core یا Runtime شناسایی نشد.'
     }
 
     $restartRequired = $exitCode -in @(1641, 3010)
@@ -72,6 +72,8 @@ catch {
         -Path $ResultPath `
         -Success $false `
         -Code 'hosting_bundle.install_failed' `
-        -Message (Get-InstallerSafeErrorMessage -ErrorRecord $_)
+        -Message (Get-InstallerDisplayErrorMessage `
+            -ErrorRecord $_ `
+            -Fallback 'نصب .NET Hosting Bundle امکان‌پذیر نبود.')
     exit 21
 }

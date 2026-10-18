@@ -3,7 +3,12 @@ namespace SmsHubNext.Features.ReferenceData.Customers;
 internal static class CustomersSql
 {
     public const string List =
-        "SELECT Id, Name, Code, IsActive, CreatedAtUtc FROM dbo.Customer WHERE DeletedAtUtc IS NULL ORDER BY Id;";
+        """
+        SELECT Id, Name, Code, IsActive, CreatedAtUtc
+        FROM dbo.Customer
+        WHERE DeletedAtUtc IS NULL AND IsSystem = 0
+        ORDER BY Id;
+        """;
 
     public const string Insert =
         "INSERT INTO dbo.Customer (Name, Code) OUTPUT INSERTED.Id VALUES (@Name, @Code);";
@@ -12,7 +17,7 @@ internal static class CustomersSql
         """
         UPDATE dbo.Customer
         SET Name = @Name, Code = @Code, IsActive = @IsActive
-        WHERE Id = @Id AND DeletedAtUtc IS NULL;
+        WHERE Id = @Id AND DeletedAtUtc IS NULL AND IsSystem = 0;
         """;
 
     public const string SoftDelete =
@@ -21,6 +26,6 @@ internal static class CustomersSql
         SET IsActive = 0,
             DeletedAtUtc = SYSUTCDATETIME(),
             DeletedByApiKeyId = @DeletedByApiKeyId
-        WHERE Id = @Id AND DeletedAtUtc IS NULL;
+        WHERE Id = @Id AND DeletedAtUtc IS NULL AND IsSystem = 0;
         """;
 }

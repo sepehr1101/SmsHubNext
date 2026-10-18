@@ -22,18 +22,18 @@ public sealed class ProductionSettingsWriter
         string keyRingPath)
     {
         if (string.IsNullOrWhiteSpace(settingsPath))
-            throw new ArgumentException("A production settings path is required.", nameof(settingsPath));
+            throw new ArgumentException("مسیر فایل تنظیمات محیط عملیاتی الزامی است.", nameof(settingsPath));
 
         if (string.IsNullOrWhiteSpace(connectionString))
-            throw new ArgumentException("A connection string is required.", nameof(connectionString));
+            throw new ArgumentException("رشته اتصال پایگاه داده الزامی است.", nameof(connectionString));
 
         if (string.IsNullOrWhiteSpace(keyRingPath))
-            throw new ArgumentException("A Data Protection key-ring path is required.", nameof(keyRingPath));
+            throw new ArgumentException("مسیر نگهداری کلیدهای حفاظت از داده الزامی است.", nameof(keyRingPath));
 
         string fullSettingsPath = Path.GetFullPath(settingsPath);
         string? settingsDirectory = Path.GetDirectoryName(fullSettingsPath);
         if (string.IsNullOrWhiteSpace(settingsDirectory))
-            throw new InvalidOperationException("The production settings directory could not be resolved.");
+            throw new InvalidOperationException("مسیر پوشه تنظیمات محیط عملیاتی قابل تشخیص نیست.");
 
         Directory.CreateDirectory(settingsDirectory);
         JsonObject settings = ReadExistingSettings(fullSettingsPath);
@@ -100,7 +100,7 @@ public sealed class ProductionSettingsWriter
             });
 
         return node as JsonObject
-            ?? throw new InvalidOperationException("Production settings must contain a JSON object at the root.");
+            ?? throw new InvalidOperationException("ریشه فایل تنظیمات محیط عملیاتی باید یک شیء JSON باشد.");
     }
 
     private static void SetConnectionString(JsonObject settings, string connectionString)

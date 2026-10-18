@@ -1,3 +1,5 @@
+using SmsHubNext.Features.Authentication;
+
 namespace SmsHubNext.Features.ApiKeys;
 
 /// <summary>
@@ -9,6 +11,7 @@ public sealed record ApiKey(
     short CustomerId,
     string Name,
     string KeyPrefix,
+    ApiKeyAccessLevel AccessLevel,
     bool IsActive,
     DateTime? ExpiresAtUtc,
     DateTime? RevokedAtUtc,

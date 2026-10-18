@@ -2,6 +2,8 @@ using System.Data;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.Authentication;
+using SmsHubNext.Features.Providers;
+using SmsHubNext.Features.Providers.Esb;
 using SmsHubNext.Features.Tariffs;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Enums;
@@ -14,7 +16,7 @@ namespace SmsHubNext.Features.Sending;
 /// <summary>
 /// Accepts a send request and persists it: resolves the sender line, prices each
 /// message (frozen cost snapshot, README §6.3), then in one transaction debits the
-/// prepaid balance (overspend-safe), writes the <c>MessageBatch</c> header, the money
+/// customer balance (negative balances allowed), writes the <c>MessageBatch</c> header, the money
 /// ledger entry, and one <c>Message</c> (Queued) + <c>MessageBody</c> per recipient.
 ///
 /// The per-recipient rows are the heavy part of an accept (up to <c>MaxMessages</c>), so the
@@ -31,11 +33,13 @@ public sealed class SendMessagesHandler
 {
     private readonly Db _db;
     private readonly TimeProvider _clock;
+    private readonly EsbOptions _esbOptions;
 
-    public SendMessagesHandler(Db db, TimeProvider clock)
+    public SendMessagesHandler(Db db, TimeProvider clock, EsbOptions? esbOptions = null)
     {
         _db = db;
         _clock = clock;
+        _esbOptions = esbOptions ?? new EsbOptions();
     }
 
     /// <param name="identity">
@@ -47,6 +51,30 @@ public sealed class SendMessagesHandler
         SendMessagesRequest request,
         ApiKeyIdentity identity,
         CancellationToken cancellationToken)
+    {
+        if (identity.AccessLevel != ApiKeyAccessLevel.Customer)
+        {
+            return Error.Forbidden(
+                "auth.customer_key_required",
+                UserMessages.Auth.CustomerKeyRequired);
+        }
+
+        return await AcceptAsync(request, new SendActor(identity.ApiKeyId, identity.CustomerId, false), cancellationToken);
+    }
+
+    // Only the resend use case may select a different billing customer, derived from the stored
+    // source message. Keep the real administrator key as actor; never impersonate a customer key.
+    internal Task<Result<SendMessagesResponse>> AcceptResend(
+        SendMessagesRequest request, ApiKeyIdentity identity, short customerId, CancellationToken cancellationToken)
+    {
+        if (identity.AccessLevel != ApiKeyAccessLevel.Administrator &&
+            (identity.AccessLevel != ApiKeyAccessLevel.Customer || identity.CustomerId != customerId))
+            return Task.FromResult(Result.Failure<SendMessagesResponse>(Error.Forbidden("sending.resend_forbidden", "اجازه ارسال مجدد این پیام را ندارید.")));
+        return AcceptAsync(request, new SendActor(identity.ApiKeyId, customerId, identity.AccessLevel == ApiKeyAccessLevel.Administrator), cancellationToken);
+    }
+
+    private async Task<Result<SendMessagesResponse>> AcceptAsync(
+        SendMessagesRequest request, SendActor identity, CancellationToken cancellationToken)
     {
         Result validation = request.Validate();
         if (validation.IsFailure)
@@ -105,7 +133,7 @@ public sealed class SendMessagesHandler
     private static async Task<Result> ValidateReferencesAsync(
         SqlConnection connection,
         SendMessagesRequest request,
-        ApiKeyIdentity identity,
+        SendActor identity,
         CancellationToken cancellationToken)
     {
         bool customerExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
@@ -118,7 +146,7 @@ public sealed class SendMessagesHandler
 
         bool apiKeyBelongsToCustomer = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
             SendingSql.ApiKeyBelongsToCustomer,
-            new { identity.ApiKeyId, identity.CustomerId },
+            new { identity.ApiKeyId, identity.CustomerId, identity.Administrator },
             cancellationToken: cancellationToken));
 
         if (!apiKeyBelongsToCustomer)
@@ -153,7 +181,7 @@ public sealed class SendMessagesHandler
     }
 
     // Resolve the requested sender line to its keys; it must exist and be active to send.
-    private static async Task<Result<SenderLineRow>> ResolveSenderLineAsync(
+    private async Task<Result<SenderLineRow>> ResolveSenderLineAsync(
         SqlConnection connection, string lineNumber, short customerId, CancellationToken cancellationToken)
     {
         SenderLineRow? senderLine = await connection.QuerySingleOrDefaultAsync<SenderLineRow>(new CommandDefinition(
@@ -167,6 +195,17 @@ public sealed class SendMessagesHandler
             return Error.Validation("sending.inactive_sender_line", UserMessages.Sending.InactiveSenderLine);
         if (!senderLine.IsSharedLine && senderLine.CustomerId is not null && senderLine.CustomerId != customerId)
             return Error.Validation("sending.sender_line_not_allowed", UserMessages.Sending.SenderLineNotAllowed);
+        if (senderLine.UseEsb)
+        {
+            if (!string.Equals(senderLine.ProviderCode, ProviderCodes.Provider4040, StringComparison.OrdinalIgnoreCase))
+                return Error.Validation("sending.esb_provider_unsupported", "مسیر ESB فقط برای ارائه‌دهنده 4040 پشتیبانی می‌شود.");
+            if (!_esbOptions.Enabled)
+                return Error.Validation("sending.esb_disabled", "اتصال ESB فعال نیست؛ تنظیمات Esb را بررسی کنید.");
+            // ESB has its own configured OAuth client; a direct provider account is not used.
+            return senderLine;
+        }
+        if (string.Equals(senderLine.ProviderCode, ProviderCodes.Provider4040, StringComparison.OrdinalIgnoreCase))
+            return Error.Validation("sending.4040_direct_unsupported", "برای ارسال 4040 مسیر ESB را فعال کنید؛ مسیر مستقیم هنوز پیکربندی نشده است.");
         if (senderLine.ProviderAccountId is null)
             return Error.Validation("sending.provider_credentials_required", UserMessages.Sending.ProviderCredentialsRequired);
         if (senderLine.ProviderAccountIsActive != true)
@@ -255,7 +294,7 @@ public sealed class SendMessagesHandler
     private async Task<Result<SendMessagesResponse>> PersistAsync(
         SqlConnection connection,
         SendMessagesRequest request,
-        ApiKeyIdentity identity,
+        SendActor identity,
         SenderLineRow senderLine,
         IReadOnlyList<PricedMessage> priced,
         byte[] requestHash,
@@ -317,8 +356,7 @@ public sealed class SendMessagesHandler
         }
     }
 
-    // Overspend-safe debit in a single atomic statement (README §4.14): returns the post-debit balance,
-    // or a validation failure when funds are insufficient (no row updated) so nothing is persisted.
+    // Debit and initialize the balance inside the acceptance transaction; debt is allowed.
     private static async Task<Result<decimal>> DebitBalanceAsync(
         SqlConnection connection, SqlTransaction transaction, short customerId, decimal amount, CancellationToken cancellationToken)
     {
@@ -329,7 +367,7 @@ public sealed class SendMessagesHandler
             cancellationToken: cancellationToken));
 
         if (balanceAfter is null)
-            return Error.Validation("sending.insufficient_balance", UserMessages.Sending.InsufficientBalance);
+            return Error.Validation("sending.unknown_reference", UserMessages.Sending.UnknownReference);
 
         return balanceAfter.Value;
     }
@@ -339,7 +377,7 @@ public sealed class SendMessagesHandler
         SqlConnection connection,
         SqlTransaction transaction,
         SendMessagesRequest request,
-        ApiKeyIdentity identity,
+        SendActor identity,
         SenderLineRow senderLine,
         int messageCount,
         int segmentCount,
@@ -409,7 +447,7 @@ public sealed class SendMessagesHandler
                 NowUtc = nowUtc,
                 EventType = (byte)MessageBatchEventType.Accepted,
                 BatchStatus = (byte)BatchStatus.Received,
-                Detail = $"Batch accepted: {messageCount} message(s), {segmentCount} segment(s), total cost {totalCost:0.####} IRR.",
+                Detail = $"بچ پذیرفته شد: {messageCount} پیام، {segmentCount} بخش و هزینه کل {totalCost:0.####} ریال.",
             },
             transaction,
             cancellationToken: cancellationToken));
@@ -448,6 +486,8 @@ public sealed class SendMessagesHandler
     }
 
     private sealed record RateRow(int TariffId, string Currency, decimal PricePerSegment);
+
+    private sealed record SendActor(int ApiKeyId, short CustomerId, bool Administrator);
 
     private sealed record ExistingBatchRow(long BatchId, int AcceptedCount, byte[]? RequestHash);
 }

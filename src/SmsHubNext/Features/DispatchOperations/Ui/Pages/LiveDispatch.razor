@@ -1,0 +1,117 @@
+@page "/admin/dispatch-live"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@using SmsHubNext.Features.DispatchOperations
+@using SmsHubNext.Features.Reports.Ui
+@using SmsHubNext.Features.Reports.Ui.Pages
+@inject LiveDispatchService Service
+@implements IAsyncDisposable
+
+<PageTitle>پایش زنده ارسال | SmsHub</PageTitle>
+<div class="live-dispatch">
+<header><h1>پایش زنده ارسال</h1><a href="/admin/dispatch-operations">دسته‌ها و رویدادهای ارسال</a> · <a href="/admin/settings/errors">خطاهای نرم‌افزار</a></header>
+<p role="status">@(_error is null && _snapshot is not null ? "متصل؛ بازخوانی هر ۱۰ ثانیه" : "داده تازه دریافت نشده است") — آخرین دریافت: @Time(_snapshot?.ObservedAtUtc)</p>
+<FeatureNotice Loading="_loading" Error="_error" OnRetry="Refresh" />
+@if (_snapshot is { } snapshot)
+{
+    <p>شمارنده‌ها: وضعیت پیام‌های دریافت‌شده از @Time(snapshot.FromUtc) تا @Time(snapshot.TotalsAtUtc). بازخوانی شمارنده‌ها هر یک دقیقه؛ صف‌های قدیمی‌تر در این بازه نیستند.</p>
+    <section class="report-summary">
+        <article><span>در صف · Queued</span><strong>@N(snapshot.Totals.Queued)</strong><small>شامل دسته‌های متوقف و منتظر تلاش بعدی</small></article>
+        <article><span>در حال ارسال / انتظار تأیید</span><strong>@N(snapshot.Totals.Unconfirmed)</strong><small>AwaitingConfirmation؛ پاسخ ممکن است نامشخص باشد</small></article>
+        <article><span>پذیرش موفق سرویس‌دهنده</span><strong>@N(snapshot.Totals.Accepted)</strong><small>Submitted و Sent؛ تضمین تحویل نیست</small></article>
+        <article><span>رد ارسال · Rejected</span><strong>@N(snapshot.Totals.Rejected)</strong><small>شکست قطعی ثبت‌شده ارسال</small></article>
+    </section>
+    <p>ارسال تأییدشده (Sent): @N(snapshot.Totals.Sent) · تحویل به گیرنده (Delivered): @N(snapshot.Totals.Delivered) · تحویل‌نشده یا منقضی: @N(snapshot.Totals.DeliveryFailed)</p>
+    <LiveAcceptanceChart Snapshot="snapshot" Disconnected="@(_error is not null)" />
+}
+<section class="admin-data-panel">
+    <h2>پیام‌ها و خطاهای ارسال</h2>
+    <div class="live-filters">
+        <label>شماره گیرنده یا شناسه پیام<input @bind="_search" /></label>
+        <label>بازه دریافت<select @bind="_hours"><option value="1">یک ساعت</option><option value="6">شش ساعت</option><option value="24">۲۴ ساعت</option></select></label>
+        <label>وضعیت<select @bind="_status"><option value="">همه</option><option value="1">در صف</option><option value="6">در حال ارسال / انتظار تأیید</option><option value="2">پذیرش سرویس‌دهنده</option><option value="3">ارسال تأییدشده</option><option value="4">رد ارسال</option><option value="5">نامشخص</option></select></label>
+        <label>شناسه سرویس‌دهنده<input @bind="_provider" inputmode="numeric" /></label>
+        <label>شناسه دسته<input @bind="_batch" inputmode="numeric" /></label>
+        <MudTooltip Text="اعمال فیلترها" ShowOnFocus="true"><button class="admin-button secondary" aria-label="اعمال فیلترها" @onclick="Apply" disabled="_loading"><MudIcon Icon="@Icons.Material.Rounded.FilterAlt" /></button></MudTooltip>
+    </div>
+    <p>تلاش‌ها در سطح دسته ثبت می‌شوند؛ تاریخچه رویداد دسته به معنی تلاش مستقل هر پیام نیست. زمان‌ها به وقت ایران است.</p>
+    <div class="admin-table-wrap"><AdminGrid T="LiveMessage" Items="@(_messages?.Items ?? [])" Loading="_loading" PageLocal="true" ShowSearch="false" Name="پایش پیام‌ها" ExportColumns="ExportColumns">
+        <PropertyColumn Property="item => item.Id" Title="پیام / دسته"><CellTemplate>@N(context.Item.Id)<br /><a href="/admin/dispatch-operations/@context.Item.MessageBatchId">@N(context.Item.MessageBatchId)</a></CellTemplate></PropertyColumn>
+        <PropertyColumn Property="item => item.MobileNumber" Title="گیرنده / خط / سرویس"><CellTemplate>@PersianDisplay.Text(context.Item.MobileNumber)<br />@PersianDisplay.Text(context.Item.SenderLine)<br />@context.Item.ProviderName</CellTemplate></PropertyColumn>
+        <PropertyColumn Property="item => item.Status" Title="وضعیت ارسال / تحویل"><CellTemplate>@MessageDiagnosticText.Send(context.Item.Status)<br />@MessageDiagnosticText.Delivery(context.Item.DeliveryStatus)</CellTemplate></PropertyColumn>
+        <PropertyColumn Property="item => item.SubmittedAtUtc" Title="دریافت / تأیید پذیرش"><CellTemplate>@Time(context.Item.SubmittedAtUtc)<br />@Time(context.Item.AcceptedAtUtc)</CellTemplate></PropertyColumn>
+        <PropertyColumn Property="item => item.DispatchAttemptCount" Title="تلاش دسته"><CellTemplate>@N(context.Item.DispatchAttemptCount)</CellTemplate></PropertyColumn>
+        <PropertyColumn Property="item => item.ErrorAtUtc" Title="آخرین خطای دسته"><CellTemplate>@if (context.Item.ErrorEvent is MessageBatchEventType stage) { <span>@Time(context.Item.ErrorAtUtc)<br />@MessageDiagnosticText.EventStage(stage)<br />کد سرویس: @PersianDisplay.Number(context.Item.ErrorCode)</span> } else { <span>ثبت نشده</span> }</CellTemplate></PropertyColumn>
+        <TemplateColumn Title="متن / جزئیات" Sortable="false" Filterable="false"><CellTemplate><details><summary>@Preview(context.Item.Body)</summary><p class="live-body">@(context.Item.Body ?? "متن نگهداری نشده است")</p></details><button class="table-link" @onclick="() => _selected = context.Item.Id">عیب‌یابی و خطاها</button></CellTemplate></TemplateColumn>
+    </AdminGrid></div>
+    @if (_messages is { Items.Count: 0 }) { <p role="status">پیامی در این بازه و فیلترها یافت نشد.</p> }
+    <footer class="admin-pagination"><button disabled="@(_loading || _page == 1)" @onclick="Previous">قبلی</button><span>صفحه @N(_page)</span><button disabled="@(_loading || _messages?.HasMore != true)" @onclick="Next">بعدی</button></footer>
+</section>
+@if (_selected is long id) { <MessageDiagnosticPanel MessageId="id" Close="() => _selected = null" /> }
+</div>
+
+@code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private Task? _poll;
+    private LiveSnapshot? _snapshot;
+    private LiveMessagePage? _messages;
+    private bool _loading;
+    private string? _error;
+    private int _hours = 24, _page = 1;
+    private string _search = "", _provider = "", _batch = "", _status = "";
+    private long? _selected;
+    private byte? _appliedStatus, _appliedProvider;
+    private long? _appliedBatch;
+    private int _appliedHours = 24;
+    private string _appliedSearch = "";
+    private static readonly AdminExportColumn<LiveMessage>[] ExportColumns =
+    [
+        new("پیام / دسته", item => item.Id),
+        new("گیرنده / خط / سرویس", item => $"{item.MobileNumber} / {item.SenderLine} / {item.ProviderName}"),
+        new("وضعیت ارسال / تحویل", item => $"{MessageDiagnosticText.Send(item.Status)} / {MessageDiagnosticText.Delivery(item.DeliveryStatus)}"),
+        new("دریافت / تأیید پذیرش", item => $"{Time(item.SubmittedAtUtc)} / {Time(item.AcceptedAtUtc)}"),
+        new("تلاش دسته", item => item.DispatchAttemptCount),
+        new("آخرین خطای دسته", item => item.ErrorEvent is MessageBatchEventType stage ? $"{Time(item.ErrorAtUtc)} / {MessageDiagnosticText.EventStage(stage)} / {item.ErrorCode}" : "ثبت نشده"),
+        new("متن / جزئیات", item => item.Body),
+    ];
+    protected override async Task OnInitializedAsync() { await Refresh(); }
+    protected override Task OnAfterRenderAsync(bool firstRender) { if (firstRender) _poll = Poll(); return Task.CompletedTask; }
+    private async Task Poll()
+    {
+        using PeriodicTimer timer = new(TimeSpan.FromSeconds(10));
+        try { while (await timer.WaitForNextTickAsync(_lifetime.Token)) await InvokeAsync(async () => { await Refresh(); StateHasChanged(); }); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+    }
+    private async Task Refresh()
+    {
+        if (_loading || _lifetime.IsCancellationRequested) return;
+        _loading = true;
+        try
+        {
+            UiResult<LiveSnapshot> summary = await Service.Summary(_lifetime.Token);
+            UiResult<LiveMessagePage> messages = await Service.Messages(_appliedHours, _appliedStatus, _appliedProvider, _appliedBatch, _appliedSearch, _page, _lifetime.Token);
+            if (summary.IsSuccess) _snapshot = summary.Value;
+            if (messages.IsSuccess) _messages = messages.Value;
+            _error = summary.ErrorMessage ?? messages.ErrorMessage;
+        }
+        finally { _loading = false; }
+    }
+    private async Task Apply()
+    {
+        string provider = PersianDisplay.SearchText(_provider), batch = PersianDisplay.SearchText(_batch);
+        if ((provider.Length > 0 && !byte.TryParse(provider, out _)) || (batch.Length > 0 && (!long.TryParse(batch, out long batchId) || batchId <= 0))) { _error = "شناسه سرویس‌دهنده یا دسته معتبر نیست."; return; }
+        _appliedProvider = provider.Length == 0 ? null : byte.Parse(provider);
+        _appliedBatch = batch.Length == 0 ? null : long.Parse(batch);
+        _appliedStatus = _status.Length == 0 ? null : byte.Parse(_status);
+        _appliedHours = _hours; _appliedSearch = PersianDisplay.SearchText(_search); _page = 1;
+        await Refresh();
+    }
+    private async Task Previous() { _page--; await Refresh(); }
+    private async Task Next() { _page++; await Refresh(); }
+    private static string N(long value) => PersianDisplay.Number(value);
+    private static string Time(DateTime? value) => value is null ? "ثبت نشده" : PersianDisplay.Date(IranTime.FromUtc(new DateTimeOffset(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc))), "yyyy/MM/dd HH:mm:ss");
+    private static string Preview(string? body) => body is null ? "متن موجود نیست" : body.Length > 60 ? body[..60] + "…" : body;
+    public async ValueTask DisposeAsync() { _lifetime.Cancel(); if (_poll is not null) await _poll; _lifetime.Dispose(); }
+}
+
+

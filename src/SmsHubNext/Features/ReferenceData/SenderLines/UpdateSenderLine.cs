@@ -9,6 +9,7 @@ public sealed class UpdateSenderLineRequest
     public short? CustomerId { get; init; }
     public int? ProviderAccountId { get; init; }
     public bool IsActive { get; init; }
+    public bool UseEsb { get; init; }
 
     public Result Validate()
     {

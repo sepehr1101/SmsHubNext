@@ -1,0 +1,250 @@
+@page "/admin/delivery-reports"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject DeliveryReportsService Service
+@inject TimeProvider Clock
+@using SmsHubNext.Features.Batches
+@using SmsHubNext.Shared.Results
+@using SmsHubNext.Features.Sending
+@implements IDisposable
+
+<PageTitle>تاریخچه تحویل | SmsHub</PageTitle>
+
+<section class="admin-data-panel">
+    <header><div><h2>دسته‌های ارسال</h2></div></header>
+    <form class="delivery-batch-range" @onsubmit="SearchBatches" @onsubmit:preventDefault>
+        <label><span>از تاریخ شمسی</span><input @bind="_fromDate" dir="ltr" maxlength="10" placeholder="۱۴۰۵/۰۷/۰۱" required /></label>
+        <label><span>از ساعت (تهران)</span><input type="time" value="@_fromTime" @onchange='args => _fromTime = Convert.ToString(args.Value) ?? string.Empty' required /></label>
+        <label><span>تا تاریخ شمسی</span><input @bind="_toDate" dir="ltr" maxlength="10" placeholder="۱۴۰۵/۰۷/۳۰" required /></label>
+        <label><span>تا ساعت (تهران)</span><input type="time" value="@_toTime" @onchange='args => _toTime = Convert.ToString(args.Value) ?? string.Empty' required /></label>
+        <button type="submit" class="admin-button primary" disabled="_loading">نمایش دسته‌ها</button>
+    </form>
+    <div class="admin-table-wrap">
+        <AdminGrid T="BatchListItem" Items="_batches" Loading="_loading" PageLocal="true" Name="دسته‌های ارسال" ExportColumns="BatchColumns">
+            <PropertyColumn Property="item => item.Id" Title="شناسه"><CellTemplate>@PersianDisplay.Number(context.Item.Id)</CellTemplate></PropertyColumn>
+            <PropertyColumn Property="item => item.ReceivedAtUtc" Title="زمان ثبت (تهران)"><CellTemplate>@PersianDisplay.Date(IranTime.FromUtc(new DateTimeOffset(DateTime.SpecifyKind(context.Item.ReceivedAtUtc, DateTimeKind.Utc))), "yyyy/MM/dd HH:mm:ss")</CellTemplate></PropertyColumn>
+            <PropertyColumn Property="item => item.CustomerName" Title="مشتری" />
+            <PropertyColumn Property="item => item.ProviderName" Title="ارائه‌دهنده" />
+            <PropertyColumn Property="item => item.MessageCount" Title="تعداد پیام"><CellTemplate>@PersianDisplay.Number(context.Item.MessageCount)</CellTemplate></PropertyColumn>
+            <PropertyColumn Property="item => item.TotalCost" Title="هزینه (ریال)"><CellTemplate>@PersianDisplay.Number(context.Item.TotalCost, "N0")</CellTemplate></PropertyColumn>
+            <PropertyColumn Property="item => item.Status" Title="وضعیت"><CellTemplate>@BatchLabel(context.Item.Status)</CellTemplate></PropertyColumn>
+            <TemplateColumn Title="مشاهده" Sortable="false" Filterable="false" Hideable="false"><CellTemplate>
+                <div class="admin-row-actions">
+                    <MudTooltip Text="مشاهده پیام‌ها و تاریخچه تحویل" ShowOnFocus="true"><button type="button" aria-label="مشاهده پیام‌ها و تاریخچه تحویل" disabled="_loading" @onclick="() => SelectBatch(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Sms" /></button></MudTooltip>
+                    <MudTooltip Text="جزئیات دستهٔ ارسال" ShowOnFocus="true"><a aria-label="جزئیات دستهٔ ارسال" href="/admin/dispatch-operations/@context.Item.Id"><MudIcon Icon="@Icons.Material.Rounded.OpenInNew" /></a></MudTooltip>
+                </div>
+            </CellTemplate></TemplateColumn>
+        </AdminGrid>
+    </div>
+    <footer class="admin-pagination"><button disabled="@(_loading || _batchHistory.Count == 0)" @onclick="PreviousBatches">صفحه قبل</button><span>صفحه @PersianDisplay.Number(_batchHistory.Count + 1)</span><button disabled="@(_loading || _nextBatch is null)" @onclick="NextBatches">صفحه بعد</button></footer>
+</section>
+<FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="SearchBatches" />
+@if (_messages.Count > 0)
+{
+    <section class="admin-data-panel"><header><div><h2>پیام‌های دسته #@(PersianDisplay.Number(_batchId))</h2><span>یک پیام را برای مشاهده تاریخچه انتخاب کنید.</span></div></header><div class="delivery-message-grid">@foreach (BatchMessageItem item in _messages) { <button disabled="_loading" class="delivery-message-card @(item.Id == _messageId ? "active" : null)" @onclick="() => SelectMessage(item.Id)"><span class="mono">#@(PersianDisplay.Number(item.Id))</span><strong dir="ltr">@(PersianDisplay.Number(item.MobileNumber))</strong><em class="delivery-state state-@((byte)item.DeliveryStatus)">@DeliveryLabel(item.DeliveryStatus)</em><small>@(PersianDisplay.Number(item.TotalCost, "N0")) ریال</small></button> }</div>
+        <footer class="admin-pagination"><button disabled="@(_loading || _messageHistory.Count == 0)" @onclick="PreviousMessages">صفحه قبل</button><span>صفحه @PersianDisplay.Number(_messageHistory.Count + 1)</span><button disabled="@(_loading || _nextMessage is null)" @onclick="NextMessages">صفحه بعد</button></footer>
+    </section>
+}
+@if (_messageId > 0)
+{
+    @if (_resendPreview is not null)
+    {
+        <ResendMessagePanel @key="_messageId" MessageId="_messageId" Recipient="_resendPreview.Recipient" Allowed="_resendPreview.Allowed" BodyAvailable="_resendPreview.BodyAvailable" />
+    }
+    <div class="delivery-columns"><section class="admin-data-panel"><header><div><h2>رویدادهای پیام #@(PersianDisplay.Number(_messageId))</h2><span>جدیدترین گزارش در ابتدای فهرست</span></div></header><div class="delivery-timeline">@if (!_loading && _reports.Count == 0) { <div class="admin-empty">هنوز گزارشی برای این پیام ثبت نشده است.</div> }@foreach (DeliveryReportItem item in _reports) { <article><i class="dlr-@((byte)item.NormalizedStatus)"></i><div><strong>@ReportLabel(item.NormalizedStatus)</strong><span>کد خام ارائه‌دهنده: @(PersianDisplay.Number(item.RawStatusCode))</span><small>@(PersianDisplay.Date(item.ReceivedAtUtc, "yyyy/MM/dd HH:mm:ss")) UTC · @(PersianDisplay.Text(item.SubmitDateJalali))</small></div></article> }</div></section>
+    <section class="admin-data-panel delivery-ingest"><header><div><h2>ثبت گزارش تستی</h2><span>برای بررسی جریان کامل UI و API</span></div></header><label><span>وضعیت نرمال‌شده</span><select @bind="_status"><option value="1">تحویل‌شده</option><option value="2">تحویل‌نشده</option><option value="3">منقضی</option><option value="4">ردشده</option><option value="5">نامشخص</option></select></label><label><span>کد خام ارائه‌دهنده</span><input type="number" @bind="_rawCode" /></label><button class="admin-button primary" disabled="@_saving" @onclick="Ingest">ثبت رویداد</button></section></div>
+}
+@code {
+    [SupplyParameterFromQuery(Name = "messageId")] public long? QueryMessageId { get; set; }
+    private readonly CancellationTokenSource _token = new();
+    private readonly Stack<BatchCursor?> _batchHistory = new();
+    private readonly Stack<long?> _messageHistory = new();
+    private IReadOnlyList<BatchListItem> _batches = [];
+    private IReadOnlyList<BatchMessageItem> _messages = [];
+    private IReadOnlyList<DeliveryReportItem> _reports = [];
+    private BrowseBatchesRequest? _query;
+    private BatchCursor? _nextBatch;
+    private long? _afterMessage;
+    private long? _nextMessage;
+    private string _fromDate = string.Empty;
+    private string _toDate = string.Empty;
+    private string _fromTime = "00:00";
+    private string _toTime = "23:59";
+    private long _batchId;
+    private long _messageId;
+    private ResendMessagePreview? _resendPreview;
+    private DeliveryReportStatus _status = DeliveryReportStatus.Delivered;
+    private int _rawCode;
+    private bool _loading;
+    private bool _saving;
+    private string? _error;
+    private string? _success;
+    private static readonly AdminExportColumn<BatchListItem>[] BatchColumns =
+    [
+        new("شناسه", item => item.Id),
+        new("زمان ثبت (تهران)", item => IranTime.FromUtc(new DateTimeOffset(DateTime.SpecifyKind(item.ReceivedAtUtc, DateTimeKind.Utc)))),
+        new("مشتری", item => item.CustomerName), new("ارائه‌دهنده", item => item.ProviderName),
+        new("تعداد پیام", item => item.MessageCount), new("هزینه (ریال)", item => item.TotalCost),
+        new("وضعیت", item => BatchLabel(item.Status)),
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _fromDate = _toDate = PersianDisplay.Date(IranTime.FromUtc(Clock.GetUtcNow()));
+        await SearchBatches();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (QueryMessageId is > 0 && QueryMessageId != _messageId)
+        {
+            _messageId = QueryMessageId.Value;
+            await LoadReports();
+        }
+    }
+
+    private async Task SearchBatches()
+    {
+        if (_loading || _saving) return;
+        _error = null;
+        _success = null;
+        if (!PersianDisplay.TryParseDateTime($"{_fromDate} {_fromTime}", out DateTime? from) || from is null ||
+            !PersianDisplay.TryParseDateTime($"{_toDate} {_toTime}", out DateTime? to) || to is null)
+        {
+            _error = "تاریخ شمسی و ساعت معتبر وارد کنید.";
+            return;
+        }
+        BrowseBatchesRequest request = new(IranTime.ToUtc(from.Value), IranTime.ToUtc(to.Value).AddMinutes(1));
+        Result validation = request.Validate();
+        if (validation.IsFailure) { _error = validation.Error!.Message; return; }
+        if (await LoadBatches(request)) _batchHistory.Clear();
+    }
+
+    private async Task<bool> LoadBatches(BrowseBatchesRequest request)
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            UiResult<BatchListPage> result = await Service.Batches(request, _token.Token);
+            if (!result.IsSuccess || result.Value is null) { _error = result.ErrorMessage; return false; }
+            _query = request;
+            _batches = result.Value.Items;
+            _nextBatch = result.Value.Next;
+            ClearMessages();
+            return true;
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task NextBatches()
+    {
+        if (_loading || _saving || _query is null || _nextBatch is null) return;
+        BatchCursor? current = _query.Before;
+        if (await LoadBatches(_query with { Before = _nextBatch })) _batchHistory.Push(current);
+    }
+
+    private async Task PreviousBatches()
+    {
+        if (_loading || _saving || _query is null || _batchHistory.Count == 0) return;
+        if (await LoadBatches(_query with { Before = _batchHistory.Peek() })) _batchHistory.Pop();
+    }
+
+    private void ClearMessages()
+    {
+        _batchId = _messageId = 0;
+        _resendPreview = null;
+        _messages = [];
+        _reports = [];
+        _messageHistory.Clear();
+        _afterMessage = _nextMessage = null;
+    }
+
+    private async Task SelectBatch(BatchListItem item)
+    {
+        if (_loading || _saving) return;
+        ClearMessages();
+        _batchId = item.Id;
+        await LoadMessages(null);
+    }
+
+    private async Task<bool> LoadMessages(long? afterId)
+    {
+        _loading = true;
+        _error = null;
+        _success = null;
+        try
+        {
+            UiResult<BatchMessagesPage> result = await Service.MessagePage(_batchId, afterId, _token.Token);
+            if (!result.IsSuccess || result.Value is null) { _error = result.ErrorMessage; return false; }
+            _messages = result.Value.Items;
+            _afterMessage = afterId;
+            _nextMessage = result.Value.NextAfterId;
+            _messageId = 0;
+            _reports = [];
+            return true;
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task NextMessages()
+    {
+        if (_loading || _saving || _nextMessage is null) return;
+        long? current = _afterMessage;
+        if (await LoadMessages(_nextMessage)) _messageHistory.Push(current);
+    }
+
+    private async Task PreviousMessages()
+    {
+        if (_loading || _saving || _messageHistory.Count == 0) return;
+        if (await LoadMessages(_messageHistory.Peek())) _messageHistory.Pop();
+    }
+
+    private async Task SelectMessage(long id)
+    {
+        if (_loading || _saving) return;
+        _messageId = id;
+        await LoadReports();
+    }
+
+    private async Task LoadReports()
+    {
+        _resendPreview = null;
+        _loading = true;
+        _error = null;
+        try
+        {
+            UiResult<IReadOnlyList<DeliveryReportItem>> result = await Service.List(_messageId, _token.Token);
+            UiResult<ResendMessagePreview> preview = await Service.ResendPreview(_messageId, _token.Token);
+            _resendPreview = preview.Value;
+            _reports = result.Value ?? [];
+            _error = result.ErrorMessage ?? preview.ErrorMessage;
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task Ingest()
+    {
+        if (_loading || _saving) return;
+        _saving = true;
+        _error = null;
+        _success = null;
+        try
+        {
+            UiResult<IngestDeliveryReportResponse> result = await Service.Ingest(new IngestDeliveryReportRequest { MessageId = _messageId, Status = _status, RawStatusCode = _rawCode }, _token.Token);
+            if (!result.IsSuccess) { _error = result.ErrorMessage; return; }
+            _success = result.Value?.AppliedToReadModel == true ? "گزارش ثبت شد و وضعیت جاری پیام نیز تغییر کرد." : "گزارش ثبت شد؛ وضعیت جاری پیام به دلیل تقدم رویداد جدیدتر تغییر نکرد.";
+            await LoadReports();
+        }
+        finally { _saving = false; }
+    }
+
+    private static string BatchLabel(BatchStatus status) => status switch
+    {
+        BatchStatus.Received => "دریافت‌شده", BatchStatus.Dispatching => "در حال ارسال", BatchStatus.DispatchCompleted => "تکمیل",
+        BatchStatus.DispatchPartiallyFailed => "بخشی ناموفق", BatchStatus.Held => "نگه‌داشته", BatchStatus.Rejected => "ردشده", _ => "شکست ارسال",
+    };
+    private static string DeliveryLabel(CurrentDeliveryStatus status) => status switch { CurrentDeliveryStatus.Pending => "در انتظار", CurrentDeliveryStatus.Delivered => "تحویل‌شده", CurrentDeliveryStatus.Undelivered => "تحویل‌نشده", CurrentDeliveryStatus.Expired => "منقضی", _ => "نامشخص" };
+    private static string ReportLabel(DeliveryReportStatus status) => status switch { DeliveryReportStatus.Delivered => "تحویل‌شده", DeliveryReportStatus.Undelivered => "تحویل‌نشده", DeliveryReportStatus.Expired => "منقضی", DeliveryReportStatus.Rejected => "ردشده", _ => "نامشخص" };
+    public void Dispose() { _token.Cancel(); _token.Dispose(); }
+}

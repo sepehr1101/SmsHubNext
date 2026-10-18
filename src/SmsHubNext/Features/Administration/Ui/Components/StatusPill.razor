@@ -1,0 +1,2 @@
+<span class="admin-status-pill @(IsActive ? "active" : "inactive")"><i></i>@(IsActive ? "فعال" : "غیرفعال")</span>
+@code { [Parameter] public bool IsActive { get; set; } }

@@ -1,0 +1,11 @@
+<section class="admin-settings-section">
+    <header><i><MudIcon Icon="@Icon" /></i><div><h2>@Title</h2><p>@Description</p></div></header>
+    <div class="admin-settings-section-body">@ChildContent</div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Description { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public RenderFragment? ChildContent { get; set; }
+}

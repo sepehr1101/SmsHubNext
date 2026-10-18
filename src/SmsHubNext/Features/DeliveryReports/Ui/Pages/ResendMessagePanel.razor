@@ -1,0 +1,69 @@
+@using SmsHubNext.Features.Sending
+@inject DeliveryReportsService Service
+@implements IDisposable
+
+<section class="admin-data-panel resend-panel" aria-label="ارسال مجدد پیامک">
+    <h3>ارسال مجدد پیام @PersianDisplay.Number(MessageId)</h3>
+    @if (Recipient is not null) { <p>گیرنده: <span dir="ltr">@PersianDisplay.Text(Recipient)</span></p> }
+    <p>همان متن و خط قبلی در یک دسته جدید ثبت می‌شود و با تعرفه فعلی، هزینه جدید دارد. سابقه قبلی حفظ می‌شود.</p>
+    @if (!BodyAvailable)
+    {
+        <p role="status">متن پیام دیگر نگهداری نمی‌شود؛ ارسال مجدد ممکن نیست.</p>
+    }
+    else if (!Allowed)
+    {
+        <p role="status">ارسال مجدد فقط برای پیام ردشده یا دارای نتیجه قطعی تحویل ممکن است؛ وضعیت فعلی مجاز نیست.</p>
+    }
+    else if (_result is null)
+    {
+        <button type="button" class="admin-button secondary" disabled="_sending" @onclick="() => _confirm = !_confirm">ارسال مجدد این پیامک</button>
+        @if (_confirm)
+        {
+            <div role="group" aria-label="تأیید ارسال مجدد">
+                <p>ارسال مجدد و ثبت هزینه جدید را تأیید می‌کنید؟</p>
+                <button type="button" class="admin-button primary" disabled="_sending" @onclick="Send">@(_sending ? "در حال ثبت…" : "تأیید و ثبت در صف")</button>
+                <button type="button" class="admin-button secondary" disabled="_sending" @onclick="() => _confirm = false">انصراف</button>
+            </div>
+        }
+    }
+    @if (_error is not null) { <p role="alert">@_error</p><p>برای تلاش دوباره از همین دکمه استفاده کنید؛ شناسه درخواست ثابت می‌ماند تا هزینه تکراری ایجاد نشود.</p> }
+    @if (_result is not null)
+    {
+        <p role="status">@(_result.IsDuplicate ? "این درخواست قبلاً ثبت شده است." : "پیام جدید در صف ثبت شد؛ هنوز به معنی ارسال یا تحویل نیست.")</p>
+        <p>شناسه پیام جدید: <a href="/admin/delivery-reports?messageId=@_result.MessageId">@PersianDisplay.Number(_result.MessageId)</a> · <a href="/admin/dispatch-operations/@_result.BatchId">مشاهده دسته جدید @PersianDisplay.Number(_result.BatchId)</a></p>
+    }
+</section>
+
+@code {
+    [Parameter] public long MessageId { get; set; }
+    [Parameter] public string? Recipient { get; set; }
+    [Parameter] public bool Allowed { get; set; }
+    [Parameter] public bool BodyAvailable { get; set; } = true;
+    private readonly CancellationTokenSource _lifetime = new();
+    private long _currentMessage;
+    private Guid _requestId;
+    private bool _confirm, _sending;
+    private string? _error;
+    private ResendMessageResponse? _result;
+
+    protected override void OnParametersSet()
+    {
+        if (_currentMessage == MessageId) return;
+        _currentMessage = MessageId;
+        _requestId = Guid.NewGuid();
+        _confirm = false; _result = null; _error = null;
+    }
+    private async Task Send()
+    {
+        if (_sending || !Allowed || _result is not null) return;
+        _sending = true; _error = null;
+        try
+        {
+            UiResult<ResendMessageResponse> result = await Service.Resend(MessageId, _requestId, _lifetime.Token);
+            if (result.IsSuccess) _result = result.Value;
+            else _error = result.ErrorMessage;
+        }
+        finally { _sending = false; }
+    }
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

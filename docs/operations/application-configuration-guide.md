@@ -87,7 +87,7 @@ the batch as `InvalidProviderCredentials`. Neither known outcome performs a conf
 | `AwaitingConfirmationMaxAge` | `11:00:00` | Maximum age at which provider lookup evidence is accepted. It must remain below Kavenegar's 12-hour local-id lookup retention. Older unknown outcomes are held for manual review and are never resent automatically. |
 | `RequiredNegativeConfirmations` | `2` | Number of delayed "no record" lookups required before a message may return to `Queued` for resend. Increase it to reduce duplicate-send risk. Lower values recover faster but are riskier if provider lookup can be stale. |
 
-Operational rule: while a message is in `AwaitingConfirmation`, do not send it again. A positive provider lookup moves it to `Submitted`. Enough delayed negative lookups permit an automatic resend only for providers that guarantee idempotency for the supplied local message id (currently Kavenegar). Magfa does not document that guarantee, so an unresolved Magfa outcome is held with `ManualReviewRequired` instead of being resent automatically.
+Operational rule: while a message is in `AwaitingConfirmation`, do not send it again. A positive provider lookup moves it to `Submitted`. Enough delayed negative lookups permit an automatic resend only for providers that guarantee idempotency for the supplied local message id (currently Kavenegar). Magfa and sms.ir do not document that guarantee, so an unresolved outcome from either provider is held with `ManualReviewRequired` instead of being resent automatically.
 
 ### Other Dispatch Values
 
@@ -107,11 +107,21 @@ The `DeliveryReportPolling` section controls how submitted messages are checked 
 
 The `InboundPolling` section controls provider inbox polling. Enable it only when inbound message handling is operationally required and the provider inbox behavior is understood.
 
+`DeliveryReportPolling:Enabled` defaults to `true`. Disable it only for a bounded provider-sandbox
+run whose contract explicitly says that delivery reports are not stored. Submitted messages still
+enter `DeliveryReportPoll`, so the queue remains available for verification and is resumed after the
+worker is enabled again.
+
 ## Provider Settings
 
 The `Providers` section controls provider integration options such as base URL, timeout, batch size, and account mapping. In production, verify sender-line to account mapping before enabling dispatch.
 
-`LoopbackSmsProvider` is available only in the `Development` and `Testing` environments. In every production-like environment the application fails at startup unless at least one real provider (`Magfa` or `Kavenegar`) is enabled. This is an intentional deployment safety check: a missing provider configuration must never create fake successful deliveries.
+`Providers:SmsIr:MinimumRequestInterval` controls a process-wide spacing between sms.ir request
+starts. It defaults to zero (no adapter throttle). Sandbox and cautious rollout configurations should
+set a positive value such as `00:00:01`; HTTP 429/status 20 remains a retryable explicit
+non-submission outcome.
+
+`LoopbackSmsProvider` is available only in the `Development` and `Testing` environments. In every production-like environment the application fails at startup unless at least one real provider (`Magfa`, `Kavenegar`, or `sms.ir`) is enabled. This is an intentional deployment safety check: a missing provider configuration must never create fake successful deliveries.
 
 Before production startup:
 

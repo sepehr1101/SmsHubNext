@@ -14,4 +14,6 @@ internal sealed class SenderLineRow
     public int? ProviderAccountId { get; set; }
     public bool? ProviderAccountIsActive { get; set; }
     public long? SecretLength { get; set; }
+    public bool UseEsb { get; set; }
+    public string ProviderCode { get; set; } = string.Empty;
 }

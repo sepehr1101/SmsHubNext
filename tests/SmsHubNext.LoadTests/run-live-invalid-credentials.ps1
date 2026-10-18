@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('magfa', 'kavenegar')]
+    [ValidateSet('magfa', 'kavenegar', 'smsir')]
     [string]$Provider,
 
     [Parameter(Mandatory = $true)]

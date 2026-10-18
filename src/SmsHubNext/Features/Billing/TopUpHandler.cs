@@ -7,7 +7,7 @@ using SmsHubNext.Shared.Results;
 namespace SmsHubNext.Features.Billing;
 
 /// <summary>
-/// Credits a customer's prepaid balance and records a ledger entry, atomically.
+/// Credits a customer's signed balance and records a ledger entry, atomically.
 /// The balance column and the ledger must always reconcile (README §4.15).
 /// </summary>
 public sealed class TopUpHandler

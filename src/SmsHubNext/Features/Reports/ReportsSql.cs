@@ -25,11 +25,11 @@ internal static class ReportsSql
         COUNT_BIG(*) AS MessageCount,
         COALESCE(SUM(CAST(m.SegmentCount AS BIGINT)), 0) AS SegmentCount,
         COALESCE(SUM(m.TotalCost), 0) AS TotalCost,
-        SUM(CASE WHEN m.DeliveryStatus = 1 THEN 1 ELSE 0 END) AS PendingCount,
-        SUM(CASE WHEN m.DeliveryStatus = 2 THEN 1 ELSE 0 END) AS DeliveredCount,
-        SUM(CASE WHEN m.DeliveryStatus = 3 THEN 1 ELSE 0 END) AS UndeliveredCount,
-        SUM(CASE WHEN m.DeliveryStatus = 4 THEN 1 ELSE 0 END) AS ExpiredCount,
-        SUM(CASE WHEN m.DeliveryStatus = 5 THEN 1 ELSE 0 END) AS UnknownCount,
+        SUM(CAST(CASE WHEN m.DeliveryStatus = 1 THEN 1 ELSE 0 END AS BIGINT)) AS PendingCount,
+        SUM(CAST(CASE WHEN m.DeliveryStatus = 2 THEN 1 ELSE 0 END AS BIGINT)) AS DeliveredCount,
+        SUM(CAST(CASE WHEN m.DeliveryStatus = 3 THEN 1 ELSE 0 END AS BIGINT)) AS UndeliveredCount,
+        SUM(CAST(CASE WHEN m.DeliveryStatus = 4 THEN 1 ELSE 0 END AS BIGINT)) AS ExpiredCount,
+        SUM(CAST(CASE WHEN m.DeliveryStatus = 5 THEN 1 ELSE 0 END AS BIGINT)) AS UnknownCount,
         CAST(
             CASE WHEN COUNT_BIG(*) = 0
                  THEN 0

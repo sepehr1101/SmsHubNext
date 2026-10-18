@@ -91,7 +91,7 @@ Migration جداگانه در Health تکرار نمی‌شود؛ برنامه m
 
 ### `provider-secrets`
 
-این check فقط برای Magfa/Kavenegar فعال اجرا می‌شود. به‌جای یک round-trip مصنوعی، `SecretEncrypted` واقعی Provider Accountهای فعال از SQL خوانده و با Key Ring جاری باز می‌شود. به این ترتیب حذف یا تعویض اشتباه Key Ring قابل تشخیص است.
+این check فقط برای providerهای واقعی فعال (Magfa، Kavenegar و sms.ir) اجرا می‌شود. به‌جای یک round-trip مصنوعی، `SecretEncrypted` واقعی Provider Accountهای فعال از SQL خوانده و با Key Ring جاری باز می‌شود. به این ترتیب حذف یا تعویض اشتباه Key Ring قابل تشخیص است.
 
 - Provider خارجی غیرفعال: `healthy` و not applicable؛
 - Provider فعال بدون account فعال یا با Secret غیرقابل رمزگشایی: `degraded`؛
@@ -131,7 +131,7 @@ Installer برای اجرای مداوم workerها App Pool را روی `Always
 
 - Kafka، RabbitMQ، Redis، Hangfire، SMTP و سرویس‌های دیگری که در پروژه استفاده نشده‌اند؛
 - ارسال SMS آزمایشی در هر health probe؛
-- ping فعال Magfa/Kavenegar؛ وضعیت شبکه Provider از نتیجه واقعی workerها و داشبورد عملیات مشخص می‌شود؛
+- ping فعال providerها؛ وضعیت شبکه Provider از نتیجه واقعی workerها و داشبورد عملیات مشخص می‌شود؛
 - write/delete آزمایشی در دیتابیس یا Key Ring در هر درخواست؛
 - scan یا `COUNT` روی جدول میلیاردردیفی `Message`؛
 - HealthChecks UI و storage/history جداگانه؛ پنل React خود پروژه مصرف‌کننده JSON خواهد بود؛

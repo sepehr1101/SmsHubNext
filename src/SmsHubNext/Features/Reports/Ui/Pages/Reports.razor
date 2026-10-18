@@ -1,0 +1,58 @@
+@page "/admin/reports"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject ReportsService Service
+@implements IDisposable
+
+<PageTitle>گزارش ارسال و هزینه | SmsHub</PageTitle>
+<div class="reports-page">
+<form class="report-filters report-range" @onsubmit="Load" @onsubmit:preventDefault>
+    <label><span>از تاریخ شمسی</span><input @bind="_from" dir="ltr" placeholder="۱۴۰۵/۰۷/۰۱" maxlength="10" /></label>
+    <label><span>تا تاریخ شمسی</span><input @bind="_to" dir="ltr" placeholder="۱۴۰۵/۰۷/۳۰" maxlength="10" /></label>
+    <div class="report-range-actions">
+        <button type="submit" class="admin-button primary" disabled="@_loading">اعمال بازه</button>
+        <MudTooltip Text="به‌روزرسانی گزارش‌ها" ShowOnFocus="true">
+            <button type="button" class="report-refresh" aria-label="به‌روزرسانی گزارش‌ها" disabled="@_loading" @onclick="Load"><MudIcon Icon="@Icons.Material.Rounded.Refresh" /></button>
+        </MudTooltip>
+    </div>
+</form>
+<FeatureNotice Loading="_loading" Error="@_error" OnRetry="Load" />
+@if (_summary is not null)
+{
+    <section class="report-summary" aria-label="خلاصه ارسال و هزینه">
+        <article><span class="report-summary-label"><MudIcon Icon="@Icons.Material.Rounded.Sms" /> کل پیام‌ها</span><strong>@(PersianDisplay.Number(_summary.Totals.MessageCount, "N0"))</strong><small>@(PersianDisplay.Number(_summary.Totals.SegmentCount, "N0")) قطعه</small></article>
+        <article class="delivered"><span class="report-summary-label"><MudIcon Icon="@Icons.Material.Rounded.DoneAll" /> تحویل‌شده</span><strong>@(PersianDisplay.Number(_summary.Totals.DeliveredCount, "N0"))</strong><small>@(PersianDisplay.Number(_summary.Totals.DeliveryRate, "N1"))٪ نرخ تحویل</small></article>
+        <article class="undelivered"><span class="report-summary-label"><MudIcon Icon="@Icons.Material.Rounded.SmsFailed" /> تحویل‌نشده</span><strong>@(PersianDisplay.Number(_summary.Totals.UndeliveredCount, "N0"))</strong><small>@(PersianDisplay.Number(_summary.Totals.ExpiredCount, "N0")) منقضی</small></article>
+        <article><span class="report-summary-label"><MudIcon Icon="@Icons.Material.Rounded.AccountBalanceWallet" /> هزینه کل</span><strong>@(PersianDisplay.Number(_summary.Totals.TotalCost, "N0"))</strong><small>ریال</small></article>
+    </section>
+}
+<MudTabs Class="report-tabs" KeepPanelsAlive="true" Rounded="true" Elevation="0" Color="Color.Primary" aria-label="گزارش‌های ارسال و هزینه">
+    <MudTabPanel Text="ارائه‌دهندگان" Icon="@Icons.Material.Rounded.Hub">
+<section class="admin-data-panel"><div class="admin-table-wrap"><AdminGrid T="ProviderMessageReportRow" Items="@(_providers)" Loading="_loading" Name="گزارش ارائه‌دهندگان" ExportColumns='@(new AdminExportColumn<ProviderMessageReportRow>[] { new("ارائه‌دهنده", row => row.ProviderName), new("پیام", row => row.Stats.MessageCount), new("هزینه", row => row.Stats.TotalCost), new("نرخ تحویل", row => row.Stats.DeliveryRate) })'><PropertyColumn Property="row => row.ProviderName" Title="ارائه‌دهنده"><CellTemplate><div>@context.Item.ProviderName<small class="table-sub">@(PersianDisplay.Text(context.Item.ProviderCode))</small></div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.MessageCount" Title="پیام"><CellTemplate><div>@(PersianDisplay.Number(context.Item.Stats.MessageCount, "N0"))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.TotalCost" Title="هزینه"><CellTemplate><div class="money">@(PersianDisplay.Number(context.Item.Stats.TotalCost, "N0"))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.DeliveryRate" Title="نرخ تحویل"><CellTemplate><div><span class="report-rate">@(PersianDisplay.Number(context.Item.Stats.DeliveryRate, "N1"))٪</span></div></CellTemplate></PropertyColumn></AdminGrid></div></section>
+    </MudTabPanel>
+    <MudTabPanel Text="دسته بندی پیام" Icon="@Icons.Material.Rounded.Category">
+<section class="admin-data-panel"><div class="admin-table-wrap"><AdminGrid T="MessageTypeReportRow" Items="@(_types)" Loading="_loading" Name="گزارش دسته بندی پیام" ExportColumns='@(new AdminExportColumn<MessageTypeReportRow>[] { new("نوع پیام", row => row.MessageTypeName), new("پیام", row => row.Stats.MessageCount), new("قطعه", row => row.Stats.SegmentCount), new("هزینه", row => row.Stats.TotalCost) })'><PropertyColumn Property="row => row.MessageTypeName" Title="نوع پیام"><CellTemplate><div>@context.Item.MessageTypeName<small class="table-sub">@context.Item.MessageTypeCode</small></div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.MessageCount" Title="پیام"><CellTemplate><div>@(PersianDisplay.Number(context.Item.Stats.MessageCount, "N0"))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.SegmentCount" Title="قطعه"><CellTemplate><div>@(PersianDisplay.Number(context.Item.Stats.SegmentCount, "N0"))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.TotalCost" Title="هزینه"><CellTemplate><div class="money">@(PersianDisplay.Number(context.Item.Stats.TotalCost, "N0"))</div></CellTemplate></PropertyColumn></AdminGrid></div></section>
+    </MudTabPanel>
+    <MudTabPanel Text="روند ماهانه" Icon="@Icons.Material.Rounded.DateRange">
+<section class="admin-data-panel"><div class="admin-table-wrap"><AdminGrid T="JalaliMonthMessageReportRow" Items="@(_months)" Loading="_loading" Name="گزارش روند ماهانه" ExportColumns='@(new AdminExportColumn<JalaliMonthMessageReportRow>[] { new("ماه", row => row.JalaliMonth), new("پیام", row => row.Stats.MessageCount), new("تحویل‌شده", row => row.Stats.DeliveredCount), new("تحویل‌نشده", row => row.Stats.UndeliveredCount), new("نرخ تحویل", row => row.Stats.DeliveryRate), new("هزینه", row => row.Stats.TotalCost) })'><PropertyColumn Property="row => row.JalaliMonth" Title="ماه"><CellTemplate><div class="mono">@(PersianDisplay.Text(context.Item.JalaliMonth))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.MessageCount" Title="پیام"><CellTemplate><div>@(PersianDisplay.Number(context.Item.Stats.MessageCount, "N0"))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.DeliveredCount" Title="تحویل‌شده"><CellTemplate><div>@(PersianDisplay.Number(context.Item.Stats.DeliveredCount, "N0"))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.UndeliveredCount" Title="تحویل‌نشده"><CellTemplate><div>@(PersianDisplay.Number(context.Item.Stats.UndeliveredCount, "N0"))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.DeliveryRate" Title="نرخ تحویل"><CellTemplate><div>@(PersianDisplay.Number(context.Item.Stats.DeliveryRate, "N1"))٪</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="row => row.Stats.TotalCost" Title="هزینه"><CellTemplate><div class="money">@(PersianDisplay.Number(context.Item.Stats.TotalCost, "N0")) ریال</div></CellTemplate></PropertyColumn></AdminGrid></div></section>
+    </MudTabPanel>
+</MudTabs>
+</div>
+
+@code {
+    private readonly CancellationTokenSource _token = new(); private string _from = "۱۴۰۵/۰۷/۰۱"; private string _to = "۱۴۰۵/۰۷/۳۰"; private MessageReportSummary? _summary; private IReadOnlyList<ProviderMessageReportRow> _providers = []; private IReadOnlyList<MessageTypeReportRow> _types = []; private IReadOnlyList<JalaliMonthMessageReportRow> _months = []; private bool _loading; private string? _error;
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() { if (_loading) return; _loading = true; _error = null; MessageReportRequest query = new() { FromJalali = PersianDisplay.SearchText(_from), ToJalali = PersianDisplay.SearchText(_to) }; Task<UiResult<MessageReportSummary>> summaryTask = Service.Summary(query, _token.Token); Task<UiResult<IReadOnlyList<ProviderMessageReportRow>>> providersTask = Service.ByProvider(query, _token.Token); Task<UiResult<IReadOnlyList<MessageTypeReportRow>>> typesTask = Service.ByMessageType(query, _token.Token); Task<UiResult<IReadOnlyList<JalaliMonthMessageReportRow>>> monthsTask = Service.ByMonth(query, _token.Token); await Task.WhenAll(summaryTask, providersTask, typesTask, monthsTask); UiResult<MessageReportSummary> summary = await summaryTask; UiResult<IReadOnlyList<ProviderMessageReportRow>> providers = await providersTask; UiResult<IReadOnlyList<MessageTypeReportRow>> types = await typesTask; UiResult<IReadOnlyList<JalaliMonthMessageReportRow>> months = await monthsTask; _summary = summary.Value; _providers = providers.Value ?? []; _types = types.Value ?? []; _months = months.Value ?? []; _error = summary.ErrorMessage ?? providers.ErrorMessage ?? types.ErrorMessage ?? months.ErrorMessage; _loading = false; }
+    public void Dispose() { _token.Cancel(); _token.Dispose(); }
+}

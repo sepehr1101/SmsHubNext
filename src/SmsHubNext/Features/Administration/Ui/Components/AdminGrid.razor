@@ -1,0 +1,107 @@
+@typeparam T
+@attribute [CascadingTypeParameter(nameof(T))]
+@using MudBlazor.Extensions
+@inject IJSRuntime JS
+
+<div class="admin-grid-tools">
+    @if (ShowSearch)
+    {
+        <input type="search" @bind="_search" @bind:event="oninput" placeholder="جست‌وجو در جدول…" aria-label="جست‌وجو در جدول" />
+    }
+    <div class="admin-grid-actions">
+        <MudMenu>
+            <ActivatorContent>
+                <MudTooltip ShowOnFocus="true" Text="خروجی اکسل">
+                    <button type="button" class="admin-grid-icon excel" aria-label="خروجی اکسل" @onclick="context.ToggleAsync">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 2.8L17.2 8H14V4.8ZM7 11h2.3l1.7 2.7 1.7-2.7H15l-2.8 4L15 19h-2.3L11 16.3 9.3 19H7l2.8-4L7 11Z"/></svg>
+                    </button>
+                </MudTooltip>
+            </ActivatorContent>
+            <ChildContent>
+                <MudMenuItem Disabled="Loading" OnClick="() => Export(true)">صفحه فعلی</MudMenuItem>
+                <MudMenuItem Disabled="Loading" OnClick="() => Export(false)">@(PageLocal ? "داده‌های بارگذاری‌شده" : "همه داده‌های فیلترشده")</MudMenuItem>
+            </ChildContent>
+        </MudMenu>
+        <MudTooltip ShowOnFocus="true" Text="فیلترها"><button type="button" class="admin-grid-icon" aria-label="فیلترها" @onclick="ShowFilters"><MudIcon Icon="@Icons.Material.Rounded.FilterAlt" /></button></MudTooltip>
+        <MudTooltip ShowOnFocus="true" Text="نمایش ستون‌ها"><button type="button" class="admin-grid-icon" aria-label="نمایش ستون‌ها" @onclick="ShowColumns"><MudIcon Icon="@Icons.Material.Rounded.ViewColumn" /></button></MudTooltip>
+        @if (OnAdd.HasDelegate)
+        {
+            <MudTooltip ShowOnFocus="true" Text="@AddLabel"><button type="button" class="admin-grid-icon" aria-label="@AddLabel" disabled="@AddDisabled" @onclick="OnAdd"><MudIcon Icon="@Icons.Material.Rounded.Add" /></button></MudTooltip>
+        }
+    </div>
+    <label class="grid-density"><input type="checkbox" @bind="_dense" /> نمایش فشرده</label>
+    @if (_error is not null) { <span role="alert">@_error</span> }
+</div>
+<MudDataGrid @ref="_grid" T="T" Items="Items" QuickFilter="Matches" Filterable="true" FilterMode="DataGridFilterMode.Simple" FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" SortMode="SortMode.Multiple" Hideable="true" ShowColumnOptions="true" ColumnsPanelReordering="true" Dense="_dense" Hover="true" Striped="true" Loading="Loading" RowsPerPage="@(PageLocal ? 25 : 10)" Elevation="0" Class="admin-enhanced-grid">
+    <Columns>@ChildContent</Columns>
+    <NoRecordsContent><div class="admin-empty">ردیفی مطابق جست‌وجو وجود ندارد.</div></NoRecordsContent>
+    <PagerContent>
+        @if (!PageLocal)
+        {
+            <div class="admin-pagination">
+                <label>تعداد در صفحه:
+                    <select aria-label="تعداد در صفحه" value="@(_grid?.RowsPerPage ?? 10)" @onchange="ChangePageSize">
+                        @foreach (int size in PageSizes)
+                        {
+                            <option value="@size">@(PersianDisplay.Number(size))</option>
+                        }
+                    </select>
+                </label>
+                <span>@PageRange</span>
+                <button type="button" aria-label="صفحه قبل" disabled="@(_grid is null || _grid.CurrentPage == 0)" @onclick="() => _grid?.NavigateTo(Page.Previous)">قبلی</button>
+                <button type="button" aria-label="صفحه بعد" disabled="@(_grid is null || (_grid.CurrentPage + 1) * _grid.RowsPerPage >= _grid.FilteredItems.Count())" @onclick="() => _grid?.NavigateTo(Page.Next)">بعدی</button>
+            </div>
+        }
+    </PagerContent>
+</MudDataGrid>
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<T> Items { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<AdminExportColumn<T>> ExportColumns { get; set; } = [];
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool PageLocal { get; set; }
+    [Parameter] public string Name { get; set; } = "گزارش";
+    [Parameter] public bool ShowSearch { get; set; } = true;
+    [Parameter] public EventCallback OnAdd { get; set; }
+    [Parameter] public string AddLabel { get; set; } = "افزودن";
+    [Parameter] public bool AddDisabled { get; set; }
+    private static readonly int[] PageSizes = [10, 25, 50, 100];
+    private MudDataGrid<T>? _grid;
+    private string _search = string.Empty;
+    private bool _dense = true;
+    private string? _error;
+    private string PageRange
+    {
+        get
+        {
+            int total = _grid?.FilteredItems.Count() ?? Items.Count();
+            int size = _grid?.RowsPerPage ?? 10;
+            int start = total == 0 ? 0 : (_grid?.CurrentPage ?? 0) * size + 1;
+            int end = Math.Min(start + size - 1, total);
+            return $"{PersianDisplay.Number(start)} تا {PersianDisplay.Number(end)} از {PersianDisplay.Number(total)}";
+        }
+    }
+
+    private async Task ChangePageSize(ChangeEventArgs args)
+    {
+        if (_grid is not null && int.TryParse(Convert.ToString(args.Value), out int size) && PageSizes.Contains(size))
+            await _grid.SetRowsPerPageAsync(size);
+    }
+    private bool Matches(T item) => ExportColumns.Any(column => Normalize(SearchValue(column.Value(item))).Contains(Normalize(_search), StringComparison.OrdinalIgnoreCase));
+    private static string SearchValue(object? value) => value is DateTime date ? PersianDisplay.Date(date, "yyyy/MM/dd HH:mm:ss") : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+    private static string Normalize(string text) => PersianDisplay.SearchText(text);
+    private void ShowFilters() => _grid?.ToggleFiltersMenu();
+    private void ShowColumns(MouseEventArgs args) => _grid?.ShowColumnsPanel(args);
+    private async Task Export(bool currentPage)
+    {
+        if (_grid is null) return;
+        _error = null;
+        List<AdminExportColumn<T>> columns = ExportColumns.Where(column => _grid.RenderedColumns.Any(rendered => rendered.Title == column.Title && !rendered.GetState(x => x.Hidden))).ToList();
+        if (columns.Count == 0) { _error = "برای خروجی، حداقل یک ستون را نمایش دهید."; return; }
+        IEnumerable<T> rows = _grid.FilteredItems;
+        if (currentPage && !PageLocal) rows = rows.Skip(_grid.CurrentPage * _grid.RowsPerPage).Take(_grid.RowsPerPage);
+        byte[] workbook = AdminExcelExport.Create(columns.Select(column => column.Title).ToArray(), rows.Select(item => columns.Select(column => column.Value(item)).ToArray()));
+        await JS.InvokeVoidAsync("adminDownloads.excel", $"{Name}.xlsx", Convert.ToBase64String(workbook));
+    }
+}

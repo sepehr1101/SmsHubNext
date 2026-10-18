@@ -30,6 +30,8 @@ tests/SmsHubNext.LoadTests/.publish/
 *.env
 appsettings.*.local.json
 appsettings.Production.json
+**/App_Data/DataProtection-Keys/
+**/App_Data/Logs/
 
 # OS noise
 .DS_Store

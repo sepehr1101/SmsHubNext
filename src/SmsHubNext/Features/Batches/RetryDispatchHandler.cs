@@ -63,8 +63,8 @@ public sealed class RetryDispatchHandler
             {
                 transaction.Rollback();
                 return Error.Validation(
-                    "batches.insufficient_balance_for_retry",
-                    UserMessages.Batches.InsufficientBalanceForRetry);
+                    "balances.unknown_customer",
+                    UserMessages.Balances.UnknownCustomer);
             }
 
             await connection.ExecuteAsync(new CommandDefinition(
@@ -115,7 +115,7 @@ public sealed class RetryDispatchHandler
                 BatchStatus = (byte)BatchStatus.Received,
                 BatchStatusReason = (byte?)null,
                 ProviderResultCode = (int?)null,
-                Detail = "Manual dispatch retry requested by an operator.",
+                Detail = "تلاش مجدد برای ارسال به‌صورت دستی توسط اپراتور درخواست شد.",
             },
             transaction,
             cancellationToken: cancellationToken));

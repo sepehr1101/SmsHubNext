@@ -1,0 +1,34 @@
+<section id="providers" class="context-strip provider-showcase" aria-label="شرکت‌های ارائه‌دهنده خدمات پیامک در ایران">
+    <div class="showcase-heading"><span>در دنیای پیامک ایران</span><h2>نام‌های آشنا، مسیرهای ارتباطی متنوع</h2></div>
+    <div class="provider-window" tabindex="0" aria-label="فهرست متحرک شرکت‌ها؛ برای توقف، ماوس را روی فهرست ببرید یا با صفحه‌کلید آن را انتخاب کنید">
+        <div class="provider-track">
+            @for (int copy = 0; copy < 2; copy++)
+            {
+                <div class="provider-set" aria-hidden="@(copy == 1 ? "true" : null)">
+                    @foreach (ProviderBrand brand in Brands)
+                    {
+                        <article class="provider-card" dir="rtl">
+                            <div class="provider-logo"><img src="@brand.Logo" alt="" width="64" height="48" /></div>
+                            <div><h3>@brand.Name</h3><span dir="ltr">@brand.Domain</span></div>
+                        </article>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+    <p class="showcase-note">معرفی شرکت‌های پیامکی ایران؛ اتصال‌های فعال سامانه در پنل مدیریت مشخص می‌شوند.</p>
+</section>
+
+@code {
+    private sealed record ProviderBrand(string Name, string Domain, string Logo);
+
+    private static readonly ProviderBrand[] Brands =
+    [
+        new("مگفا", "magfa.com", "/images/providers/magfa.png"),
+        new("کاوه‌نگار", "kavenegar.com", "/images/providers/kavenegar.svg"),
+        new("اس‌ام‌اس آی‌آر", "sms.ir", "/images/providers/sms-ir.svg"),
+        new("ملی پیامک", "melipayamak.com", "/images/providers/melipayamak.svg"),
+        new("فراز اس‌ام‌اس", "farazsms.com", "/images/providers/farazsms.png"),
+        new("قاصدک", "ghasedak.me", "/images/providers/ghasedak.webp"),
+    ];
+}

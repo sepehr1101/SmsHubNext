@@ -1,0 +1,8 @@
+.diagnostic-panel { margin-top: 1.5rem; padding: 1.25rem; color: #1e293b; overflow-wrap: anywhere; }
+.diagnostic-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-block: 1rem; }
+.diagnostic-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+.diagnostic-facts div { background: #f3f6fa; padding: .75rem; border-radius: .5rem; }
+.diagnostic-facts dt { color: #475569; margin-bottom: .5rem; }
+.diagnostic-facts dd { margin: 0; }
+.diagnostic-assessment { background: #e9f0f8; padding: 1rem; border-radius: .5rem; }
+.diagnostic-copy { width: 100%; min-height: 26rem; margin-top: 1rem; padding: 1rem; background: #f3f6fa; color: #0f172a; border: 1px solid #94a3b8; border-radius: .5rem; font: inherit; line-height: 1.9; }

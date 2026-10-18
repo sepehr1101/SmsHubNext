@@ -92,16 +92,16 @@ public sealed class StorageHealthCheck : IHealthCheck
             };
 
             if (unhealthy)
-                return Task.FromResult(HealthCheckResult.Unhealthy("Required storage is critically low or unavailable.", data: data));
+                return Task.FromResult(HealthCheckResult.Unhealthy("فضای ذخیره‌سازی موردنیاز در دسترس نیست یا به حد بحرانی رسیده است.", data: data));
 
             if (degraded)
-                return Task.FromResult(HealthCheckResult.Degraded("Required storage needs attention.", data: data));
+                return Task.FromResult(HealthCheckResult.Degraded("فضای ذخیره‌سازی موردنیاز نیاز به بررسی دارد.", data: data));
 
-            return Task.FromResult(HealthCheckResult.Healthy("Required storage is available.", data));
+            return Task.FromResult(HealthCheckResult.Healthy("فضای ذخیره‌سازی موردنیاز در دسترس است.", data));
         }
         catch (Exception)
         {
-            return Task.FromResult(HealthCheckResult.Degraded("Required storage could not be inspected."));
+            return Task.FromResult(HealthCheckResult.Degraded("بررسی فضای ذخیره‌سازی موردنیاز امکان‌پذیر نبود."));
         }
     }
 

@@ -5,4 +5,8 @@ namespace SmsHubNext.Features.Authentication;
 /// customer (tenant) it belongs to. Send attribution uses this identity rather than
 /// trusting tenant identifiers supplied in request bodies.
 /// </summary>
-public sealed record ApiKeyIdentity(int ApiKeyId, short CustomerId, string KeyPrefix);
+public sealed record ApiKeyIdentity(
+    int ApiKeyId,
+    short CustomerId,
+    string KeyPrefix,
+    ApiKeyAccessLevel AccessLevel = ApiKeyAccessLevel.Customer);

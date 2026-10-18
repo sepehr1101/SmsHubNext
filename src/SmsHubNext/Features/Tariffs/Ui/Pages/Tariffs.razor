@@ -1,0 +1,98 @@
+@page "/admin/tariffs"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject TariffsService Service
+@inject ProvidersService Providers
+@inject MessageTypesService MessageTypes
+@inject IJSRuntime JS
+@inject TimeProvider Clock
+@implements IDisposable
+
+<PageTitle>تعرفه‌ها | SmsHub</PageTitle>
+<FeatureNotice Loading="_loading" Error="@_error" Success="@SuccessMessage" OnRetry="Load" />
+<section class="admin-data-panel">
+    <header><div><h2>نسخه‌های تعرفه</h2></div></header>
+    <div class="admin-table-wrap">
+        <AdminGrid T="TariffItem" Items="_items.OrderByDescending(item => item.EffectiveFromUtc)" Loading="_loading" Name="تعرفه‌ها" OnAdd="OpenCreate" AddLabel="نسخه تعرفه جدید" ExportColumns="ExportColumns">
+            <PropertyColumn Property="item => item.Id" Title="نسخه"><CellTemplate>@PersianDisplay.Number(context.Item.Id)</CellTemplate></PropertyColumn>
+            <PropertyColumn Property="item => ProviderName(item.ProviderId)" Title="ارائه‌دهنده" />
+            <PropertyColumn Property="item => TypeLabel(item)" Title="نوع پیام" />
+            <PropertyColumn Property="item => EncodingLabel(item.Encoding)" Title="کدگذاری" />
+            <PropertyColumn Property="item => item.EffectiveFromUtc" Title="شروع اعتبار (UTC)"><CellTemplate>@DateLabel(context.Item.EffectiveFromUtc)</CellTemplate></PropertyColumn>
+            <PropertyColumn Property="item => item.EffectiveToUtc" Title="پایان اعتبار (UTC)"><CellTemplate>@(context.Item.EffectiveToUtc is null ? "بدون پایان" : DateLabel(context.Item.EffectiveToUtc.Value))</CellTemplate></PropertyColumn>
+            <PropertyColumn Property="item => item.Rates.Count" Title="تعداد بازه‌ها"><CellTemplate>@PersianDisplay.Number(context.Item.Rates.Count)</CellTemplate></PropertyColumn>
+            <PropertyColumn Property="item => item.IsActive" Title="وضعیت"><CellTemplate><StatusPill IsActive="context.Item.IsActive" /></CellTemplate></PropertyColumn>
+            <TemplateColumn Title="عملیات" Sortable="false" Filterable="false" Hideable="false">
+                <CellTemplate><div class="admin-row-actions">
+                    <MudTooltip Text="جزئیات و ویرایش" ShowOnFocus="true"><button type="button" aria-label="@($"جزئیات و ویرایش نسخه {PersianDisplay.Number(context.Item.Id)}")" @onclick="() => OpenEdit(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Edit" /></button></MudTooltip>
+                    <MudTooltip Text="نسخه جدید از این تعرفه" ShowOnFocus="true"><button type="button" aria-label="نسخه جدید از این تعرفه" @onclick="() => OpenCopy(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.ContentCopy" /></button></MudTooltip>
+                    <MudTooltip Text="حذف منطقی" ShowOnFocus="true"><button type="button" class="danger" aria-label="حذف منطقی تعرفه" @onclick="() => Delete(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.DeleteOutline" /></button></MudTooltip>
+                </div></CellTemplate>
+            </TemplateColumn>
+        </AdminGrid>
+    </div>
+</section>
+@if (_editorOpen) { <div class="admin-drawer-backdrop" @onclick="CloseEditor"></div><aside class="admin-editor wide" role="dialog" aria-modal="true" aria-label="جزئیات و مدیریت تعرفه"><header><div><h2>@(_editingId is null ? "نسخه تعرفه جدید" : "مدیریت نسخه تعرفه")</h2><p>@(_editingId is null ? "بازه‌ها باید از نویسه ۱ پیوسته باشند و آخرین سقف خالی باشد." : "فقط پایان اعتبار و وضعیت قابل ویرایش‌اند.")</p></div><button type="button" aria-label="بستن پنل تعرفه" @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></header><div class="admin-editor-body">
+@if (_editingId is null) { <label><span>ارائه‌دهنده</span><select @bind="_providerId"><option value="0">انتخاب کنید</option>@foreach (ProviderItem provider in _providers.Where(item => item.IsActive)) { <option value="@provider.Id">@provider.Name</option> }</select></label><label><span>نوع پیام (اختیاری)</span><select @bind="_messageTypeId"><option value="">همه انواع پیام</option>@foreach (MessageTypeItem type in _messageTypes.Where(item => item.IsActive)) { <option value="@type.Id">@type.Name</option> }</select></label><label><span>کدگذاری</span><select @bind="_encoding"><option value="0">GSM-7 (لاتین)</option><option value="1">UCS-2 (فارسی)</option></select></label><label><span>شروع اعتبار شمسی (UTC)</span><PersianDateTimeInput Value="_effectiveFrom" ValueChanged="value => _effectiveFrom = value ?? _effectiveFrom" Required="true" ValidityChanged="valid => _fromValid = valid" /></label><div class="tariff-rate-editor"><header><b>بازه‌های قیمت</b><button @onclick="AddRate"><MudIcon Icon="@Icons.Material.Rounded.Add" /> افزودن</button></header>@for (int index = 0; index < _rates.Count; index++) { int rowIndex = index; TariffRateEditor rate = _rates[index]; <div><label><span>از</span><input type="number" @bind="rate.MinChars" /></label><label><span>تا (آخرین خالی)</span><input type="number" @bind="rate.MaxChars" /></label><label><span>ریال / قطعه</span><input type="number" step="0.0001" @bind="rate.Price" /></label>@if (_rates.Count > 1) { <button class="danger" @onclick="() => RemoveRate(rowIndex)"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button> }</div> }</div> }
+@if (_editingId is not null)
+{
+    <dl class="tariff-details">
+        <div><dt>نسخه</dt><dd>@PersianDisplay.Number(_editingId)</dd></div>
+        <div><dt>ارائه‌دهنده</dt><dd>@ProviderName(_providerId)</dd></div>
+        <div><dt>نوع پیام</dt><dd>@(_messageTypeId is null ? "همه انواع پیام" : MessageTypeName(_messageTypeId.Value))</dd></div>
+        <div><dt>کدگذاری</dt><dd>@EncodingLabel(_encoding)</dd></div>
+        <div><dt>شروع اعتبار (UTC)</dt><dd>@DateLabel(_effectiveFrom)</dd></div>
+    </dl>
+    <div class="tariff-details-rates">
+        <h3>بازه‌های قیمت</h3>
+        <table><thead><tr><th scope="col">از نویسه</th><th scope="col">تا نویسه</th><th scope="col">ریال / قطعه</th></tr></thead><tbody>
+        @foreach (TariffRateEditor rate in _rates)
+        {
+            <tr><td>@PersianDisplay.Number(rate.MinChars)</td><td>@(rate.MaxChars is null ? "بدون سقف" : PersianDisplay.Number(rate.MaxChars))</td><td>@PersianDisplay.Number(rate.Price, "N4")</td></tr>
+        }
+        </tbody></table>
+        <p>برای تغییر نرخ‌ها، نسخه جدید بسازید. بازه اعتبار نسخه‌ها نباید هم‌پوشانی داشته باشد.</p>
+        <button type="button" class="admin-button secondary" @onclick="CopyEditing">ساخت نسخه جدید با این نرخ‌ها</button>
+    </div>
+}
+@if (_error is not null) { <div role="alert" class="tariff-editor-error">@_error</div> }
+<label><span>پایان اعتبار شمسی (UTC، اختیاری)</span><PersianDateTimeInput @bind-Value="_effectiveTo" ValidityChanged="valid => _toValid = valid" /></label><label class="admin-checkbox"><input type="checkbox" @bind="_isActive" /> نسخه فعال باشد</label>
+</div><footer><button class="admin-button secondary" @onclick="CloseEditor">انصراف</button><button class="admin-button primary" disabled="@(_saving || !_fromValid || !_toValid)" @onclick="Save">ذخیره</button></footer></aside> }
+@code {
+    private bool _fromValid = true; private bool _toValid = true;
+    private readonly CancellationTokenSource _token = new(); private IReadOnlyList<TariffItem> _items = []; private IReadOnlyList<ProviderItem> _providers = []; private IReadOnlyList<MessageTypeItem> _messageTypes = []; private int? _editingId; private byte _providerId; private byte? _messageTypeId; private SmsEncoding _encoding = SmsEncoding.Ucs2; private DateTime _effectiveFrom; private DateTime? _effectiveTo; private bool _isActive = true; private List<TariffRateEditor> _rates = [new()]; private bool _loading = true; private bool _saving; private bool _editorOpen; private string? _error; private string? _success; private string? SuccessMessage => _success;
+    protected override Task OnInitializedAsync() { _effectiveFrom = Clock.GetUtcNow().UtcDateTime.Date; return Load(); } private async Task Load() { _loading = true; _error = null; Task<UiResult<IReadOnlyList<TariffItem>>> tariffsTask = Service.List(_token.Token); Task<UiResult<IReadOnlyList<ProviderItem>>> providersTask = Providers.List(_token.Token); Task<UiResult<IReadOnlyList<MessageTypeItem>>> typesTask = MessageTypes.List(_token.Token); await Task.WhenAll(tariffsTask, providersTask, typesTask); UiResult<IReadOnlyList<TariffItem>> tariffs = await tariffsTask; UiResult<IReadOnlyList<ProviderItem>> providers = await providersTask; UiResult<IReadOnlyList<MessageTypeItem>> types = await typesTask; _items = tariffs.Value ?? []; _providers = providers.Value ?? []; _messageTypes = types.Value ?? []; _error = tariffs.ErrorMessage ?? providers.ErrorMessage ?? types.ErrorMessage; _loading = false; }
+    private void OpenCreate() { _error = null; _fromValid = true; _toValid = true; _editingId = null; _providerId = 0; _messageTypeId = null; _encoding = SmsEncoding.Ucs2; _effectiveFrom = Clock.GetUtcNow().UtcDateTime.Date; _effectiveTo = null; _isActive = true; _rates = [new()]; _editorOpen = true; } private void OpenEdit(TariffItem item) { _fromValid = true; _toValid = true; _editingId = item.Id; _providerId = item.ProviderId; _messageTypeId = item.MessageTypeId; _encoding = item.Encoding; _effectiveFrom = item.EffectiveFromUtc; _effectiveTo = item.EffectiveToUtc; _isActive = item.IsActive; _rates = item.Rates.Select(rate => new TariffRateEditor { MinChars = rate.MinChars, MaxChars = rate.MaxChars, Price = rate.PricePerSegment }).ToList(); _error = null; _editorOpen = true; } private void CloseEditor() => _editorOpen = false;
+    private void AddRate() { TariffRateEditor previous = _rates[^1]; if (previous.MaxChars is null) previous.MaxChars = previous.MinChars; _rates.Add(new() { MinChars = (short)(previous.MaxChars.Value + 1) }); } private void RemoveRate(int index) => _rates.RemoveAt(index);
+    private async Task Save() { if (!_fromValid || !_toValid) return; if (_editingId is null && (_providerId == 0 || _rates.Count == 0 || _rates.Any(rate => rate.Price <= 0))) { _error = "ارائه‌دهنده و حداقل یک نرخ معتبر الزامی است."; return; } _saving = true; UiResult<string?> result; if (_editingId is null) { List<CreateTariffRateRequest> rates = _rates.Select(rate => new CreateTariffRateRequest { MinChars = rate.MinChars, MaxChars = rate.MaxChars, PricePerSegment = rate.Price }).ToList(); UiResult<CreateTariffResponse> create = await Service.Create(new CreateTariffRequest { ProviderId = _providerId, MessageTypeId = _messageTypeId, Encoding = _encoding, EffectiveFromUtc = DateTime.SpecifyKind(_effectiveFrom, DateTimeKind.Utc), EffectiveToUtc = _effectiveTo is null ? null : DateTime.SpecifyKind(_effectiveTo.Value, DateTimeKind.Utc), IsActive = _isActive, Rates = rates }, _token.Token); result = create.IsSuccess ? UiResult<string?>.Success(null) : UiResult<string?>.Failure(create.ErrorMessage!); } else result = await Service.Update(_editingId.Value, new UpdateTariffRequest { EffectiveToUtc = _effectiveTo is null ? null : DateTime.SpecifyKind(_effectiveTo.Value, DateTimeKind.Utc), IsActive = _isActive }, _token.Token); _saving = false; if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _editorOpen = false; _success = "نسخه تعرفه ذخیره شد."; await Load(); }
+    private async Task Delete(TariffItem item) { bool confirmed = await JS.InvokeAsync<bool>("confirm", $"نسخه تعرفه {PersianDisplay.Number(item.Id)} حذف منطقی شود؟"); if (!confirmed) return; UiResult<string?> result = await Service.Delete(item.Id, _token.Token); if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _success = "نسخه تعرفه حذف شد."; await Load(); }
+    private string ProviderName(byte id) => _providers.FirstOrDefault(item => item.Id == id)?.Name ?? $"#{id}"; private string MessageTypeName(byte id) => _messageTypes.FirstOrDefault(item => item.Id == id)?.Name ?? $"#{id}"; private static string EncodingLabel(SmsEncoding value) => value == SmsEncoding.Ucs2 ? "UCS-2 فارسی" : "GSM-7"; private static string DateLabel(DateTime value) => PersianDisplay.Date(value, "yyyy/MM/dd HH:mm"); public void Dispose() { _token.Cancel(); _token.Dispose(); }
+    private string TypeLabel(TariffItem item) => item.MessageTypeId is null ? "همه انواع پیام" : MessageTypeName(item.MessageTypeId.Value);
+    private IReadOnlyList<AdminExportColumn<TariffItem>> ExportColumns =>
+    [
+        new("نسخه", item => item.Id),
+        new("ارائه‌دهنده", item => ProviderName(item.ProviderId)),
+        new("نوع پیام", TypeLabel),
+        new("کدگذاری", item => EncodingLabel(item.Encoding)),
+        new("شروع اعتبار (UTC)", item => item.EffectiveFromUtc),
+        new("پایان اعتبار (UTC)", item => item.EffectiveToUtc),
+        new("تعداد بازه‌ها", item => item.Rates.Count),
+        new("وضعیت", item => item.IsActive ? "فعال" : "غیرفعال")
+    ];
+    private void OpenCopy(TariffItem item)
+    {
+        OpenEdit(item);
+        CopyEditing();
+    }
+    private void CopyEditing()
+    {
+        _editingId = null;
+        _effectiveFrom = _effectiveTo ?? Clock.GetUtcNow().UtcDateTime;
+        _effectiveTo = null;
+        _isActive = true;
+        _fromValid = true;
+        _toValid = true;
+        _error = null;
+    }
+    private sealed class TariffRateEditor { public short MinChars { get; set; } = 1; public short? MaxChars { get; set; } public decimal Price { get; set; } }
+}

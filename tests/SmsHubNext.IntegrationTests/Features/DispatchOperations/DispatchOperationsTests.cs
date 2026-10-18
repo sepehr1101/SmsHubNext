@@ -1,4 +1,6 @@
 using DbUp.Engine;
+using Dapper;
+using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.ApiKeys;
 using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.Billing;
@@ -35,6 +37,39 @@ public sealed class DispatchOperationsTests : IAsyncLifetime
     }
 
     public Task DisposeAsync() => _sqlServer.DisposeAsync().AsTask();
+
+    [Fact]
+    public async Task Live_monitor_uses_real_states_and_event_time_and_reuses_snapshot_for_viewers()
+    {
+        long batchId = await SendBatchAsync();
+        DateTimeOffset now = TimeProvider.System.GetUtcNow().AddSeconds(1);
+        DateTime end = LiveDispatchBuckets.Floor(now.UtcDateTime);
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        long id = await connection.ExecuteScalarAsync<long>("SELECT MIN(Id) FROM dbo.Message WHERE MessageBatchId = @Id", new { Id = batchId });
+        await connection.ExecuteAsync("""
+            UPDATE dbo.Message SET Status = CASE WHEN Id = @Id THEN 2 ELSE 4 END WHERE MessageBatchId = @Batch;
+            INSERT dbo.DispatchAcceptance(Id,AcceptedAtUtc,ProviderId)
+            SELECT Id,@At,ProviderId FROM dbo.Message WHERE Id = @Id;
+            """, new { Id = id, Batch = batchId, At = end.AddSeconds(-10) });
+        LiveDispatchCache cache = new();
+        LiveDispatchHandler handler = new(_db, new FixedClock(now), cache);
+        Result<LiveSnapshot> result = await handler.Summary(CancellationToken.None);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, result.Value.Totals.Accepted);
+        Assert.Equal(1, result.Value.Totals.Rejected);
+        Assert.Equal(0, result.Value.Totals.Delivered);
+        Assert.Equal(1, result.Value.Buckets[^1].Count);
+        Assert.Equal(1, result.Value.Buckets.Sum(bucket => bucket.Count));
+        Assert.Same(result.Value, (await handler.Summary(CancellationToken.None)).Value);
+        Result<LiveMessagePage> failed = await handler.Messages(24, (byte)SendStatus.Rejected, null, batchId, "", 1, CancellationToken.None);
+        Assert.True(failed.IsSuccess);
+        Assert.Equal(SendStatus.Rejected, Assert.Single(failed.Value.Items).Status);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 
     [Fact]
     public async Task Summary_and_batch_list_report_database_backed_dispatch_queue_state()

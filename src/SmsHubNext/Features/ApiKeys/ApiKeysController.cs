@@ -14,17 +14,20 @@ public sealed class ApiKeysController : BaseController
     private readonly ListApiKeysHandler _list;
     private readonly UpdateApiKeyHandler _update;
     private readonly RevokeApiKeyHandler _revoke;
+    private readonly RenewApiKeyHandler _renew;
 
     public ApiKeysController(
         IssueApiKeyHandler issue,
         ListApiKeysHandler list,
         UpdateApiKeyHandler update,
-        RevokeApiKeyHandler revoke)
+        RevokeApiKeyHandler revoke,
+        RenewApiKeyHandler renew)
     {
         _issue = issue;
         _list = list;
         _update = update;
         _revoke = revoke;
+        _renew = renew;
     }
 
     /// <summary>List a customer's API keys (never returns the secret).</summary>
@@ -46,6 +49,12 @@ public sealed class ApiKeysController : BaseController
         [FromBody] UpdateApiKeyRequest request,
         CancellationToken cancellationToken) =>
         FromResult(await _update.Handle(id, request, cancellationToken));
+
+    /// <summary>Replace the secret of a non-revoked key. The old secret stops working immediately.</summary>
+    [HttpPost("{id:int:min(1)}/renew")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> Renew(int id, CancellationToken cancellationToken) =>
+        FromResult(await _renew.Handle(id, cancellationToken));
 
     /// <summary>Revoke an API key permanently while retaining it for attribution.</summary>
     [HttpDelete("{id:int:min(1)}")]

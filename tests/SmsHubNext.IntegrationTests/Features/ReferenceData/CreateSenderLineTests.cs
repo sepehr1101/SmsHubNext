@@ -46,6 +46,41 @@ public sealed class CreateSenderLineTests : IAsyncLifetime
         Assert.Equal((byte)1, line.ProviderId);
         Assert.True(line.IsSharedLine);
         Assert.True(line.IsActive); // defaults to active
+        Assert.False(line.UseEsb);
+    }
+
+    [Fact]
+    public async Task Esb_route_is_persisted_and_can_be_updated_for_4040()
+    {
+        Result<CreateProviderResponse> provider = await new CreateProviderHandler(_db).Handle(
+            new CreateProviderRequest { Name = "4040", Code = "4040", BaseUrl = "https://example.invalid" },
+            CancellationToken.None);
+        Assert.True(provider.IsSuccess, provider.Error?.Message);
+        Result<CreateSenderLineResponse> created = await new CreateSenderLineHandler(_db).Handle(
+            new CreateSenderLineRequest
+            {
+                ProviderId = provider.Value.Id, LineNumber = "40401403", IsSharedLine = true, UseEsb = true,
+            }, CancellationToken.None);
+        Assert.True(created.IsSuccess, created.Error?.Message);
+        Result<IReadOnlyList<SenderLine>> listed = await new ListSenderLinesHandler(_db).Handle(CancellationToken.None);
+        Assert.True(Assert.Single(listed.Value, line => line.Id == created.Value.Id).UseEsb);
+
+        Result updated = await new UpdateSenderLineHandler(_db).Handle(created.Value.Id,
+            new UpdateSenderLineRequest { LineNumber = "40401403", IsSharedLine = true, IsActive = true, UseEsb = false },
+            CancellationToken.None);
+        Assert.True(updated.IsSuccess, updated.Error?.Message);
+        listed = await new ListSenderLinesHandler(_db).Handle(CancellationToken.None);
+        Assert.False(Assert.Single(listed.Value, line => line.Id == created.Value.Id).UseEsb);
+    }
+
+    [Fact]
+    public async Task Esb_cannot_be_enabled_for_a_magfa_line()
+    {
+        Result<CreateSenderLineResponse> result = await new CreateSenderLineHandler(_db).Handle(
+            new CreateSenderLineRequest { ProviderId = 1, LineNumber = "30001111", UseEsb = true },
+            CancellationToken.None);
+        Assert.True(result.IsFailure);
+        Assert.Equal("sender_lines.esb_provider_unsupported", result.Error!.Code);
     }
 
     [Fact]

@@ -5,6 +5,12 @@ public sealed class DeliveryReportPollOptions
 {
     public const string SectionName = "DeliveryReportPolling";
 
+    /// <summary>
+    /// Whether the hosted polling worker runs. Keep enabled in production; a provider sandbox that
+    /// deliberately stores no reports may disable it while still leaving the poll queue auditable.
+    /// </summary>
+    public bool Enabled { get; init; } = true;
+
     /// <summary>How long to idle when no poll row is due before checking again.</summary>
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(15);
 

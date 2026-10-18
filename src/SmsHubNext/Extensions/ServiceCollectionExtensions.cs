@@ -6,7 +6,9 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+using System.Threading.RateLimiting;
 using SmsHubNext.Features.Authentication;
 using SmsHubNext.Features.DeliveryReports;
 using SmsHubNext.Features.Dispatch;
@@ -14,7 +16,11 @@ using SmsHubNext.Features.Inbound;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.Kavenegar;
 using SmsHubNext.Features.Providers.Magfa;
+using SmsHubNext.Features.Providers.Esb;
+using SmsHubNext.Features.Providers.Provider4040;
+using SmsHubNext.Features.Providers.SmsIr;
 using SmsHubNext.Features.Sending;
+using SmsHubNext.Deployment;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Errors;
 using SmsHubNext.Shared.Health;
@@ -37,10 +43,7 @@ public static class ServiceCollectionExtensions
         // MVC controllers (feature controllers live under Features/*; see ADR-004).
         services.AddControllers(options =>
         {
-            AuthorizationPolicy authenticatedUsers = new AuthorizationPolicyBuilder()
-                .RequireAuthenticatedUser()
-                .Build();
-            options.Filters.Add(new AuthorizeFilter(authenticatedUsers));
+            options.Filters.Add(new AuthorizeFilter(AuthenticationPolicies.Administrator));
         });
         services.Configure<ApiBehaviorOptions>(options =>
         {
@@ -48,8 +51,11 @@ public static class ServiceCollectionExtensions
             {
                 List<ApiError> errors = context.ModelState
                     .Where(entry => entry.Value?.Errors.Count > 0)
-                    .SelectMany(entry => entry.Value!.Errors.Select(error =>
-                        new ApiError(entry.Key, "validation.invalid_field", error.ErrorMessage)))
+                    .SelectMany(entry => entry.Value!.Errors.Select(_ =>
+                        new ApiError(
+                            entry.Key,
+                            "validation.invalid_field",
+                            UserMessages.Common.InvalidField(entry.Key))))
                     .ToList();
 
                 ApiResponse<object> response = ApiResponse.Failure(
@@ -65,6 +71,7 @@ public static class ServiceCollectionExtensions
         services.AddProblemDetails();
         services.AddApplicationDataProtection(configuration);
         services.AddJwtBearerAuthentication(configuration);
+        services.AddAdminTokenRateLimiting();
         services.AddApplicationCors(configuration);
 
         // OpenAPI document (runtime exposure is controlled by OpenApi:Enabled).
@@ -76,13 +83,32 @@ public static class ServiceCollectionExtensions
             ?? throw new InvalidOperationException(
                 $"Connection string '{Db.ConnectionStringName}' is not configured.");
         services.AddSingleton(new Db(connectionString));
+        services.AddScoped<DevelopmentDataSeeder>();
 
         services.AddFeatureHandlers();
+        services.AddEsb(configuration);
         services.AddBackgroundDispatch(configuration, environment);
         services.AddDeliveryReportPolling(configuration);
         services.AddInboundPolling(configuration);
         services.AddApplicationHealthChecks();
+        services.AddManagementUi(configuration);
 
+        return services;
+    }
+
+    private static IServiceCollection AddEsb(this IServiceCollection services, IConfiguration configuration)
+    {
+        EsbOptions options = configuration.GetSection(EsbOptions.SectionName).Get<EsbOptions>() ?? new EsbOptions();
+        options.Validate();
+        services.AddSingleton(options);
+        services.AddSingleton<EsbAccessTokenProvider>();
+        services.AddHttpClient(EsbOptions.HttpClientName, (provider, client) =>
+            client.Timeout = provider.GetRequiredService<EsbOptions>().Timeout);
+        if (options.Enabled)
+        {
+            services.AddSingleton<Provider4040RouteResolver>();
+            services.AddHttpClient<ISmsProvider, Provider4040SmsProvider>(client => client.Timeout = options.Timeout);
+        }
         return services;
     }
 
@@ -170,6 +196,30 @@ public static class ServiceCollectionExtensions
             {
                 jwtOptions.RequireHttpsMetadata = true;
                 jwtOptions.SaveToken = false;
+                jwtOptions.Events = new JwtBearerEvents
+                {
+                    OnChallenge = async context =>
+                    {
+                        context.HandleResponse();
+                        Error error = Error.Unauthorized(
+                            "auth.management_token_required",
+                            UserMessages.Auth.AuthenticationRequired);
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        await context.Response.WriteAsJsonAsync(
+                            ApiResponse.Failure(error, context.HttpContext),
+                            context.HttpContext.RequestAborted);
+                    },
+                    OnForbidden = async context =>
+                    {
+                        Error error = Error.Forbidden(
+                            "auth.management_access_denied",
+                            UserMessages.Auth.AccessDenied);
+                        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        await context.Response.WriteAsJsonAsync(
+                            ApiResponse.Failure(error, context.HttpContext),
+                            context.HttpContext.RequestAborted);
+                    },
+                };
                 jwtOptions.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
@@ -183,7 +233,53 @@ public static class ServiceCollectionExtensions
                 };
             });
 
-        services.AddAuthorization();
+        services.AddAuthorization(authorizationOptions =>
+        {
+            AuthorizationPolicy administrators = new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole(AuthenticationPolicies.AdministratorRole)
+                .RequireClaim(
+                    AuthenticationClaimTypes.AccessLevel,
+                    ((byte)ApiKeyAccessLevel.Administrator).ToString())
+                .RequireClaim(AuthenticationClaimTypes.ApiKeyId)
+                .RequireClaim(AuthenticationClaimTypes.CustomerId)
+                .RequireClaim(AuthenticationClaimTypes.KeyPrefix)
+                .Build();
+            authorizationOptions.DefaultPolicy = administrators;
+            authorizationOptions.AddPolicy(AuthenticationPolicies.Administrator, administrators);
+        });
+        services.AddSingleton<AdminAccessTokenIssuer>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddAdminTokenRateLimiting(this IServiceCollection services)
+    {
+        services.AddRateLimiter(options =>
+        {
+            options.AddPolicy(
+                AuthenticationPolicies.TokenExchangeRateLimit,
+                context => RateLimitPartition.GetFixedWindowLimiter(
+                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 5,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true,
+                    }));
+
+            options.OnRejected = async (context, cancellationToken) =>
+            {
+                Error error = Error.Conflict(
+                    "auth.too_many_token_requests",
+                    UserMessages.Auth.TooManyTokenRequests);
+                context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+                await context.HttpContext.Response.WriteAsJsonAsync(
+                    ApiResponse.Failure(error, context.HttpContext),
+                    cancellationToken);
+            };
+        });
 
         return services;
     }
@@ -225,7 +321,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(options);
 
         services.AddScoped<DeliveryReportPoller>();
-        services.AddHostedService<DeliveryReportPollWorker>();
+        if (options.Enabled)
+            services.AddHostedService<DeliveryReportPollWorker>();
 
         return services;
     }
@@ -257,7 +354,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         IHostEnvironment environment)
     {
-        bool realProviderRegistered = false;
+        bool realProviderRegistered = configuration.GetValue<bool>("Esb:Enabled");
 
         MagfaOptions magfaOptions = configuration.GetSection(MagfaOptions.SectionName).Get<MagfaOptions>()
             ?? new MagfaOptions();
@@ -288,6 +385,23 @@ public static class ServiceCollectionExtensions
             {
                 client.BaseAddress = new Uri(kavenegarOptions.BaseUrl);
                 client.Timeout = kavenegarOptions.Timeout;
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            });
+            realProviderRegistered = true;
+        }
+
+        SmsIrOptions smsIrOptions = configuration.GetSection(SmsIrOptions.SectionName).Get<SmsIrOptions>()
+            ?? new SmsIrOptions();
+        smsIrOptions.Validate();
+        services.AddSingleton(smsIrOptions);
+
+        if (smsIrOptions.Enabled)
+        {
+            services.AddSingleton<SmsIrAccountResolver>();
+            services.AddHttpClient<ISmsProvider, SmsIrSmsProvider>(client =>
+            {
+                client.BaseAddress = new Uri(smsIrOptions.BaseUrl);
+                client.Timeout = smsIrOptions.Timeout;
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             });
             realProviderRegistered = true;

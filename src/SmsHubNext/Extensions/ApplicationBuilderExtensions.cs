@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Scalar.AspNetCore;
 using Serilog;
-using SmsHubNext.Features.Landing;
 using SmsHubNext.Shared.Health;
 using SmsHubNext.Shared.Http;
 
@@ -24,6 +23,8 @@ public static class ApplicationBuilderExtensions
         if (corsOptions.Enabled)
             app.UseCors(ApplicationCorsOptions.PolicyName);
 
+        app.UseRateLimiter();
+
         bool openApiEnabled = app.Configuration.GetValue("OpenApi:Enabled", true);
         if (openApiEnabled)
         {
@@ -32,9 +33,7 @@ public static class ApplicationBuilderExtensions
             app.MapScalarApiReference();
         }
 
-        // Human-friendly production landing page. The machine-readable service
-        // metadata remains available separately for diagnostics and tooling.
-        app.MapGet("/", () => ServiceLandingPage.Render(openApiEnabled)).ExcludeFromDescription();
+        // The root is the Blazor landing page; service metadata remains available separately.
         app.MapGet("/service-info", () => new
         {
             service = "SmsHubNext",
@@ -66,15 +65,16 @@ public static class ApplicationBuilderExtensions
             },
         }).ExcludeFromDescription();
 
-        // API-key enforcement is implemented but intentionally inactive (ADR-015): the
-        // APIs stay open for testing. To turn it on for every endpoint downstream, add
-        //     app.UseApiKeyAuthentication();
-        // here, just before MapControllers. The resolver is testable now via /auth/whoami.
+        // Management controllers use administrator JWTs. Customer send and administrator
+        // token exchange validate X-Api-Key explicitly, so API-key middleware must not be
+        // enabled globally here.
         app.UseAuthentication();
         app.UseAuthorization();
+        app.UseAntiforgery();
 
         app.MapControllers();
         MapHealthEndpoints(app);
+        app.MapManagementUi();
 
         return app;
     }

@@ -1,3 +1,5 @@
+using SmsHubNext.Shared.Sms;
+
 namespace SmsHubNext.Features.Sending;
 
 /// <summary>One recipient and the distinct message they should receive.</summary>
@@ -40,11 +42,5 @@ public sealed class SendMessageItem
             || (trimmed.Length == InternationalIranMobileLength && trimmed.StartsWith("989", StringComparison.Ordinal));
     }
 
-    public static string NormalizeRecipient(string recipient)
-    {
-        string trimmed = recipient.Trim();
-        return trimmed.StartsWith("09", StringComparison.Ordinal)
-            ? "98" + trimmed[1..]
-            : trimmed;
-    }
+    public static string NormalizeRecipient(string recipient) => IranMobileNumber.Normalize(recipient);
 }

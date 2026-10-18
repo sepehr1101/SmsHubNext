@@ -8,4 +8,5 @@ public sealed record SenderLine(
     bool IsSharedLine,
     short? CustomerId,
     int? ProviderAccountId,
-    bool IsActive);
+    bool IsActive,
+    bool UseEsb = false);

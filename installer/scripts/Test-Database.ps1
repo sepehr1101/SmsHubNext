@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string] $RequestPath,
@@ -18,10 +18,10 @@ try {
     $request = $requestJson | ConvertFrom-Json
 
     if ([string]::IsNullOrWhiteSpace([string]$request.server)) {
-        throw 'SQL Server address is required.'
+        throw 'آدرس SQL Server الزامی است.'
     }
     if ([string]::IsNullOrWhiteSpace([string]$request.database)) {
-        throw 'Database name is required.'
+        throw 'نام پایگاه داده الزامی است.'
     }
 
     $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
@@ -38,7 +38,7 @@ try {
         [int]$request.connectTimeoutSeconds
     }
     if ($connectTimeoutSeconds -lt 1 -or $connectTimeoutSeconds -gt 120) {
-        throw 'SQL connection timeout must be between 1 and 120 seconds.'
+        throw 'مهلت اتصال به SQL Server باید بین ۱ تا ۱۲۰ ثانیه باشد.'
     }
 
     $builder['Connect Timeout'] = $connectTimeoutSeconds
@@ -63,17 +63,17 @@ try {
         'SqlServer',
         [System.StringComparison]::OrdinalIgnoreCase)) {
         if ([string]::IsNullOrWhiteSpace([string]$request.username)) {
-            throw 'SQL username is required.'
+            throw 'نام کاربری SQL الزامی است.'
         }
         if ($null -eq $request.password -or [string]::IsNullOrEmpty([string]$request.password)) {
-            throw 'SQL password is required.'
+            throw 'رمز عبور SQL الزامی است.'
         }
 
         $builder['User ID'] = ([string]$request.username).Trim()
         $builder['Password'] = [string]$request.password
     }
     else {
-        throw 'Authentication must be Windows or SqlServer.'
+        throw 'روش احراز هویت باید Windows یا SqlServer باشد.'
     }
 
     $targetConnectionString = $builder.ConnectionString
@@ -127,6 +127,8 @@ catch {
         -Path $ResultPath `
         -Success $false `
         -Code 'database.connection_failed' `
-        -Message (Get-InstallerSafeErrorMessage -ErrorRecord $_)
+        -Message (Get-InstallerDisplayErrorMessage `
+            -ErrorRecord $_ `
+            -Fallback 'اتصال به SQL Server برقرار نشد. تنظیمات اتصال و اطلاعات ورود را بررسی کنید.')
     exit 4
 }

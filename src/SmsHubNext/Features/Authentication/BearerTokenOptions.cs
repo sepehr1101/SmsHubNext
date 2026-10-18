@@ -19,14 +19,20 @@ public sealed class BearerTokenOptions
         if (string.IsNullOrWhiteSpace(Key))
             throw new InvalidOperationException($"{SectionName}:Key is required.");
 
+        if (System.Text.Encoding.UTF8.GetByteCount(Key) < 32)
+            throw new InvalidOperationException($"{SectionName}:Key must contain at least 32 bytes.");
+
         if (string.IsNullOrWhiteSpace(Issuer))
             throw new InvalidOperationException($"{SectionName}:Issuer is required.");
 
         if (string.IsNullOrWhiteSpace(Audience))
             throw new InvalidOperationException($"{SectionName}:Audience is required.");
 
-        if (AccessTokenExpirationMinutes <= 0)
-            throw new InvalidOperationException($"{SectionName}:AccessTokenExpirationMinutes must be positive.");
+        if (AccessTokenExpirationMinutes is < 5 or > 30)
+        {
+            throw new InvalidOperationException(
+                $"{SectionName}:AccessTokenExpirationMinutes must be between 5 and 30.");
+        }
 
         if (RefreshTokenExpirationMinutes <= 0)
             throw new InvalidOperationException($"{SectionName}:RefreshTokenExpirationMinutes must be positive.");

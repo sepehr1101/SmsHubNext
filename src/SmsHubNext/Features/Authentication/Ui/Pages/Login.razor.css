@@ -1,0 +1,40 @@
+.login-page { min-height:100vh; display:grid; grid-template-columns:minmax(400px,45%) 1fr; direction:rtl; background:#fff; color:#203954; font-family:Vazirmatn,Tahoma,sans-serif; }
+.login-form-side { padding:110px 48px 55px; background:#fff; border:0; backdrop-filter:none; }
+.login-brand { color:#203954; inset-block-start:34px; inset-inline-start:48px; gap:10px; font-size:25px; letter-spacing:0; }
+.login-brand-mark { background:#173d73; border:0; box-shadow:none; border-radius:11px; width:40px; height:40px; font-size:24px; }
+.login-brand>span:last-child>span { color:#2d6bc6; }.login-brand small { display:block; letter-spacing:4px; font-size:9px; margin-top:4px; color:#8795a8; line-height:1; }
+.login-card { max-width:380px; padding:0; border:0; background:transparent; box-shadow:none; backdrop-filter:none; }
+.login-heading { margin-bottom:28px; }.login-eyebrow { color:#4976ae; font-size:12px; font-weight:600; letter-spacing:0; }.login-heading h1 { font-size:28px; font-weight:750; letter-spacing:-.7px; color:#203954; }.login-heading p { color:#7a8ba0; font-size:13px; }
+.login-demo-note { background:#f1f6fd; border:1px solid #dee9f7; color:#6682a4; border-radius:8px; font-size:11px; }.login-demo-note b { color:#28496e; }.login-alert { background:#fff3f3; color:#a74650; border-color:#f2d8dc; border-radius:8px; }
+.login-form>label:not(.login-remember) { color:#526780; font-size:13px; font-weight:550; margin-bottom:9px; }
+.login-input-wrap { background:#f8fafc; border:1px solid #dce5ef; border-radius:9px; height:52px; margin-bottom:20px; }.login-input-wrap:focus-within { border-color:#4382d2; box-shadow:0 0 0 3px #4382d216; background:#fff; }.login-input-wrap input { color:#203954; font-size:14px; }.login-input-wrap input::placeholder { color:#97a5b7; }.login-password-toggle { color:#8092aa; }.login-password-toggle:hover { color:#2d6bc6; }
+.login-remember { color:#78899f; font-size:12px; }.login-remember input { accent-color:#245d9f; }
+.login-submit { background:#173d73; box-shadow:0 5px 14px #173d7316; border-radius:9px; font-size:14px; font-weight:600; }.login-submit:hover { background:#24558f; transform:none; box-shadow:0 7px 18px #173d7320; }.login-back { color:#788ba4; font-size:12px; }.login-back:hover { color:#2d6bc6; }
+.login-visual { position:relative; min-height:100vh; background:radial-gradient(ellipse at 45% 50%,#234b70,#142e4c 55%,#10263f); overflow:hidden; isolation:isolate; opacity:1; }
+.signal-halo { position:absolute; width:520px; height:520px; border-radius:50%; background:radial-gradient(circle,#4a91af20,transparent 65%); filter:blur(22px); animation:signal-breathe 15s ease-in-out infinite; }
+.signal-field { position:absolute; inset:0; width:100%; height:100%; opacity:.85; }
+.signal-wave { stroke:#74acd3; stroke-width:1; opacity:.2; }.wave-1 { stroke:#75c9c4; opacity:.28; }.wave-2 { stroke:#a5c1e7; opacity:.14; }
+.signal-pulse { stroke:#82ccf0; stroke-width:2; stroke-linecap:round; stroke-dasharray:4 106; opacity:0; filter:drop-shadow(0 0 5px #7dc8ef88); animation:signal-transmit 12s linear infinite; }.pulse-1 { stroke:#8de0d6; animation-delay:4s; animation-duration:15s; }
+.signal-brand { position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; color:#fff; padding:35px; background:radial-gradient(ellipse,#183854dd,transparent 75%); }
+.signal-symbol { width:66px; height:66px; display:grid; place-items:center; border:1px solid #81b4da50; background:#37648c55; border-radius:18px; font-size:38px; font-weight:750; margin-bottom:18px; box-shadow:0 8px 28px #061d3720; }.signal-brand strong { font-size:36px; letter-spacing:-1px; font-weight:750; }.signal-brand strong span { color:#92bfe8; }.signal-brand small { color:#a0b8d0; margin-top:12px; font-size:12px; }
+.login-visual-copy { bottom:48px; color:#dce8f5; }.login-visual-copy strong { font-size:17px; font-weight:550; }.login-visual-copy span { color:#8ea8c3; font-size:12px; }
+@keyframes signal-transmit { 0% { stroke-dashoffset:8; opacity:0; } 6% { opacity:.8; } 62% { stroke-dashoffset:-100; opacity:.8; } 68%,100% { stroke-dashoffset:-100; opacity:0; } }
+@keyframes signal-breathe { 50% { transform:translateY(-12px) scale(1.08); opacity:.7; } }
+@media(max-width:900px) { .login-page { display:flex; flex-direction:column; }.login-visual { order:-1; position:relative; min-height:180px; height:180px; flex:none; inset:auto; }.login-form-side { min-height:calc(100vh - 180px); padding:40px 26px; }.login-brand { position:static; width:fit-content; margin:0 auto 28px; }.login-card { width:100%; max-width:380px; }.signal-brand { padding:18px; }.signal-symbol { width:38px; height:38px; font-size:24px; margin-bottom:6px; border-radius:10px; }.signal-brand strong { font-size:25px; }.signal-brand small { margin-top:4px; font-size:10px; }.login-visual-copy { display:none; } }
+@media(max-width:400px) { .login-form-side { padding:30px 20px; }.login-heading h1 { font-size:25px; } }
+@media(prefers-reduced-motion:reduce) { .signal-halo,.signal-pulse { animation:none; }.signal-pulse { display:none; } }
+.signal-wave { transform-origin:center; animation:signal-wave-drift 14s ease-in-out infinite; }.wave-1 { animation-delay:-5s; }.wave-2 { animation-delay:-9s; }
+@keyframes signal-wave-drift { 50% { transform:translateY(7px); } }
+@media(prefers-reduced-motion:reduce) { .signal-wave { animation:none; } }
+
+/* Aligned, periodic partial Fourier sums: sin(x), +sin(3x)/3, +sin(5x)/5. */
+.signal-wave { animation:none; stroke-width:1.25; }
+.wave-0 { stroke:#91bce3; opacity:.24; stroke-dasharray:5 5; }
+.wave-1 { stroke:#65b8d6; opacity:.42; }
+.wave-2 { stroke:#85d3c9; opacity:.58; stroke-width:1.6; }
+
+/* Frosted glass keeps the brand clear while the signal remains visible underneath. */
+.signal-brand { background:linear-gradient(135deg,#244b6e66,#16375477); border:1px solid #aac9e326; border-radius:24px; box-shadow:0 16px 40px #061d3720,inset 0 1px 0 #dceeff12; backdrop-filter:blur(12px) saturate(115%); -webkit-backdrop-filter:blur(12px) saturate(115%); padding:30px 38px; }
+@media(max-width:900px) { .signal-brand { padding:13px 23px; border-radius:18px; }.signal-symbol { margin-bottom:5px; } }
+.login-icon { width:20px; height:20px; flex-shrink:0; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.login-input-wrap>.login-icon { margin-inline:16px 11px; color:#8092aa; }.login-back .login-icon { width:17px; height:17px; }

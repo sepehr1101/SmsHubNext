@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Backup', 'Restore', 'DeleteBackup', 'Ensure', 'EnsureServices', 'Start', 'Stop', 'Remove', 'TestBinding', 'Validate')]
@@ -54,7 +54,7 @@ function Ensure-IisServiceRunning {
             [TimeSpan]::FromSeconds(30))
     }
     catch {
-        throw "Required IIS service '$Name' is stopped and could not be started. $($_.Exception.Message)"
+        throw "سرویس الزامی IIS با نام «$Name» متوقف است و راه‌اندازی آن امکان‌پذیر نبود."
     }
 }
 
@@ -77,10 +77,10 @@ function Start-SmsHubNextSite {
     Ensure-IisServicesRunning
     Import-IisAdministration
     if (-not (Test-Path -LiteralPath "IIS:\AppPools\$AppPoolName")) {
-        throw "IIS application pool '$AppPoolName' does not exist."
+        throw "Application Pool با نام «$AppPoolName» در IIS وجود ندارد."
     }
     if (-not (Test-Path -LiteralPath "IIS:\Sites\$SiteName")) {
-        throw "IIS site '$SiteName' does not exist."
+        throw "سایت «$SiteName» در IIS وجود ندارد."
     }
 
     Start-WebAppPool -Name $AppPoolName
@@ -128,7 +128,7 @@ function Restore-SmsHubNext {
     $applicationDirectory = Assert-InstallerSafeDirectory -Path $PhysicalPath -Purpose 'application'
     $backupDirectory = Assert-InstallerSafeDirectory -Path $BackupPath -Purpose 'backup'
     if (-not (Test-Path -LiteralPath $backupDirectory -PathType Container)) {
-        throw "Deployment backup '$backupDirectory' does not exist."
+        throw "نسخه پشتیبان استقرار در مسیر «$backupDirectory» وجود ندارد."
     }
 
     Stop-SmsHubNextSite
@@ -149,7 +149,7 @@ function Assert-BindingAvailable {
     $webAdministrationModule = Get-Module -ListAvailable -Name WebAdministration | Select-Object -First 1
     if ($null -eq $webAdministrationModule) {
         if ($null -ne $activeListener) {
-            throw "TCP port '$Port' is already in use by another process."
+            throw "پورت TCP شماره «$Port» در اختیار پردازش دیگری است."
         }
         return
     }
@@ -163,14 +163,14 @@ function Assert-BindingAvailable {
     } | Select-Object -First 1
 
     if ($null -ne $conflict) {
-        throw "HTTP binding '$expectedBinding' is already used by another IIS site."
+        throw "اتصال HTTP با مقدار «$expectedBinding» در سایت دیگری از IIS استفاده شده است."
     }
 
     $iisOwnsPort = $null -ne ($httpBindings | Where-Object {
         $_.bindingInformation -match ":${Port}:"
     } | Select-Object -First 1)
     if (-not $iisOwnsPort -and $null -ne $activeListener) {
-        throw "TCP port '$Port' is already in use by another process."
+        throw "پورت TCP شماره «$Port» در اختیار پردازش دیگری است."
     }
 }
 
@@ -312,7 +312,9 @@ catch {
             -Path $ResultPath `
             -Success $false `
             -Code "iis.$($Action.ToLowerInvariant())_failed" `
-            -Message (Get-InstallerSafeErrorMessage -ErrorRecord $_)
+            -Message (Get-InstallerDisplayErrorMessage `
+                -ErrorRecord $_ `
+                -Fallback 'انجام عملیات استقرار در IIS امکان‌پذیر نبود.')
     }
     exit 22
 }

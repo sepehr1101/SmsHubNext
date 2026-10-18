@@ -1,0 +1,8 @@
+@page "/admin/settings/security"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject NavigationManager Navigation
+
+@code {
+    protected override void OnInitialized() => Navigation.NavigateTo("/admin/me", replace: true);
+}

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string] $ResultPath
@@ -32,7 +32,7 @@ try {
             -IncludeManagementTools `
             -ErrorAction Stop
         if (-not $featureResult.Success) {
-            throw 'Windows Server could not enable all required IIS features.'
+            throw 'فعال‌سازی همه قابلیت‌های موردنیاز IIS در Windows Server امکان‌پذیر نبود.'
         }
         $restartRequired = [string]::Equals(
             [string]$featureResult.RestartNeeded,
@@ -92,6 +92,8 @@ catch {
         -Path $ResultPath `
         -Success $false `
         -Code 'iis.enable_failed' `
-        -Message (Get-InstallerSafeErrorMessage -ErrorRecord $_)
+        -Message (Get-InstallerDisplayErrorMessage `
+            -ErrorRecord $_ `
+            -Fallback 'فعال‌سازی قابلیت‌های موردنیاز IIS امکان‌پذیر نبود.')
     exit 20
 }

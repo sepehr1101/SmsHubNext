@@ -30,8 +30,8 @@ public sealed class DatabaseSetupRequestTests
 
         IReadOnlyList<string> errors = request.Validate();
 
-        Assert.Contains("Username is required.", errors);
-        Assert.Contains("Password is required.", errors);
+        Assert.Contains("مقدار Username الزامی است.", errors);
+        Assert.Contains("مقدار Password الزامی است.", errors);
     }
 
     [Theory]
@@ -46,7 +46,7 @@ public sealed class DatabaseSetupRequestTests
             Authentication = DatabaseAuthenticationMode.Windows,
         };
 
-        Assert.Contains(request.Validate(), error => error.Contains("line breaks", StringComparison.Ordinal));
+        Assert.Contains(request.Validate(), error => error.Contains("چندخطی", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -62,6 +62,6 @@ public sealed class DatabaseSetupRequestTests
             ConnectTimeoutSeconds = timeout,
         };
 
-        Assert.Contains(request.Validate(), error => error.Contains("ConnectTimeoutSeconds", StringComparison.Ordinal));
+        Assert.Contains(request.Validate(), error => error.Contains("مهلت اتصال", StringComparison.Ordinal));
     }
 }

@@ -1,0 +1,31 @@
+<script type="module" src="@Assets["Components/Layout/ReconnectModal.razor.js"]"></script>
+
+<dialog id="components-reconnect-modal" lang="fa" dir="rtl" aria-label="وضعیت اتصال به سامانه" data-nosnippet>
+    <div class="components-reconnect-container">
+        <div class="components-rejoining-animation" aria-hidden="true">
+            <div></div>
+            <div></div>
+        </div>
+        <p class="components-reconnect-first-attempt-visible">
+            در حال برقراری دوبارهٔ ارتباط با سامانه…
+        </p>
+        <p class="components-reconnect-repeated-attempt-visible">
+            ارتباط برقرار نشد؛ تلاش دوباره تا <span id="components-seconds-to-next-attempt"></span> ثانیهٔ دیگر.
+        </p>
+        <p class="components-reconnect-failed-visible">
+            اتصال مجدد برقرار نشد.<br />دوباره تلاش کنید یا صفحه را تازه‌سازی کنید.
+        </p>
+        <button id="components-reconnect-button" class="components-reconnect-failed-visible">
+            تلاش دوباره
+        </button>
+        <p class="components-pause-visible">
+            ارتباط این نشست از سوی سامانه موقتاً متوقف شده است.
+        </p>
+        <p class="components-resume-failed-visible">
+            ادامهٔ نشست ممکن نشد.<br />دوباره تلاش کنید یا صفحه را تازه‌سازی کنید.
+        </p>
+        <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible">
+            ادامهٔ نشست
+        </button>
+    </div>
+</dialog>

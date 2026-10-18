@@ -12,6 +12,7 @@ using SmsHubNext.Features.ProviderAccounts;
 using SmsHubNext.Features.Providers;
 using SmsHubNext.Features.Providers.Kavenegar;
 using SmsHubNext.Features.Providers.Magfa;
+using SmsHubNext.Features.Providers.SmsIr;
 using SmsHubNext.Features.ReferenceData.Customers;
 using SmsHubNext.Features.Sending;
 using SmsHubNext.IntegrationTests.Shared;
@@ -135,10 +136,11 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
     {
         string providerCode = Environment.GetEnvironmentVariable(ProviderVariable)?.Trim().ToLowerInvariant()
             ?? string.Empty;
-        if (providerCode is not (ProviderCodes.Magfa or ProviderCodes.Kavenegar))
+        if (providerCode is not (ProviderCodes.Magfa or ProviderCodes.Kavenegar or ProviderCodes.SmsIr))
         {
             throw new InvalidOperationException(
-                $"{ProviderVariable} must be either '{ProviderCodes.Magfa}' or '{ProviderCodes.Kavenegar}'.");
+                $"{ProviderVariable} must be '{ProviderCodes.Magfa}', '{ProviderCodes.Kavenegar}', " +
+                $"or '{ProviderCodes.SmsIr}'.");
         }
 
         return providerCode;
@@ -158,6 +160,12 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
             SenderLine: "100099999999",
             BatchSize: KavenegarOptions.MaxMessagesPerRequest,
             new Uri("https://api.kavenegar.com", UriKind.Absolute)),
+        ProviderCodes.SmsIr => new LiveScenario(
+            ProviderCodes.SmsIr,
+            ProviderId: 3,
+            SenderLine: "300099999999",
+            BatchSize: SmsIrOptions.MaxMessagesPerRequest,
+            new Uri("https://api.sms.ir", UriKind.Absolute)),
         _ => throw new InvalidOperationException($"Unsupported live provider '{providerCode}'."),
     };
 
@@ -187,9 +195,31 @@ public sealed class InvalidCredentialsLiveTests : IAsyncLifetime
                 NullLogger<MagfaSmsProvider>.Instance);
         }
 
+        string invalidApiKey = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        if (scenario.ProviderCode == ProviderCodes.SmsIr)
+        {
+            SmsIrAccount smsIrAccount = new SmsIrAccount
+            {
+                ApiKey = invalidApiKey,
+                SenderLines = [scenario.SenderLine],
+            };
+            SmsIrOptions smsIrOptions = new SmsIrOptions
+            {
+                Enabled = true,
+                BaseUrl = scenario.BaseUri.ToString(),
+                BatchSize = scenario.BatchSize,
+                Timeout = httpClient.Timeout,
+            };
+            return new SmsIrSmsProvider(
+                httpClient,
+                new SmsIrAccountResolver([smsIrAccount]),
+                smsIrOptions,
+                TimeProvider.System,
+                NullLogger<SmsIrSmsProvider>.Instance);
+        }
+
         // Kavenegar routes malformed key shapes differently from a well-formed but unknown key.
         // Use the documented 64-hex shape so this probe exercises authentication, not URL validation.
-        string invalidApiKey = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         KavenegarAccount kavenegarAccount = new KavenegarAccount
         {
             ApiKey = invalidApiKey,

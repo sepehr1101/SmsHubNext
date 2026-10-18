@@ -1,0 +1,20 @@
+.provider-showcase { overflow:hidden; padding:30px 0 24px; background:#fff; border-bottom:1px solid #e7edf5; font-family:Vazirmatn,Tahoma,sans-serif; }
+.showcase-heading { text-align:center; padding-inline:20px; margin-bottom:23px; }
+.showcase-heading>span { font-size:11px; color:#6982a2; }
+.showcase-heading h2 { font-size:19px; line-height:1.7; font-weight:650; color:#243f60; margin:5px 0 0; }
+.provider-window { direction:ltr; overflow:hidden; padding-block:8px; mask-image:linear-gradient(to right,transparent,#000 5%,#000 95%,transparent); }
+.provider-window:focus-visible { outline:2px solid #3379d6; outline-offset:-2px; }
+.provider-track { display:flex; width:max-content; animation:provider-flow 38s linear infinite; will-change:transform; }
+.provider-set { display:flex; gap:18px; padding-right:18px; flex-shrink:0; min-width:100vw; box-sizing:border-box; justify-content:space-around; }
+.provider-card { display:flex; align-items:center; gap:16px; box-sizing:border-box; width:238px; min-height:92px; padding:17px 20px; border:1px solid #dfe7f2; border-radius:13px; background:#fff; box-shadow:0 3px 8px #193b6410; }
+.provider-logo { width:66px; height:52px; display:grid; place-items:center; flex-shrink:0; }
+.provider-logo img { display:block; width:64px; height:48px; object-fit:contain; }
+.provider-card:first-child .provider-logo { background:#203954; border-radius:9px; }
+.provider-card:first-child .provider-logo img { width:50px; height:36px; }
+.provider-card h3 { color:#294461; font-size:15px; font-weight:650; white-space:nowrap; margin:0 0 4px; }
+.provider-card div>span { display:block; font-size:10px; color:#7d8fa7; text-align:right; letter-spacing:.2px; }
+.provider-window:hover .provider-track,.provider-window:focus-within .provider-track { animation-play-state:paused; }
+.showcase-note { text-align:center; padding-inline:20px; color:#8b99ac; font-size:10px; margin:16px 0 0; }
+@keyframes provider-flow { from { transform:translateX(0); } to { transform:translateX(-50%); } }
+@media(max-width:600px) { .provider-card { width:210px; padding:14px; gap:12px; min-height:82px; }.provider-set { gap:12px; padding-right:12px; }.provider-track { animation-duration:34s; }.showcase-heading h2 { font-size:17px; } }
+@media(prefers-reduced-motion:reduce) { .provider-track { animation:none; will-change:auto; }.provider-window { overflow-x:auto; mask-image:none; }.provider-set:nth-child(2) { display:none; } }

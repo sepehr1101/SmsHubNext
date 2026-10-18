@@ -1,4 +1,3 @@
-using Serilog;
 using SmsHubNext.Deployment;
 using SmsHubNext.Extensions;
 
@@ -11,17 +10,14 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 // Layer the optional gitignored appsettings.{Environment}.local.json (local secrets) over defaults.
 builder.AddLocalConfiguration();
 
-// Structured logging via Serilog; levels/sinks overridable from configuration.
-builder.Host.UseSerilog((context, configuration) => configuration
-    .ReadFrom.Configuration(context.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console());
+builder.AddApplicationLogging();
 
 builder.Services.AddApplicationServices(builder.Configuration, builder.Environment);
 
 WebApplication app = builder.Build();
 
 app.MigrateDatabase();
+await app.SeedDevelopmentDataAsync();
 app.ConfigurePipeline();
 
 await app.RunAsync();

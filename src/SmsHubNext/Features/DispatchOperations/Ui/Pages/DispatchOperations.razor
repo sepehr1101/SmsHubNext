@@ -1,0 +1,42 @@
+@page "/admin/dispatch-operations"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject DispatchOperationsService Service
+@implements IDisposable
+
+<PageTitle>پایش ارسال | SmsHub</PageTitle>
+<div class="dispatch-page">
+<FeatureNotice Loading="_loading" Error="@_error" OnRetry="Reload" />
+@if (_summary is not null)
+{
+    <section class="report-summary" aria-label="خلاصه پایش ارسال">
+        <article><span class="report-summary-label"><MudIcon Icon="@Icons.Material.Rounded.Layers" /> دسته‌های ارسال</span><strong>@(PersianDisplay.Number(_summary.Totals.BatchCount, "N0"))</strong><small>@(PersianDisplay.Number(_summary.Totals.MessageCount, "N0")) پیام</small></article>
+        <article class="dispatch-held"><span class="report-summary-label"><MudIcon Icon="@Icons.Material.Rounded.PauseCircleOutline" /> نگه‌داشته‌شده</span><strong>@(PersianDisplay.Number(_summary.Totals.HeldBatchCount))</strong><small>نیازمند بررسی اعتبار</small></article>
+        <article class="undelivered"><span class="report-summary-label"><MudIcon Icon="@Icons.Material.Rounded.ErrorOutline" /> شکست ارسال</span><strong>@(PersianDisplay.Number(_summary.Totals.DispatchFailedBatchCount))</strong><small>بیشینه تلاش: @(PersianDisplay.Number(_summary.Totals.MaxDispatchAttemptCount))</small></article>
+        <article><span class="report-summary-label"><MudIcon Icon="@Icons.Material.Rounded.AccountBalanceWallet" /> هزینه صف</span><strong>@(PersianDisplay.Number(_summary.Totals.TotalCost, "N0"))</strong><small>ریال</small></article>
+    </section>
+}
+<section class="admin-data-panel"><header class="dispatch-table-header">
+    <div><h2>دسته‌های ارسال</h2></div>
+    <div class="dispatch-table-actions">
+        <label class="dispatch-problem-toggle"><input type="checkbox" @bind="_onlyProblems" @bind:after="Reload" disabled="@_loading" /><span>فقط موارد مشکل‌دار</span></label>
+        <MudTooltip Text="به‌روزرسانی پایش ارسال" ShowOnFocus="true">
+            <button type="button" class="report-refresh" aria-label="به‌روزرسانی پایش ارسال" disabled="@_loading" @onclick="Reload"><MudIcon Icon="@Icons.Material.Rounded.Refresh" /></button>
+        </MudTooltip>
+    </div>
+</header><div class="admin-table-wrap"><AdminGrid T="DispatchOperationsBatchRow" Items="@(_page?.Items ?? [])" Loading="_loading" Name="دسته‌های ارسال" PageLocal="true" ExportColumns='@(new AdminExportColumn<DispatchOperationsBatchRow>[] { new("شناسه", item => item.Id), new("تاریخ جلالی", item => item.SubmitDateJalali), new("ارائه‌دهنده", item => item.ProviderName), new("پیام/قطعه", item => $"{item.MessageCount} / {item.SegmentCount}"), new("هزینه (ریال)", item => item.TotalCost), new("وضعیت", item => StatusLabel(item.Status)), new("تلاش", item => item.DispatchAttemptCount), new("آخرین رویداد", item => item.LastEventType is null ? "—" : EventLabel(item.LastEventType.Value)) })'><PropertyColumn Property="item => item.Id" Title="شناسه"><CellTemplate><div class="mono"><a class="table-link" href="/admin/dispatch-operations/@context.Item.Id">#@(PersianDisplay.Number(context.Item.Id))</a></div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.SubmitDateJalali" Title="تاریخ جلالی"><CellTemplate><div class="mono">@(PersianDisplay.Text(context.Item.SubmitDateJalali))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.ProviderName" Title="ارائه‌دهنده"><CellTemplate><div>@context.Item.ProviderName <small class="table-sub">@(PersianDisplay.Text(context.Item.ProviderCode))</small></div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.MessageCount" Title="پیام/قطعه"><CellTemplate><div>@(PersianDisplay.Number(context.Item.MessageCount)) / @(PersianDisplay.Number(context.Item.SegmentCount))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.TotalCost" Title="هزینه (ریال)"><CellTemplate><div class="money">@(PersianDisplay.Number(context.Item.TotalCost, "N0"))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.Status" Title="وضعیت"><CellTemplate><div><span class="batch-status status-@((byte)context.Item.Status)">@StatusLabel(context.Item.Status)</span></div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.DispatchAttemptCount" Title="تلاش"><CellTemplate><div>@(PersianDisplay.Number(context.Item.DispatchAttemptCount))</div></CellTemplate></PropertyColumn>
+<PropertyColumn Property="item => item.LastEventType" Title="آخرین رویداد"><CellTemplate><div>@(context.Item.LastEventType is null ? "—" : EventLabel(context.Item.LastEventType.Value))<small class="table-sub">@(PersianDisplay.Date(context.Item.LastEventTimeUtc, "yyyy/MM/dd HH:mm"))</small></div></CellTemplate></PropertyColumn></AdminGrid></div>@if ((_page?.TotalCount ?? 0) > PageSize) { <footer class="admin-pagination"><button disabled="@(_loading || _currentPage <= 1)" @onclick="PreviousPage">قبلی</button><span>صفحه @(PersianDisplay.Number(_currentPage)) از @(PersianDisplay.Number(((_page?.TotalCount ?? 0) + PageSize - 1) / PageSize))</span><button disabled="@(_loading || _page is null || _currentPage * PageSize >= _page.TotalCount)" @onclick="NextPage">بعدی</button></footer> }</section>
+</div>
+
+@code {
+    private const int PageSize = 25; private readonly CancellationTokenSource _token = new(); private DispatchOperationsSummary? _summary; private DispatchOperationsBatchPage? _page; private bool _onlyProblems; private int _currentPage = 1; private bool _loading = true; private string? _error;
+    protected override Task OnInitializedAsync() => Reload(); private async Task Reload() { _currentPage = 1; await Load(); } private async Task Load() { _loading = true; _error = null; Task<UiResult<DispatchOperationsSummary>> summaryTask = Service.Summary(_onlyProblems, _token.Token); Task<UiResult<DispatchOperationsBatchPage>> pageTask = Service.Batches(_onlyProblems, _currentPage, PageSize, _token.Token); await Task.WhenAll(summaryTask, pageTask); UiResult<DispatchOperationsSummary> summary = await summaryTask; UiResult<DispatchOperationsBatchPage> page = await pageTask; _summary = summary.Value; _page = page.Value; _error = summary.ErrorMessage ?? page.ErrorMessage; _loading = false; }
+    private async Task PreviousPage() { if (_currentPage > 1) { _currentPage--; await Load(); } } private async Task NextPage() { if (_page is not null && _currentPage * PageSize < _page.TotalCount) { _currentPage++; await Load(); } }
+    private static string StatusLabel(BatchStatus status) => status switch { BatchStatus.Received=>"دریافت‌شده",BatchStatus.Dispatching=>"در حال ارسال",BatchStatus.DispatchCompleted=>"تکمیل",BatchStatus.DispatchPartiallyFailed=>"بخشی ناموفق",BatchStatus.Held=>"نگه‌داشته",BatchStatus.Rejected=>"ردشده",_=>"شکست ارسال" }; private static string EventLabel(MessageBatchEventType type) => type switch { MessageBatchEventType.Accepted=>"پذیرش",MessageBatchEventType.DispatchStarted=>"شروع ارسال",MessageBatchEventType.Held=>"توقف",MessageBatchEventType.DispatchCompleted=>"تکمیل",MessageBatchEventType.DispatchFailed=>"شکست",MessageBatchEventType.DispatchRetryRequested=>"درخواست تلاش مجدد",_=>"به‌روزرسانی" }; public void Dispose() { _token.Cancel(); _token.Dispose(); }
+}

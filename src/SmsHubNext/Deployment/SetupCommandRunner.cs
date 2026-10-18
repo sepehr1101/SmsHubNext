@@ -1,12 +1,21 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DbUp.Engine;
 using Microsoft.Data.SqlClient;
+using SmsHubNext.Shared.Database;
 
 namespace SmsHubNext.Deployment;
 
 public static class SetupCommandRunner
 {
+    private const string DatabaseConnectionFailedMessage =
+        "اتصال به SQL Server برقرار نشد. تنظیمات اتصال، دسترسی شبکه و اطلاعات ورود را بررسی کنید.";
+    private const string SettingsWriteFailedMessage =
+        "نوشتن فایل تنظیمات محیط عملیاتی امکان‌پذیر نبود. دسترسی مسیر را بررسی کنید.";
+    private const string UnexpectedFailureMessage =
+        "هنگام انجام عملیات راه‌اندازی خطای غیرمنتظره‌ای رخ داد.";
+
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     public static async Task<int?> TryRunAsync(string[] args, CancellationToken cancellationToken = default)
@@ -34,8 +43,68 @@ public static class SetupCommandRunner
         {
             "test-database" => await TestDatabaseAsync(options, cancellationToken),
             "configure" => await ConfigureAsync(options, cancellationToken),
+            "create-admin-key" => await CreateAdminKeyAsync(options, cancellationToken),
             _ => await UnknownCommandAsync(options, command),
         };
+    }
+
+    private static async Task<int> CreateAdminKeyAsync(
+        IReadOnlyDictionary<string, string> options,
+        CancellationToken cancellationToken)
+    {
+        string? resultPath = GetOptionalOption(options, "--result");
+
+        try
+        {
+            DatabaseSetupRequest request = await ReadRequestAsync(options, cancellationToken);
+            string name = GetOptionalOption(options, "--name") ?? "Initial administrator";
+            string connectionString = DatabaseConnectionStringFactory.Create(request);
+
+            DatabaseSetupService setupService = new();
+            await setupService.TestConnectionAsync(request, cancellationToken);
+
+            DatabaseUpgradeResult migration = new DatabaseMigrator(connectionString).Migrate();
+            if (!migration.Successful)
+                throw migration.Error ?? new InvalidOperationException("اجرای migration پایگاه داده ناموفق بود.");
+
+            AdminApiKeyBootstrapper bootstrapper = new(new Db(connectionString));
+            SetupAdministratorCredential administrator = await bootstrapper.CreateAsync(
+                name,
+                expiresAtUtc: null,
+                cancellationToken);
+
+            await WriteResultAsync(
+                resultPath,
+                SetupCommandResult.Succeeded(
+                    "setup.admin_key_created",
+                    "کلید مدیریتی ساخته شد. مقدار آن فقط در همین پاسخ نمایش داده می‌شود.",
+                    administrator));
+            return SetupExitCodes.Success;
+        }
+        catch (ArgumentException exception)
+        {
+            await WriteResultAsync(resultPath, SetupCommandResult.Failed("setup.invalid_arguments", exception.Message));
+            return SetupExitCodes.InvalidArguments;
+        }
+        catch (InvalidDataException exception)
+        {
+            await WriteResultAsync(resultPath, SetupCommandResult.Failed("setup.invalid_request", exception.Message));
+            return SetupExitCodes.InvalidRequest;
+        }
+        catch (SqlException)
+        {
+            await WriteResultAsync(
+                resultPath,
+                SetupCommandResult.Failed("database.connection_failed", DatabaseConnectionFailedMessage));
+            return SetupExitCodes.DatabaseConnectionFailed;
+        }
+        catch (Exception)
+        {
+            await WriteResultAsync(
+                resultPath,
+                SetupCommandResult.Failed("setup.unexpected_failure", UnexpectedFailureMessage));
+            return SetupExitCodes.UnexpectedFailure;
+        }
     }
 
     private static async Task<int> TestDatabaseAsync(
@@ -64,18 +133,18 @@ public static class SetupCommandRunner
             await WriteResultAsync(resultPath, SetupCommandResult.Failed("setup.invalid_request", exception.Message));
             return SetupExitCodes.InvalidRequest;
         }
-        catch (SqlException exception)
+        catch (SqlException)
         {
             await WriteResultAsync(
                 resultPath,
-                SetupCommandResult.Failed("database.connection_failed", SanitizeExceptionMessage(exception)));
+                SetupCommandResult.Failed("database.connection_failed", DatabaseConnectionFailedMessage));
             return SetupExitCodes.DatabaseConnectionFailed;
         }
-        catch (Exception exception)
+        catch (Exception)
         {
             await WriteResultAsync(
                 resultPath,
-                SetupCommandResult.Failed("setup.unexpected_failure", SanitizeExceptionMessage(exception)));
+                SetupCommandResult.Failed("setup.unexpected_failure", UnexpectedFailureMessage));
             return SetupExitCodes.UnexpectedFailure;
         }
     }
@@ -120,36 +189,36 @@ public static class SetupCommandRunner
             await WriteResultAsync(resultPath, SetupCommandResult.Failed("setup.invalid_request", exception.Message));
             return SetupExitCodes.InvalidRequest;
         }
-        catch (SqlException exception)
+        catch (SqlException)
         {
             RollbackIfNeeded(writer, receipt);
             await WriteResultAsync(
                 resultPath,
-                SetupCommandResult.Failed("database.connection_failed", SanitizeExceptionMessage(exception)));
+                SetupCommandResult.Failed("database.connection_failed", DatabaseConnectionFailedMessage));
             return SetupExitCodes.DatabaseConnectionFailed;
         }
-        catch (IOException exception)
+        catch (IOException)
         {
             RollbackIfNeeded(writer, receipt);
             await WriteResultAsync(
                 resultPath,
-                SetupCommandResult.Failed("settings.write_failed", SanitizeExceptionMessage(exception)));
+                SetupCommandResult.Failed("settings.write_failed", SettingsWriteFailedMessage));
             return SetupExitCodes.SettingsWriteFailed;
         }
-        catch (UnauthorizedAccessException exception)
+        catch (UnauthorizedAccessException)
         {
             RollbackIfNeeded(writer, receipt);
             await WriteResultAsync(
                 resultPath,
-                SetupCommandResult.Failed("settings.write_failed", SanitizeExceptionMessage(exception)));
+                SetupCommandResult.Failed("settings.write_failed", SettingsWriteFailedMessage));
             return SetupExitCodes.SettingsWriteFailed;
         }
-        catch (Exception exception)
+        catch (Exception)
         {
             RollbackIfNeeded(writer, receipt);
             await WriteResultAsync(
                 resultPath,
-                SetupCommandResult.Failed("setup.unexpected_failure", SanitizeExceptionMessage(exception)));
+                SetupCommandResult.Failed("setup.unexpected_failure", UnexpectedFailureMessage));
             return SetupExitCodes.UnexpectedFailure;
         }
     }
@@ -160,7 +229,7 @@ public static class SetupCommandRunner
     {
         await WriteResultAsync(
             GetOptionalOption(options, "--result"),
-            SetupCommandResult.Failed("setup.unknown_command", $"Unknown setup command '{command}'."));
+            SetupCommandResult.Failed("setup.unknown_command", $"فرمان راه‌اندازی «{command}» شناخته‌شده نیست."));
         return SetupExitCodes.InvalidArguments;
     }
 
@@ -172,10 +241,10 @@ public static class SetupCommandRunner
         {
             string name = args[index];
             if (!name.StartsWith("--", StringComparison.Ordinal) || index + 1 >= args.Length)
-                throw new ArgumentException($"Option '{name}' must have a value.");
+                throw new ArgumentException($"مقدار گزینه «{name}» وارد نشده است.");
 
             if (!options.TryAdd(name, args[index + 1]))
-                throw new ArgumentException($"Option '{name}' was specified more than once.");
+                throw new ArgumentException($"گزینه «{name}» بیش از یک بار وارد شده است.");
         }
 
         return options;
@@ -193,7 +262,7 @@ public static class SetupCommandRunner
             cancellationToken);
 
         if (request is null)
-            throw new InvalidDataException("The setup request is empty.");
+            throw new InvalidDataException("درخواست راه‌اندازی خالی است.");
 
         IReadOnlyList<string> errors = request.Validate();
         if (errors.Count > 0)
@@ -205,7 +274,7 @@ public static class SetupCommandRunner
     private static string GetRequiredOption(IReadOnlyDictionary<string, string> options, string name)
     {
         if (!options.TryGetValue(name, out string? value) || string.IsNullOrWhiteSpace(value))
-            throw new ArgumentException($"Required option '{name}' is missing.");
+            throw new ArgumentException($"گزینه الزامی «{name}» وارد نشده است.");
 
         return value;
     }
@@ -244,12 +313,6 @@ public static class SetupCommandRunner
     {
         if (receipt is not null)
             writer.Rollback(receipt);
-    }
-
-    private static string SanitizeExceptionMessage(Exception exception)
-    {
-        string message = exception.Message.Replace('\r', ' ').Replace('\n', ' ').Trim();
-        return string.IsNullOrWhiteSpace(message) ? "The operation failed." : message;
     }
 
     private static JsonSerializerOptions CreateJsonOptions()

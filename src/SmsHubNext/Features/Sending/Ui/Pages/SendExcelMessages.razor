@@ -1,0 +1,5 @@
+@page "/admin/send-excel"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+
+<SendMessageForm ExcelMode="true" />

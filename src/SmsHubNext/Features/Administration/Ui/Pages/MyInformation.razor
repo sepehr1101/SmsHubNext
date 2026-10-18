@@ -1,0 +1,21 @@
+@page "/admin/me"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>اطلاعات من | SmsHub</PageTitle>
+<div class="admin-general-facts">
+    <article><span>نام کاربری</span><strong>@_name</strong></article>
+    <article><span>سطح دسترسی</span><strong>@_role</strong></article>
+</div>
+
+@code {
+    private string _name = "—";
+    private string _role = "—";
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState state = await Authentication.GetAuthenticationStateAsync();
+        _name = state.User.Identity?.Name ?? "—";
+        _role = state.User.IsInRole(DevelopmentAccount.AdministratorRole) ? "مدیر سامانه" : "کاربر";
+    }
+}
