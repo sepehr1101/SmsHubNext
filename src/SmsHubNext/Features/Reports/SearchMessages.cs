@@ -14,6 +14,7 @@ public sealed record MessageSearchCursor(string SubmitDateJalali, long Id);
 public sealed record SearchMessagesRequest
 {
     internal short? CustomerId { get; init; }
+    internal int Limit { get; init; } = SearchMessagesHandler.PageSize;
     public string FromJalali { get; init; } = string.Empty;
     public string ToJalali { get; init; } = string.Empty;
     public MessageSearchField Field { get; init; }
@@ -98,6 +99,6 @@ public sealed record SearchMessagesRequest
 
 public sealed record MessageSearchRow(long Id, long MessageBatchId, string SubmitDateJalali, DateTime SubmittedAtUtc,
     string MobileNumber, string? BillId, string? PayId, string CustomerName, string ProviderName,
-    SendStatus Status, DeliveryStatus DeliveryStatus, decimal TotalCost, string? Body);
+    SendStatus Status, DeliveryStatus DeliveryStatus, decimal TotalCost, string? Body, string? SenderLine = null);
 
 public sealed record MessageSearchPage(IReadOnlyList<MessageSearchRow> Items, MessageSearchCursor? Next);

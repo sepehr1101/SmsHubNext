@@ -1,3 +1,5 @@
+using System.Globalization;
+using SmsHubNext.Shared.Ui;
 using Microsoft.Extensions.Localization;
 using MudBlazor;
 
@@ -8,6 +10,19 @@ public sealed class PersianMudLocalizer : MudLocalizer
     private static readonly IReadOnlyDictionary<string, string> Translations =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            ["MudTable_CancelEditRow"] = "انصراف از ویرایش ردیف",
+            ["MudTable_CollapseGroup"] = "بستن گروه",
+            ["MudTable_SelectAllRows"] = "انتخاب همه ردیف‌ها",
+            ["MudTable_SelectGroup"] = "انتخاب گروه",
+            ["MudTable_ExpandGroup"] = "باز کردن گروه",
+            ["MudTable_Loading"] = "در حال بارگذاری…",
+            ["MudTable_EditRow"] = "ویرایش ردیف",
+            ["MudTable_SelectRow"] = "انتخاب ردیف",
+            ["MudTable_CommitRow"] = "ذخیره ردیف",
+            ["MudTablePager_PreviousPage"] = "صفحه قبل",
+            ["MudTablePager_LastPage"] = "صفحه آخر",
+            ["MudTablePager_NextPage"] = "صفحه بعد",
+            ["MudTablePager_FirstPage"] = "صفحه اول",
             ["MudDataGrid_Apply"] = "اعمال",
             ["MudDataGrid_Clear"] = "پاک کردن",
             ["MudDataGrid_AddFilter"] = "افزودن فیلتر",
@@ -82,12 +97,12 @@ public sealed class PersianMudLocalizer : MudLocalizer
         get
         {
             LocalizedString translation = this[key];
-            return translation.ResourceNotFound
-                ? translation
-                : new LocalizedString(
-                    key,
-                    string.Format(translation.Value, arguments),
-                    resourceNotFound: false);
+            if (translation.ResourceNotFound || arguments.Length == 0) return translation;
+            string formatted = string.Format(CultureInfo.InvariantCulture, translation.Value, arguments);
+            if (key.StartsWith("MudDataGridPager_", StringComparison.Ordinal) || key.StartsWith("MudTablePager_", StringComparison.Ordinal))
+                formatted = PersianDisplay.Text(formatted);
+            return new LocalizedString(key, formatted, resourceNotFound: false);
         }
     }
 }
+

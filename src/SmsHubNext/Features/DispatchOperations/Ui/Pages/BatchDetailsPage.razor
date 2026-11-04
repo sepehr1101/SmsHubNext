@@ -3,24 +3,38 @@
 @attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
 @inject DispatchOperationsService Service
 @inject NavigationManager Navigation
+@inject DeliveryReportsService Delivery
+@using SmsHubNext.Features.Reports.Ui.Pages
+@using SmsHubNext.Features.DeliveryReports.Ui.Pages
+@using SmsHubNext.Features.Sending
 @implements IDisposable
 
 <PageTitle>جزئیات دسته | SmsHub</PageTitle>
-<div class="admin-page-head"><div class="admin-page-actions">@if (CanRetry) { <button class="admin-button primary" disabled="@_retrying" @onclick="Retry"><MudIcon Icon="@Icons.Material.Rounded.Replay" /> تلاش مجدد</button> }<button class="admin-button secondary" @onclick="Load"><MudIcon Icon="@Icons.Material.Rounded.Refresh" /> تازه‌سازی</button></div></div>
+<div class="admin-page-head"><div class="admin-page-actions"><a class="admin-button secondary" href="/admin/dispatch-operations">بازگشت به ارسال‌ها</a>@if (CanRetry) { <button class="admin-button primary" disabled="@_retrying" @onclick="Retry"><MudIcon Icon="@Icons.Material.Rounded.Replay" /> تلاش مجدد</button> }<button class="admin-button secondary" @onclick="Load"><MudIcon Icon="@Icons.Material.Rounded.Refresh" /> تازه‌سازی</button></div></div>
 <FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
 @if (_success is not null) { <span class="visually-hidden">@_success</span> }
 @if (_batch is not null)
 {
     <section class="batch-detail-hero"><div><span>وضعیت جاری</span><b class="batch-status status-@((byte)_batch.Status)">@StatusLabel(_batch.Status)</b><small>@ReasonLabel(_batch.StatusReason)</small></div><div><span>پیام / قطعه</span><b>@(PersianDisplay.Number(_batch.MessageCount)) / @(PersianDisplay.Number(_batch.SegmentCount))</b><small>@(PersianDisplay.Text(_batch.SubmitDateJalali))</small></div><div><span>هزینه قطعی</span><b>@(PersianDisplay.Number(_batch.TotalCost, "N0"))</b><small>ریال</small></div><div><span>تلاش ارسال</span><b>@(PersianDisplay.Number(_batch.DispatchAttemptCount))</b><small>@(_batch.NextDispatchAtUtc is null ? "بدون تلاش زمان‌بندی‌شده" : "بعدی: " + PersianDisplay.Date(_batch.NextDispatchAtUtc, "yyyy/MM/dd HH:mm") + " UTC")</small></div></section>
-    <section class="batch-meta"><span><b>مشتری:</b> @(PersianDisplay.Number(_batch.CustomerId))</span><span><b>ارائه‌دهنده:</b> @(PersianDisplay.Number(_batch.ProviderId))</span><span><b>خط ارسال:</b> @(PersianDisplay.Number(_batch.SenderLineId))</span><span><b>شناسه مشتری:</b> @(_batch.ClientBatchId ?? "—")</span><span><b>دریافت:</b> @(PersianDisplay.Date(_batch.ReceivedAtUtc, "yyyy/MM/dd HH:mm:ss")) UTC</span><span><b>کد ارائه‌دهنده:</b> @(PersianDisplay.Number(_batch.ProviderResultCode))</span></section>
+    <div class="ux-guidance" role="status"><p>@NextAction</p>@if (_batch.Status == BatchStatus.Held && _batch.StatusReason != BatchStatusReason.ManualReviewRequired) { <a href="/admin/provider-accounts">بررسی حساب سرویس پیامک</a> }</div>
+    <div class="admin-page-actions"><span>تحویل‌شده: @PersianDisplay.Number(_messages.Count(item => item.DeliveryStatus == CurrentDeliveryStatus.Delivered))</span><span>در انتظار نتیجه: @PersianDisplay.Number(_messages.Count(item => item.DeliveryStatus == CurrentDeliveryStatus.Pending))</span></div>
+    <details><summary>اطلاعات فنی ارسال</summary><section class="batch-meta"><span><b>مشتری:</b> @(PersianDisplay.Number(_batch.CustomerId))</span><span><b>ارائه‌دهنده:</b> @(PersianDisplay.Number(_batch.ProviderId))</span><span><b>خط ارسال:</b> @(PersianDisplay.Number(_batch.SenderLineId))</span><span><b>شناسه مشتری:</b> @(_batch.ClientBatchId ?? "—")</span><span><b>دریافت:</b> @(PersianDisplay.Date(_batch.ReceivedAtUtc, "yyyy/MM/dd HH:mm:ss")) UTC</span><span><b>کد ارائه‌دهنده:</b> @(PersianDisplay.Number(_batch.ProviderResultCode))</span></section></details>
 }
-<div class="batch-detail-grid"><section class="admin-data-panel"><header><div><h2>پیام‌های دسته</h2></div></header><div class="admin-table-wrap"><AdminGrid T="BatchMessageDetails" Items="@(_messages)" Loading="_loading" Name="پیام‌های دسته" ExportColumns='@(new AdminExportColumn<BatchMessageDetails>[] { new("شناسه", item => item.Id), new("گیرنده", item => item.MobileNumber), new("ارسال", item => SendLabel(item.Status)), new("تحویل", item => DeliveryLabel(item.DeliveryStatus)), new("قطعه", item => item.SegmentCount), new("هزینه", item => item.TotalCost), new("همبستگی", item => item.ClientCorrelatedId) })'><PropertyColumn Property="item => item.Id" Title="شناسه"><CellTemplate><div class="mono"><a class="table-link" href="/admin/delivery-reports?messageId=@context.Item.Id">#@(PersianDisplay.Number(context.Item.Id))</a></div></CellTemplate></PropertyColumn>
+<div class="batch-detail-grid"><section class="admin-data-panel"><header><div><h2>پیام‌های دسته</h2></div></header><div class="admin-table-wrap"><AdminGrid T="BatchMessageDetails" Items="@(_messages)" Loading="_loading" Name="پیام‌های دسته" ExportColumns='@(new AdminExportColumn<BatchMessageDetails>[] { new("شناسه", item => item.Id), new("گیرنده", item => item.MobileNumber), new("ارسال", item => SendLabel(item.Status)), new("تحویل", item => DeliveryLabel(item.DeliveryStatus)), new("قطعه", item => item.SegmentCount), new("هزینه", item => item.TotalCost), new("همبستگی", item => item.ClientCorrelatedId) })'><PropertyColumn Property="item => item.Id" Title="شناسه"><CellTemplate><div class="mono"><button type="button" class="table-link" aria-label="@($"مشاهده نتیجه پیام {PersianDisplay.Number(context.Item.Id)}")" @onclick="() => SelectMessage(context.Item.Id)">#@(PersianDisplay.Number(context.Item.Id))</button></div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.MobileNumber" Title="گیرنده"><CellTemplate><div>@(PersianDisplay.Number(context.Item.MobileNumber))</div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.Status" Title="ارسال"><CellTemplate><div>@SendLabel(context.Item.Status)</div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.DeliveryStatus" Title="تحویل"><CellTemplate><div><span class="delivery-state state-@((byte)context.Item.DeliveryStatus)">@DeliveryLabel(context.Item.DeliveryStatus)</span></div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.SegmentCount" Title="قطعه"><CellTemplate><div>@(PersianDisplay.Number(context.Item.SegmentCount))</div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.TotalCost" Title="هزینه"><CellTemplate><div class="money">@(PersianDisplay.Number(context.Item.TotalCost, "N0"))</div></CellTemplate></PropertyColumn>
-<PropertyColumn Property="item => item.ClientCorrelatedId" Title="همبستگی"><CellTemplate><div class="mono">@(context.Item.ClientCorrelatedId ?? "—")</div></CellTemplate></PropertyColumn></AdminGrid></div></section>
+<PropertyColumn Property="item => item.ClientCorrelatedId" Title="همبستگی"><CellTemplate><div class="mono">@(context.Item.ClientCorrelatedId ?? "—")</div></CellTemplate></PropertyColumn><TemplateColumn Title="جزئیات" Sortable="false" Filterable="false" Hideable="false"><CellTemplate><button type="button" class="admin-button secondary" @onclick="() => SelectMessage(context.Item.Id)">نتیجه و تاریخچه</button></CellTemplate></TemplateColumn></AdminGrid></div></section>
+@if (_selectedMessage is long messageId)
+{
+    <section @key="messageId" class="batch-message-details" @ref="_detailsElement" tabindex="-1" aria-label="نتیجه پیام انتخاب‌شده">
+        <MessageDiagnosticPanel MessageId="messageId" Close="CloseMessage" />
+        @if (_preview is not null) { <ResendMessagePanel MessageId="messageId" Recipient="@_preview.Recipient" Allowed="_preview.Allowed" BodyAvailable="_preview.BodyAvailable" /> }
+        @if (_previewError is not null) { <p role="alert">@_previewError</p> }
+    </section>
+}
 <section class="admin-data-panel"><header><div><h2>خط زمانی عملیات</h2></div></header><div class="batch-event-timeline">@if (!_loading && _events.Count == 0) { <div class="admin-empty">رویدادی ثبت نشده است.</div> }@foreach (BatchEventDetails item in _events.OrderByDescending(item => item.EventTimeUtc)) { <article><i></i><div><strong>@EventLabel(item.EventType)</strong><p>@(item.Detail ?? "بدون توضیح")</p><small>@(PersianDisplay.Date(item.EventTimeUtc, "yyyy/MM/dd HH:mm:ss")) UTC @if (item.ProviderResultCode is not null) { <span>· کد @(PersianDisplay.Number(item.ProviderResultCode))</span> }</small></div></article> }</div></section></div>
 
 @code {
@@ -29,6 +43,36 @@
     protected override Task OnParametersSetAsync() => Load();
     private async Task Load() { _loading = true; _error = null; Task<UiResult<BatchDetails>> batchTask = Service.GetBatch(Id, _token.Token); Task<UiResult<IReadOnlyList<BatchMessageDetails>>> messagesTask = Service.Messages(Id, _token.Token); Task<UiResult<IReadOnlyList<BatchEventDetails>>> eventsTask = Service.Events(Id, _token.Token); await Task.WhenAll(batchTask, messagesTask, eventsTask); UiResult<BatchDetails> batch = await batchTask; UiResult<IReadOnlyList<BatchMessageDetails>> messages = await messagesTask; UiResult<IReadOnlyList<BatchEventDetails>> events = await eventsTask; _batch = batch.Value; _messages = messages.Value ?? []; _events = events.Value ?? []; _error = batch.ErrorMessage ?? messages.ErrorMessage ?? events.ErrorMessage; _loading = false; }
     private async Task Retry() { _retrying = true; _error = null; UiResult<RetryDispatchResponse> result = await Service.Retry(Id, _token.Token); _retrying = false; if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _success = "دسته دوباره وارد صف ارسال شد."; await Load(); }
+    private long? _selectedMessage;
+    private ResendMessagePreview? _preview;
+    private string? _previewError;
+    private ElementReference _detailsElement;
+    private bool _focusDetails;
+    private string NextAction => _batch?.Status switch
+    {
+        BatchStatus.Received or BatchStatus.Dispatching => "ارسال در حال پردازش است؛ نتیجه هر پیام در فهرست زیر نمایش داده می‌شود.",
+        BatchStatus.DispatchCompleted => "ارسال به سرویس‌دهنده تکمیل شده؛ رسیدن به گوشی را از ستون تحویل بررسی کنید.",
+        BatchStatus.Held when _batch.StatusReason == BatchStatusReason.ManualReviewRequired => "نتیجه برخی پیام‌ها نامطمئن است و به بررسی نیاز دارد. جزئیات پیام را باز کنید؛ تا مشخص‌شدن نتیجه، ارسال جدید نسازید.",
+        BatchStatus.Held => $"ارسال متوقف شده: {ReasonLabel(_batch.StatusReason)}. اتصال و اعتبار سرویس را بررسی کنید؛ پس از رفع علت، وضعیت را تازه‌سازی کنید.",
+        BatchStatus.DispatchFailed => "تلاش خودکار پایان یافته است. علت را در خط زمانی بررسی کنید و پس از رفع مشکل، تلاش مجدد را بزنید.",
+        _ => "برای فهمیدن علت و اقدام مجاز، نتیجه و تاریخچه پیام موردنظر را باز کنید.",
+    };
+    private async Task SelectMessage(long id)
+    {
+        _selectedMessage = id;
+        _preview = null;
+        _previewError = null;
+        _focusDetails = true;
+        UiResult<ResendMessagePreview> result = await Delivery.ResendPreview(id, _token.Token);
+        if (_selectedMessage != id) return;
+        _preview = result.Value;
+        _previewError = result.ErrorMessage;
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusDetails) { _focusDetails = false; await _detailsElement.FocusAsync(); }
+    }
+    private void CloseMessage() { _selectedMessage = null; _preview = null; }
     private void GoBack() => Navigation.NavigateTo("/admin/dispatch-operations");
-    private static string StatusLabel(BatchStatus status) => status switch { BatchStatus.Received => "دریافت‌شده", BatchStatus.Dispatching => "در حال ارسال", BatchStatus.DispatchCompleted => "تکمیل", BatchStatus.DispatchPartiallyFailed => "بخشی ناموفق", BatchStatus.Held => "نگه‌داشته", BatchStatus.Rejected => "ردشده", _ => "شکست ارسال" }; private static string ReasonLabel(BatchStatusReason? reason) => reason switch { BatchStatusReason.InsufficientProviderCredit => "کمبود اعتبار ارائه‌دهنده", BatchStatusReason.InsufficientCustomerBalance => "کمبود اعتبار مشتری", BatchStatusReason.DispatchRetriesExhausted => "پایان تلاش‌های خودکار", BatchStatusReason.InvalidProviderCredentials => "اعتبارنامه نامعتبر", BatchStatusReason.ManualReviewRequired => "نیازمند بررسی دستی", _ => "بدون دلیل خطا" }; private static string SendLabel(SendStatus status) => status switch { SendStatus.Queued => "در صف", SendStatus.Submitted => "ثبت ارائه‌دهنده", SendStatus.Sent => "ارسال‌شده", SendStatus.Rejected => "ردشده", SendStatus.AwaitingConfirmation => "انتظار تأیید", _ => "نامشخص" }; private static string DeliveryLabel(CurrentDeliveryStatus status) => status switch { CurrentDeliveryStatus.Pending => "در انتظار", CurrentDeliveryStatus.Delivered => "تحویل‌شده", CurrentDeliveryStatus.Undelivered => "تحویل‌نشده", CurrentDeliveryStatus.Expired => "منقضی", _ => "نامشخص" }; private static string EventLabel(MessageBatchEventType type) => type switch { MessageBatchEventType.Accepted => "پذیرش دسته", MessageBatchEventType.DispatchStarted => "شروع ارسال", MessageBatchEventType.DispatchResumed => "ادامه ارسال", MessageBatchEventType.Requeued => "بازگشت به صف", MessageBatchEventType.AwaitingConfirmation => "انتظار تأیید", MessageBatchEventType.Held => "توقف دسته", MessageBatchEventType.MessageRejected => "رد پیام", MessageBatchEventType.DispatchCompleted => "تکمیل ارسال", MessageBatchEventType.DispatchPartiallyFailed => "ارسال ناقص", MessageBatchEventType.DispatchFailed => "شکست ارسال", MessageBatchEventType.DeliveryUpdated => "به‌روزرسانی تحویل", _ => "درخواست تلاش مجدد" }; public void Dispose() { _token.Cancel(); _token.Dispose(); }
+    private static string StatusLabel(BatchStatus status) => status switch { BatchStatus.Received => "دریافت‌شده", BatchStatus.Dispatching => "در حال ارسال", BatchStatus.DispatchCompleted => "ارسال به سرویس‌دهنده تکمیل شد", BatchStatus.DispatchPartiallyFailed => "بخشی ناموفق", BatchStatus.Held => "نگه‌داشته", BatchStatus.Rejected => "ردشده", _ => "شکست ارسال" }; private static string ReasonLabel(BatchStatusReason? reason) => reason switch { BatchStatusReason.InsufficientProviderCredit => "کمبود اعتبار ارائه‌دهنده", BatchStatusReason.InsufficientCustomerBalance => "کمبود اعتبار مشتری", BatchStatusReason.DispatchRetriesExhausted => "پایان تلاش‌های خودکار", BatchStatusReason.InvalidProviderCredentials => "اعتبارنامه نامعتبر", BatchStatusReason.ManualReviewRequired => "نیازمند بررسی دستی", _ => "بدون دلیل خطا" }; private static string SendLabel(SendStatus status) => status switch { SendStatus.Queued => "در صف", SendStatus.Submitted => "ثبت ارائه‌دهنده", SendStatus.Sent => "ارسال‌شده", SendStatus.Rejected => "ردشده", SendStatus.AwaitingConfirmation => "انتظار تأیید", _ => "نامشخص" }; private static string DeliveryLabel(CurrentDeliveryStatus status) => status switch { CurrentDeliveryStatus.Pending => "در انتظار", CurrentDeliveryStatus.Delivered => "تحویل‌شده", CurrentDeliveryStatus.Undelivered => "تحویل‌نشده", CurrentDeliveryStatus.Expired => "منقضی", _ => "نامشخص" }; private static string EventLabel(MessageBatchEventType type) => type switch { MessageBatchEventType.Accepted => "پذیرش دسته", MessageBatchEventType.DispatchStarted => "شروع ارسال", MessageBatchEventType.DispatchResumed => "ادامه ارسال", MessageBatchEventType.Requeued => "بازگشت به صف", MessageBatchEventType.AwaitingConfirmation => "انتظار تأیید", MessageBatchEventType.Held => "توقف دسته", MessageBatchEventType.MessageRejected => "رد پیام", MessageBatchEventType.DispatchCompleted => "تکمیل ارسال", MessageBatchEventType.DispatchPartiallyFailed => "ارسال ناقص", MessageBatchEventType.DispatchFailed => "شکست ارسال", MessageBatchEventType.DeliveryUpdated => "به‌روزرسانی تحویل", MessageBatchEventType.ProviderOperationFailed => "خطای تفکیک‌شده عملیات", _ => "درخواست تلاش مجدد" }; public void Dispose() { _token.Cancel(); _token.Dispose(); }
 }

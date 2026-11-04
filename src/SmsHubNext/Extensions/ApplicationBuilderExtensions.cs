@@ -14,8 +14,8 @@ public static class ApplicationBuilderExtensions
 {
     public static WebApplication ConfigurePipeline(this WebApplication app)
     {
+        app.UseSerilogRequestLogging(LoggingExtensions.ConfigureHttpRequestLogging);
         app.UseExceptionHandler();
-        app.UseSerilogRequestLogging();
 
         app.UseRouting();
 

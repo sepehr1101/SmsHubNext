@@ -1,3 +1,5 @@
+using SmsHubNext.Shared.Results;
+
 namespace SmsHubNext.Features.Providers;
 
 /// <summary>
@@ -33,6 +35,7 @@ public sealed record ProviderDispatchResult(
     int? ProviderResultCode,
     string? Detail)
 {
+    public OperationFailure? Diagnostic { get; init; }
     public static ProviderDispatchResult Accepted(string providerMessageId, int? resultCode = null) =>
         new(ProviderDispatchStatus.Accepted, providerMessageId, resultCode, null);
 

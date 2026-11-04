@@ -25,6 +25,12 @@ public interface ISmsProvider
     bool SupportsIdempotentResend { get; }
 
     /// <summary>
+    /// Bounded UID deduplication guarantee allowing an uncertain send to be retried without
+    /// a UID lookup. Measured from the first submission attempt, never from the latest retry.
+    /// </summary>
+    TimeSpan? UncertainResendWindow => null;
+
+    /// <summary>
     /// Submits up to <see cref="MaxBatchSize"/> messages in one provider request.
     /// A failed outer <c>Result</c> means the provider outcome is unknown; the dispatcher must keep
     /// those messages in <c>AwaitingConfirmation</c> and reconcile by uid before any resend.

@@ -62,19 +62,32 @@ public sealed class SendMessagesHandler
         return await AcceptAsync(request, new SendActor(identity.ApiKeyId, identity.CustomerId, false), cancellationToken);
     }
 
-    // Only the resend use case may select a different billing customer, derived from the stored
-    // source message. Keep the real administrator key as actor; never impersonate a customer key.
-    internal Task<Result<SendMessagesResponse>> AcceptResend(
+    public Task<Result<SendMessagesResponse>> HandleManagement(
         SendMessagesRequest request, ApiKeyIdentity identity, short customerId, CancellationToken cancellationToken)
+    {
+        if (identity.AccessLevel != ApiKeyAccessLevel.Administrator)
+            return Task.FromResult(Result.Failure<SendMessagesResponse>(Error.Forbidden(
+                "sending.administrator_required", "ارسال از پنل به دسترسی مدیریتی نیاز دارد.")));
+        if (customerId <= 0)
+            return Task.FromResult(Result.Failure<SendMessagesResponse>(Error.Validation(
+                "sending.customer_required", "مشتری پرداخت‌کننده هزینه را انتخاب کنید.")));
+
+        return AcceptAsync(request, new SendActor(identity.ApiKeyId, customerId, true), cancellationToken);
+    }
+
+    // Resend derives the billing customer from the stored source, while retaining the actual actor.
+    internal Task<Result<SendMessagesResponse>> AcceptResend(
+        SendMessagesRequest request, ApiKeyIdentity identity, short customerId, CancellationToken cancellationToken,
+        decimal? approvedCost = null)
     {
         if (identity.AccessLevel != ApiKeyAccessLevel.Administrator &&
             (identity.AccessLevel != ApiKeyAccessLevel.Customer || identity.CustomerId != customerId))
             return Task.FromResult(Result.Failure<SendMessagesResponse>(Error.Forbidden("sending.resend_forbidden", "اجازه ارسال مجدد این پیام را ندارید.")));
-        return AcceptAsync(request, new SendActor(identity.ApiKeyId, customerId, identity.AccessLevel == ApiKeyAccessLevel.Administrator), cancellationToken);
+        return AcceptAsync(request, new SendActor(identity.ApiKeyId, customerId, identity.AccessLevel == ApiKeyAccessLevel.Administrator), cancellationToken, approvedCost);
     }
 
     private async Task<Result<SendMessagesResponse>> AcceptAsync(
-        SendMessagesRequest request, SendActor identity, CancellationToken cancellationToken)
+        SendMessagesRequest request, SendActor identity, CancellationToken cancellationToken, decimal? approvedCost = null)
     {
         Result validation = request.Validate();
         if (validation.IsFailure)
@@ -103,6 +116,9 @@ public sealed class SendMessagesHandler
         Result<List<PricedMessage>> priced = await PriceMessagesAsync(connection, request, senderLine.Value, cancellationToken);
         if (priced.IsFailure)
             return priced.Error!;
+
+        if (approvedCost.HasValue && priced.Value.Sum(message => message.TotalCost) != approvedCost.Value)
+            return Error.Conflict("sending.resend_price_changed", "هزینه فعلی با هزینه تأییدشده متفاوت است؛ پیام برای جلوگیری از هزینه تأییدنشده کنار گذاشته شد.");
 
         return await PersistAsync(connection, request, identity, senderLine.Value, priced.Value, requestHash, cancellationToken);
     }

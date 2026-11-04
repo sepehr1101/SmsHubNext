@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.Providers;
@@ -120,6 +121,14 @@ public sealed class MessageDispatcher
             if (!await RenewLeaseAsync(connection, batch, confirmationNow, cancellationToken))
                 return true;
 
+            if (provider.UncertainResendWindow is TimeSpan resendWindow)
+            {
+                if (!await PrepareBoundedUidRetryAsync(connection, batch, message, confirmationNow, resendWindow, cancellationToken))
+                    return true;
+                toSend.Add(message);
+                continue;
+            }
+
             if (AwaitingConfirmationWindowExpired(message, confirmationNow))
             {
                 await HoldForManualReviewAsync(
@@ -215,25 +224,48 @@ public sealed class MessageDispatcher
             if (!await RenewLeaseAsync(connection, batch, chunkNow, cancellationToken))
                 return true;
 
+            if (await connection.ExecuteScalarAsync<bool>(new CommandDefinition(ResendSafetySql.UnsafeBeforeDispatch,
+                new { Ids = chunk.Select(message => message.Id).ToArray() }, cancellationToken: cancellationToken)))
+            {
+                await HoldForManualReviewAsync(connection, batch, chunkNow,
+                    "شواهد ایمنی پیام اصلی پس از ثبت ارسال مجدد روزانه تغییر کرده است؛ برای جلوگیری از پیام تکراری، ارسال متوقف شد.", cancellationToken);
+                return true;
+            }
+
+            QueuedMessage? blocked = chunk.FirstOrDefault(message => SendRetryPolicy.MustHold(
+                message.SendAttemptCount, message.FirstSendAttemptAtUtc, chunkNow, provider.UncertainResendWindow));
+            if (blocked is not null)
+            {
+                await HoldForManualReviewAsync(connection, batch, chunkNow,
+                    $"پیام {blocked.Id}: سقف سه ارسال مجدد یا مهلت تضمین UID پایان یافته است؛ ارسال خودکار متوقف شد.", cancellationToken);
+                return true;
+            }
+
             IReadOnlyList<long> claimedMessageIds = await MarkAwaitingConfirmationAsync(
-                connection, chunk, chunkNow, cancellationToken);
+                connection, batch, chunk, chunkNow, provider.UncertainResendWindow, cancellationToken);
             HashSet<long> claimedMessageIdSet = claimedMessageIds.ToHashSet();
             QueuedMessage[] claimedChunk = chunk
                 .Where(message => claimedMessageIdSet.Contains(message.Id))
                 .ToArray();
 
-            if (claimedChunk.Length == 0)
-                continue;
+            if (claimedChunk.Length != chunk.Length)
+            {
+                await HoldForManualReviewAsync(connection, batch, chunkNow,
+                    "شرط اتمیک سقف تلاش یا مهلت UID اجازه ارسال همه پیام‌ها را نداد؛ بررسی دستی لازم است.", cancellationToken);
+                return true;
+            }
 
             List<ProviderSendRequest> requests = claimedChunk
                 .Select(m => new ProviderSendRequest(m.Id, senderLine, m.MobileNumber, m.Body))
                 .ToList();
 
             Result<IReadOnlyList<Result<ProviderDispatchResult>>> batchResult =
-                await SafeSendBatchAsync(provider, requests, cancellationToken);
+                await SendWithinUidWindowAsync(provider, requests, claimedChunk, chunkNow, cancellationToken);
 
             if (batchResult.IsFailure)
             {
+                await RecordFailureAsync(connection, claimedMessageIds, chunkNow,
+                    batchResult.Error!.Diagnostic, batchResult.Error.Message, cancellationToken);
                 // Transport error: the chunk's outcome is unknown. Park these messages so the next
                 // cycle reconciles them via the provider rather than re-sending, then re-queue.
                 _logger.LogWarning("Transient dispatch failure on batch {BatchId}: {Error}. Re-queuing.",
@@ -254,13 +286,20 @@ public sealed class MessageDispatcher
                     chunkNow,
                     chunkNow,
                     $"پاسخ سرویس‌دهنده برای {claimedChunk.Length} پیام دریافت نشد: {batchResult.Error.Message}",
-                    cancellationToken);
+                    cancellationToken, provider.UncertainResendWindow is not null);
                 return true;
             }
 
             // The provider returns one result per request, in input order (ISmsProvider contract).
             IReadOnlyList<Result<ProviderDispatchResult>> outcomes = batchResult.Value;
             DateTime outcomeNow = _clock.GetUtcNow().UtcDateTime;
+            foreach (OperationFailure diagnostic in outcomes
+                .Select(result => result.IsSuccess ? result.Value.Diagnostic : result.Error!.Diagnostic)
+                .OfType<OperationFailure>().Distinct())
+            {
+                await RecordFailureAsync(connection, claimedMessageIds, outcomeNow, diagnostic,
+                    "خطای عملیات ارائه‌دهنده؛ منشأ، مرحله و اثر در جزئیات ساختاری ثبت شده است.", cancellationToken);
+            }
             for (int i = 0; i < claimedChunk.Length; i++)
             {
                 QueuedMessage message = claimedChunk[i];
@@ -376,7 +415,7 @@ public sealed class MessageDispatcher
                 requeueNow,
                 requeueNow + _options.AwaitingConfirmationRetryDelay,
                 "نتیجه سرویس‌دهنده برای یک یا چند پیام قطعی نیست.",
-                cancellationToken);
+                cancellationToken, provider.UncertainResendWindow is not null);
             return true;
         }
 
@@ -482,9 +521,10 @@ public sealed class MessageDispatcher
         DateTime now,
         DateTime nextDispatchAtUtc,
         string detail,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool boundedUidRetry = false)
     {
-        if (batch.DispatchAttemptCount >= _options.MaxDispatchAttempts)
+        if (!boundedUidRetry && batch.DispatchAttemptCount >= _options.MaxDispatchAttempts)
         {
             await HoldForManualReviewAsync(
                 connection,
@@ -644,16 +684,49 @@ public sealed class MessageDispatcher
             new { Id = messageId, ProviderMessageId = providerMessageId, Now = now },
             cancellationToken: cancellationToken));
 
-    // Park a chunk's still-Queued messages as AwaitingConfirmation after a lost send response.
+    // 4040 can retry an uncertain request within its UID guarantee without inventing a lookup result.
+    private async Task<bool> PrepareBoundedUidRetryAsync(
+        SqlConnection connection, ClaimedBatch batch, QueuedMessage message, DateTime now,
+        TimeSpan window, CancellationToken cancellationToken)
+    {
+        DateTime firstAttempt = message.FirstSendAttemptAtUtc ?? message.AwaitingConfirmationSinceUtc ?? now;
+        if (SendRetryPolicy.MustHold(message.SendAttemptCount, firstAttempt, now, window))
+        {
+            await HoldForManualReviewAsync(connection, batch, now,
+                $"پیام {message.Id}: سقف سه ارسال مجدد یا مهلت ۲۴ ساعته UID پایان یافته است؛ نتیجه ارسال همچنان نامشخص است.", cancellationToken);
+            return false;
+        }
+        DateTime retryAt = (message.AwaitingConfirmationSinceUtc ?? now) + _options.AwaitingConfirmationRetryDelay;
+        if (now < retryAt)
+        {
+            await RequeueAwaitingConfirmationBatchAsync(connection, batch, now, retryAt,
+                $"پیام {message.Id} برای تلاش مجدد با همان UID در انتظار است.", cancellationToken);
+            return false;
+        }
+        await connection.ExecuteAsync(new CommandDefinition(DispatchSql.RequeueMessage,
+            new { message.Id }, cancellationToken: cancellationToken));
+        return true;
+    }
+
+    // Reserve the send budget before transport so a crash cannot replenish it.
     private static async Task<IReadOnlyList<long>> MarkAwaitingConfirmationAsync(
         SqlConnection connection,
+        ClaimedBatch batch,
         IReadOnlyList<QueuedMessage> chunk,
         DateTime now,
+        TimeSpan? resendWindow,
         CancellationToken cancellationToken)
     {
         IEnumerable<long> ids = await connection.QueryAsync<long>(new CommandDefinition(
             DispatchSql.MarkAwaitingConfirmation,
-            new { Ids = chunk.Select(m => m.Id).ToArray(), Now = now },
+            new
+            {
+                Ids = chunk.Select(m => m.Id).ToArray(), Now = now,
+                LegacyAttemptCount = batch.DispatchAttemptCount - 1,
+                FirstAttemptAtUtc = batch.DispatchStartedAtUtc,
+                MaximumAttempts = SendRetryPolicy.MaximumAttempts,
+                ResendCutoffUtc = resendWindow is TimeSpan window ? (DateTime?)(now - window) : null,
+            },
             cancellationToken: cancellationToken));
 
         return ids.AsList();
@@ -726,6 +799,32 @@ public sealed class MessageDispatcher
         }
     }
 
+    private async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendWithinUidWindowAsync(
+        ISmsProvider provider, IReadOnlyList<ProviderSendRequest> requests,
+        IReadOnlyList<QueuedMessage> messages, DateTime reservedAtUtc, CancellationToken cancellationToken)
+    {
+        if (provider.UncertainResendWindow is not TimeSpan window)
+            return await SafeSendBatchAsync(provider, requests, cancellationToken);
+
+        DateTime deadline = messages.Min(message => message.FirstSendAttemptAtUtc ?? reservedAtUtc) + window;
+        TimeSpan remaining = deadline - _clock.GetUtcNow().UtcDateTime;
+        if (remaining <= TimeSpan.Zero)
+            return Error.Provider("dispatch.uid_window_expired", "مهلت تضمین یکتایی UID پایان یافته است.");
+
+        // Include token acquisition and transport in the same deadline: a delayed OAuth login
+        // must not start an SMS retry after the provider's deduplication window expires.
+        using CancellationTokenSource expiry = new(remaining, _clock);
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
+        try
+        {
+            return await SafeSendBatchAsync(provider, requests, linked.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && expiry.IsCancellationRequested)
+        {
+            return Error.Provider("dispatch.uid_window_expired", "مهلت تضمین یکتایی UID در حین درخواست پایان یافت؛ نتیجه ارسال نامشخص است.");
+        }
+    }
+
     private async Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SafeSendBatchAsync(
         ISmsProvider provider,
         IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
@@ -737,7 +836,8 @@ public sealed class MessageDispatcher
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // A provider should not throw for expected failures; treat anything that escapes as transient.
-            _logger.LogError(ex, "Provider threw dispatching {Count} message(s)", requests.Count);
+            _logger.LogError(ex, "Provider threw dispatching {Count} message(s): {MessageIds}", requests.Count,
+                requests.Select(request => request.MessageId).ToArray());
             return Error.Provider("dispatch.provider_threw", UserMessages.Providers.ProviderThrew);
         }
     }
@@ -837,6 +937,13 @@ public sealed class MessageDispatcher
         }
     }
 
+    private static Task RecordFailureAsync(SqlConnection connection, IReadOnlyCollection<long> messageIds,
+        DateTime now, OperationFailure? diagnostic, string detail, CancellationToken token) =>
+        diagnostic is null ? Task.CompletedTask : connection.ExecuteAsync(new CommandDefinition(
+            OperationFailureSql.Insert, new { MessageIdsJson = JsonSerializer.Serialize(messageIds), Now = now,
+                EventType = (byte)MessageBatchEventType.ProviderOperationFailed,
+                Detail = detail, FailureJson = diagnostic.ToJson() }, cancellationToken: token));
+
     private static MessageBatchEventType EventTypeFor(BatchStatus status) => status switch
     {
         BatchStatus.DispatchCompleted => MessageBatchEventType.DispatchCompleted,
@@ -891,7 +998,8 @@ public sealed class MessageDispatcher
         short SenderLineId,
         byte PreviousStatus,
         int DispatchAttemptCount,
-        Guid DispatchLeaseToken);
+        Guid DispatchLeaseToken,
+        DateTime DispatchStartedAtUtc);
 
     private sealed record QueuedMessage(
         long Id,
@@ -901,7 +1009,9 @@ public sealed class MessageDispatcher
         string Body,
         byte Status,
         DateTime? AwaitingConfirmationSinceUtc,
-        int ConfirmationLookupCount);
+        int ConfirmationLookupCount,
+        int SendAttemptCount,
+        DateTime? FirstSendAttemptAtUtc);
 
     private sealed record StatusCounts(int? Queued, int? Submitted, int? Rejected);
 

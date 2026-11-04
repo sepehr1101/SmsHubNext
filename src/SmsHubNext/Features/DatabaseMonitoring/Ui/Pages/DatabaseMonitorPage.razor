@@ -1,0 +1,181 @@
+@page "/admin/settings/database/{Section}"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@using SmsHubNext.Features.DatabaseMonitoring
+@using SmsHubNext.Features.DatabaseMonitoring.Ui
+@inject DatabaseMonitoringService Service
+@implements IDisposable
+<PageTitle>@(Page?.Title ?? "پایش پایگاه داده") | SmsHub</PageTitle>
+<div class="database-monitor">
+    @if (Page is null)
+    {
+        <p role="alert">بخش پایش پیدا نشد.</p><a href="@DatabaseMonitoringNavigation.Root">بازگشت به پایش پایگاه داده</a>
+    }
+    else
+    {
+        <div class="monitor-toolbar">
+            <a class="admin-button secondary" href="@DatabaseMonitoringNavigation.Root"><MudIcon Icon="@Icons.Material.Rounded.GridView" /> همه بخش‌های پایش</a>
+            @if (Page.Section == DatabaseMonitorSection.Queries)
+            {
+                <label>رتبه‌بندی بر اساس<select @bind="_sort" disabled="@_loading"><option value="1">میانگین زمان اجرا</option><option value="2">مصرف کل پردازنده</option><option value="3">حجم کل خواندن داده</option></select></label>
+            }
+            <button type="button" class="admin-button primary" disabled="@_loading" @onclick="Load"><MudIcon Icon="@Icons.Material.Rounded.Refresh" /> @(Page.Section == DatabaseMonitorSection.Indexes ? "بررسی سبک ایندکس‌ها" : "به‌روزرسانی")</button>
+        </div>
+        <FeatureNotice Loading="_loading" Error="@_error" OnRetry="Load" />
+        <p class="monitor-note">@Page.Note</p>
+        <details class="monitor-help"><summary>راهنمای دسترسی و تفسیر اطلاعات</summary><p>بعضی نماهای SQL Server به دسترسی خواندن وضعیت پایگاه داده یا سرور نیاز دارند. در SQL Server ۲۰۱۹ معمولاً VIEW DATABASE STATE و VIEW SERVER STATE و در نسخه‌های جدیدتر مجوزهای PERFORMANCE STATE مربوط لازم‌اند؛ مجوز دقیق را مدیر SQL مطابق خطای سرور تعیین می‌کند. دسترسی‌ها و تنظیمات از این پنل تغییر نمی‌کنند. خط تیره به معنی اطلاعات ناموجود است، نه صفر. وضعیت‌ها فقط زمان آخرین خواندن را توصیف می‌کنند.</p></details>
+        @if (_report is not null)
+        {
+            <p class="monitor-time">آخرین بررسی (تهران): @Time(_report.CapturedAtUtc)</p>
+            @if (_report.Notice is not null) { <p role="status" class="monitor-warning">@_report.Notice</p> }
+            @if (Page.Section == DatabaseMonitorSection.Overview && _report.Rows.FirstOrDefault() is DatabaseReading overview)
+            {
+                <section class="report-summary">
+                    <article><span>پایگاه داده</span><strong>@overview.Name</strong><small>@overview.Detail</small></article>
+                    <article><span>داده رزروشده (مگابایت)</span><strong>@Number(overview.Metric1)</strong></article>
+                    <article><span>حجم فایل لاگ (مگابایت)</span><strong>@Number(overview.Metric2)</strong></article>
+                    <article><span>مصرف لاگ (٪)</span><strong>@Number(overview.Metric3)</strong><small>@overview.Status</small></article>
+                </section>
+            }
+            else
+            {
+                <section class="admin-data-panel"><div class="admin-table-wrap">
+                    <AdminGrid @key="Section" T="DatabaseReading" Items="_report.Rows" Loading="_loading" Name="@Page.Title" ExportColumns="Columns" EmptyText="@EmptyText">
+                        <PropertyColumn Property="row => row.Name" Title="عنوان"><CellTemplate><span class="monitor-identifier" dir="@(Page.Section is DatabaseMonitorSection.Requests or DatabaseMonitorSection.Queries or DatabaseMonitorSection.Alerts ? "rtl" : "ltr")">@context.Item.Name</span></CellTemplate></PropertyColumn>
+                        @if (ShowDetail) { <PropertyColumn Property="row => row.Detail" Title="جزئیات" /> }
+                        @if (Page.Section == DatabaseMonitorSection.Indexes) { <PropertyColumn Property="row => row.PartitionNumber" Title="پارتیشن"><CellTemplate>@PersianDisplay.Number(context.Item.PartitionNumber)</CellTemplate></PropertyColumn> }
+                        <PropertyColumn Property="row => row.Metric1" Title="@Page.Metric1"><CellTemplate>@Number(context.Item.Metric1)</CellTemplate></PropertyColumn>
+                        @if (Page.Metric2.Length > 0) { <PropertyColumn Property="row => row.Metric2" Title="@Page.Metric2"><CellTemplate>@Number(context.Item.Metric2)</CellTemplate></PropertyColumn> }
+                        @if (Page.Metric3.Length > 0) { <PropertyColumn Property="row => row.Metric3" Title="@Page.Metric3"><CellTemplate>@Number(context.Item.Metric3)</CellTemplate></PropertyColumn> }
+                        @if (Page.Section == DatabaseMonitorSection.History) { <PropertyColumn Property="row => row.FirstObservedAtUtc" Title="نخستین مشاهده (تهران)"><CellTemplate>@Time(context.Item.FirstObservedAtUtc)</CellTemplate></PropertyColumn> }
+                        @if (Page.Section is DatabaseMonitorSection.Statistics or DatabaseMonitorSection.Queries or DatabaseMonitorSection.History)
+                        { <PropertyColumn Property="row => row.AtUtc" Title="@TimeColumnTitle"><CellTemplate>@Time(context.Item.AtUtc)</CellTemplate></PropertyColumn> }
+                        @if (ShowStatus) { <PropertyColumn Property="row => row.Status" Title="وضعیت" /> }
+                        @if (Page.Section == DatabaseMonitorSection.Indexes)
+                        {
+                            <TemplateColumn Title="بررسی" Sortable="false" Filterable="false"><CellTemplate><MudTooltip Text="بررسی نمونه‌ای تراکم صفحات این ایندکس و پارتیشن" ShowOnFocus="true"><button type="button" class="admin-button secondary" disabled="@_loading" aria-label="بررسی نمونه‌ای ایندکس" @onclick="() => Inspect(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Search" /></button></MudTooltip></CellTemplate></TemplateColumn>
+                        }
+                    </AdminGrid>
+                </div></section>
+            }
+        }
+        @if (_detail is not null)
+        {
+            <section class="admin-data-panel"><header><h2>نتیجه بررسی نمونه‌ای</h2></header>
+                @foreach (DatabaseReading row in _detail.Rows)
+                { <div class="monitor-detail"><b>@row.Name · @row.Detail</b><span>پارتیشن: @PersianDisplay.Number(row.PartitionNumber)</span><span>پراکندگی: @Number(row.Metric1)٪</span><span>تراکم صفحات: @Number(row.Metric3)٪</span><small>@row.Status · @Time(_detail.CapturedAtUtc)</small></div> }
+            </section>
+        }
+        @if (Page.Section == DatabaseMonitorSection.Tables && _growthLoaded)
+        {
+            <section class="admin-data-panel"><header><h2>روند فضای رزروشده جدول‌ها · ۳۰ روز اخیر</h2></header>
+                @if (_growth.Count == 0) { <p class="monitor-note">هنوز نمونه روزانه‌ای ثبت نشده است؛ جمع‌آوری هنگام اجرای برنامه انجام می‌شود.</p> }
+                else
+                {
+                    <div class="monitor-chart" role="list" aria-label="روند روزانه حجم داده و ایندکس‌های ثانویه؛ مگابایت">
+                        @foreach (DatabaseGrowthPoint point in _growth)
+                        {
+                            <div class="monitor-day" role="listitem"><span>@Number(point.DataMb + point.IndexMb)</span><div class="monitor-track"><i style="height:@Height(point.DataMb + point.IndexMb)"></i></div><span>@PersianDisplay.Date(point.DayUtc,"MM/dd")</span></div>
+                        }
+                    </div>
+                    <p class="monitor-note">نمودار: مجموع داده و ایندکس‌ها به مگابایت؛ روزهای بدون نمونه حذف می‌شوند، صفر نیستند.</p>
+                }
+            </section>
+        }
+    }
+</div>
+@code {
+    [Parameter] public string Section { get; set; } = "overview";
+    private DatabaseMonitorEntry? Page => DatabaseMonitoringNavigation.Pages.FirstOrDefault(page => page.Route == Section);
+    private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _request;
+    private DatabaseMonitorReport? _report;
+    private DatabaseMonitorReport? _detail;
+    private IReadOnlyList<DatabaseGrowthPoint> _growth = [];
+    private bool _growthLoaded;
+    private bool _loading;
+    private string? _error;
+    private int _version;
+    private int _sort = 2;
+    private bool ShowDetail => Page?.Section != DatabaseMonitorSection.Tables;
+    private bool ShowStatus => Page?.Section is not (DatabaseMonitorSection.Tables or DatabaseMonitorSection.Queries);
+    private string TimeColumnTitle => Page?.Section == DatabaseMonitorSection.History ? "آخرین مشاهده (تهران)" : "زمان (تهران)";
+    private string EmptyText => Page?.Section switch
+    {
+        DatabaseMonitorSection.Operations => "عملیات قابل ادامه‌ای مشاهده نشد؛ سایر انواع عملیات در این نما پوشش داده نمی‌شوند.",
+        DatabaseMonitorSection.History => "هنوز عملیاتی در زمان‌های نمونه‌برداری مشاهده و ثبت نشده است.",
+        DatabaseMonitorSection.Alerts => "در بررسی فعلی هشدار فعالی برای شاخص‌های تحت پایش مشاهده نشد.",
+        DatabaseMonitorSection.Requests => "درخواستی از نشست‌های دیگر در این پایگاه داده مشاهده نشد.",
+        _ => "داده‌ای برای نمایش در بررسی فعلی موجود نیست.",
+    };
+    protected override Task OnParametersSetAsync()
+    {
+        ++_version; _request?.Cancel(); _report = null; _detail = null; _error = null; _growth = []; _growthLoaded = false; _loading = false;
+        return Page is null || Page.Section == DatabaseMonitorSection.Indexes ? Task.CompletedTask : Load();
+    }
+    private async Task Load()
+    {
+        DatabaseMonitorEntry? page = Page;
+        if (page is null) return;
+        int version = ++_version;
+        _request?.Cancel();
+        using CancellationTokenSource request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _request = request; _loading = true; _error = null; _report = null; _detail = null; _growthLoaded = false;
+        try
+        {
+            UiResult<DatabaseMonitorReport> result = await Service.Read(page.Section, request.Token, _sort);
+            if (version != _version) return;
+            _error = result.ErrorMessage; _report = result.Value;
+            if (page.Section == DatabaseMonitorSection.Tables && result.IsSuccess)
+            {
+                UiResult<IReadOnlyList<DatabaseGrowthPoint>> growth = await Service.Growth(request.Token);
+                if (version != _version) return;
+                _growth = growth.Value ?? []; _growthLoaded = growth.IsSuccess; _error = growth.ErrorMessage;
+            }
+        }
+        finally { if (version == _version) { _loading = false; _request = null; } }
+    }
+    private async Task Inspect(DatabaseReading row)
+    {
+        if (_loading || row.ObjectId is not int objectId || row.IndexId is not int indexId || row.PartitionNumber is not int partition) return;
+        int version = ++_version;
+        _request?.Cancel();
+        using CancellationTokenSource request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _request = request; _loading = true; _error = null; _detail = null;
+        try
+        {
+            UiResult<DatabaseMonitorReport> result = await Service.InspectIndex(objectId,indexId,partition,request.Token);
+            if (version != _version) return;
+            _error = result.ErrorMessage; _detail = result.Value;
+        }
+        finally { if (version == _version) { _loading = false; _request = null; } }
+    }
+    private IReadOnlyList<AdminExportColumn<DatabaseReading>> Columns
+    {
+        get
+        {
+            if (Page is null) return [];
+            List<AdminExportColumn<DatabaseReading>> columns = [new("عنوان",row=>row.Name)];
+            if (ShowDetail) columns.Add(new("جزئیات",row=>row.Detail));
+            if (Page.Section == DatabaseMonitorSection.Indexes) columns.Add(new("پارتیشن",row=>row.PartitionNumber));
+            columns.Add(new(Page.Metric1,row=>row.Metric1));
+            if(Page.Metric2.Length>0) columns.Add(new(Page.Metric2,row=>row.Metric2));
+            if(Page.Metric3.Length>0) columns.Add(new(Page.Metric3,row=>row.Metric3));
+            if (Page.Section == DatabaseMonitorSection.History) columns.Add(new("نخستین مشاهده (تهران)",row=>Time(row.FirstObservedAtUtc)));
+            if (Page.Section is DatabaseMonitorSection.Statistics or DatabaseMonitorSection.Queries or DatabaseMonitorSection.History) columns.Add(new(TimeColumnTitle,row=>Time(row.AtUtc)));
+            if (ShowStatus) columns.Add(new("وضعیت",row=>row.Status));
+            return columns;
+        }
+    }
+    private static string Number(decimal? value) => PersianDisplay.Number(value,"#,0.##");
+    private static string Time(DateTime? value) => value is null ? "—" : PersianDisplay.Date(IranTime.FromUtc(new DateTimeOffset(DateTime.SpecifyKind(value.Value,DateTimeKind.Utc))),"yyyy/MM/dd HH:mm:ss");
+    private string Height(decimal value) => (100m*value/Math.Max(1m,_growth.Max(point=>point.DataMb+point.IndexMb))).ToString("0.###",System.Globalization.CultureInfo.InvariantCulture)+"%";
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}
+
+
+
+
+
+
+

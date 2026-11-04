@@ -8,12 +8,14 @@
     {
         <a href="@_group.Route">@_group.Title</a><span aria-hidden="true">/</span>
     }
+
     @if (_customerKeys) { <a href="/admin/customers">مشتریان</a><span aria-hidden="true">/</span> }
     <h1 aria-current="page">@_title</h1>
 </nav>
 
 @code {
     private bool _customerKeys;
+    private bool _databaseDetail;
     private string _title = "داشبورد";
     private AdminMenuGroup? _group;
     protected override void OnInitialized()
@@ -24,6 +26,21 @@
     private void Update()
     {
         string path = new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+        if (path == "/admin/dispatch-operations/troubleshoot")
+        {
+            _group = AdminNavigation.Groups[0];
+            _title = "اشکال‌یابی";
+            _customerKeys = false;
+            return;
+        }
+        _databaseDetail = path.StartsWith("/admin/settings/database/", StringComparison.OrdinalIgnoreCase);
+        if (path is "/admin/dispatch-live" or "/admin/delivery-reports")
+        {
+            _group = AdminNavigation.Groups[0];
+            _title = path == "/admin/dispatch-live" ? "پایش زنده فنی" : "تاریخچه تحویل";
+            _customerKeys = false;
+            return;
+        }
         if (path == "/admin/me")
         {
             _group = null;
@@ -40,8 +57,10 @@
         }
         _group = AdminNavigation.Groups.FirstOrDefault(group => group.Route == path
             || group.Cards.Any(card => path == card.Route || path.StartsWith(card.Route + "/", StringComparison.OrdinalIgnoreCase)));
-        AdminMenuCard? card = _group?.Cards.FirstOrDefault(item => path == item.Route || path.StartsWith(item.Route + "/", StringComparison.OrdinalIgnoreCase));
+        AdminMenuCard? card = _group?.Cards.OrderByDescending(item => item.Route.Length).FirstOrDefault(item => path == item.Route || path.StartsWith(item.Route + "/", StringComparison.OrdinalIgnoreCase));
         _title = card?.Title ?? _group?.Title ?? "داشبورد";
+        if (_databaseDetail)
+            _title = SmsHubNext.Features.DatabaseMonitoring.Ui.DatabaseMonitoringNavigation.Pages.FirstOrDefault(page => path.Equals("/admin/settings/database/" + page.Route, StringComparison.OrdinalIgnoreCase))?.Title ?? "پایش پایگاه داده";
     }
     private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
     {

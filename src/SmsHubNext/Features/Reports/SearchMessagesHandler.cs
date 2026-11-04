@@ -40,11 +40,12 @@ public sealed class SearchMessagesHandler(Db db)
                 MobileNumber = Ansi(query.Field == MessageSearchField.MobileNumber && query.Value.Length > 0 ? query.Value : null, 15),
                 BeforeDate = Ansi(query.Before?.SubmitDateJalali, 10),
                 BeforeId = query.Before?.Id,
-                Take = PageSize + 1,
+                Take = Math.Clamp(query.Limit, 1, PageSize) + 1,
             }, cancellationToken: token))).AsList();
 
-        bool hasMore = rows.Count > PageSize;
-        if (hasMore) rows.RemoveAt(PageSize);
+        int limit = Math.Clamp(query.Limit, 1, PageSize);
+        bool hasMore = rows.Count > limit;
+        if (hasMore) rows.RemoveAt(limit);
         for (int index = 0; index < rows.Count; index++)
             rows[index] = rows[index] with { SubmittedAtUtc = DateTime.SpecifyKind(rows[index].SubmittedAtUtc, DateTimeKind.Utc) };
         MessageSearchCursor? next = hasMore ? new(rows[^1].SubmitDateJalali, rows[^1].Id) : null;

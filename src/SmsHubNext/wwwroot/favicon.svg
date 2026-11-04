@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>SmsHubNext</title>
+  <defs>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#173d73"/>
+      <stop offset="1" stop-color="#3271bf"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#blue)"/>
+  <path d="M23 17h18a10 10 0 0 1 10 10v8a10 10 0 0 1-10 10H29l-8 6v-6.2C16.4 43.9 13 39.8 13 35v-8a10 10 0 0 1 10-10Z" fill="#fff"/>
+  <g fill="#245eaa">
+    <circle cx="24" cy="31" r="2.5"/>
+    <circle cx="32" cy="31" r="2.5"/>
+    <circle cx="40" cy="31" r="2.5"/>
+  </g>
+</svg>

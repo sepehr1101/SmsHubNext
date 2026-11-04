@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Features.Providers;
@@ -107,6 +108,15 @@ public sealed class DeliveryReportPoller
                     // Transient: the rows are leased forward and retried next cycle. We do not infer
                     // Expired from elapsed time while the provider cannot be reached.
                     _logger.LogWarning("Delivery-report query failed: {Error}. Retrying next cycle.", query.Error!.Message);
+                    if (query.Error.Diagnostic is OperationFailure diagnostic)
+                    {
+                        await connection.ExecuteAsync(new CommandDefinition(OperationFailureSql.Insert,
+                            new { MessageIdsJson = JsonSerializer.Serialize(providerRows.Select(row => row.MessageId)),
+                                Now = _clock.GetUtcNow().UtcDateTime,
+                                EventType = (byte)MessageBatchEventType.ProviderOperationFailed,
+                                Detail = query.Error.Message, FailureJson = diagnostic.ToJson() },
+                            cancellationToken: cancellationToken));
+                    }
                     continue;
                 }
 

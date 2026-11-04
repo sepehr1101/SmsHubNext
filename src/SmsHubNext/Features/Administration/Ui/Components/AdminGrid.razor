@@ -4,6 +4,7 @@
 @inject IJSRuntime JS
 
 <div class="admin-grid-tools">
+    @ToolbarContent
     @if (ShowSearch)
     {
         <input type="search" @bind="_search" @bind:event="oninput" placeholder="جست‌وجو در جدول…" aria-label="جست‌وجو در جدول" />
@@ -22,7 +23,7 @@
                 <MudMenuItem Disabled="Loading" OnClick="() => Export(false)">@(PageLocal ? "داده‌های بارگذاری‌شده" : "همه داده‌های فیلترشده")</MudMenuItem>
             </ChildContent>
         </MudMenu>
-        <MudTooltip ShowOnFocus="true" Text="فیلترها"><button type="button" class="admin-grid-icon" aria-label="فیلترها" @onclick="ShowFilters"><MudIcon Icon="@Icons.Material.Rounded.FilterAlt" /></button></MudTooltip>
+        <MudTooltip ShowOnFocus="true" Text="فیلترها"><button type="button" class="admin-grid-icon" aria-label="فیلترها" disabled="@(!EnableLocalOperations && !OnFilter.HasDelegate)" @onclick="ShowFilters"><MudIcon Icon="@Icons.Material.Rounded.FilterAlt" /></button></MudTooltip>
         <MudTooltip ShowOnFocus="true" Text="نمایش ستون‌ها"><button type="button" class="admin-grid-icon" aria-label="نمایش ستون‌ها" @onclick="ShowColumns"><MudIcon Icon="@Icons.Material.Rounded.ViewColumn" /></button></MudTooltip>
         @if (OnAdd.HasDelegate)
         {
@@ -32,9 +33,9 @@
     <label class="grid-density"><input type="checkbox" @bind="_dense" /> نمایش فشرده</label>
     @if (_error is not null) { <span role="alert">@_error</span> }
 </div>
-<MudDataGrid @ref="_grid" T="T" Items="Items" QuickFilter="Matches" Filterable="true" FilterMode="DataGridFilterMode.Simple" FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" SortMode="SortMode.Multiple" Hideable="true" ShowColumnOptions="true" ColumnsPanelReordering="true" Dense="_dense" Hover="true" Striped="true" Loading="Loading" RowsPerPage="@(PageLocal ? 25 : 10)" Elevation="0" Class="admin-enhanced-grid">
+<MudDataGrid @ref="_grid" T="T" Items="Items" QuickFilter="Matches" Filterable="EnableLocalOperations" FilterMode="DataGridFilterMode.Simple" FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" SortMode="@(EnableLocalOperations ? SortMode.Multiple : SortMode.None)" Hideable="true" ShowColumnOptions="true" ColumnsPanelReordering="true" Dense="_dense" Hover="true" Striped="true" Loading="Loading" RowsPerPage="@(PageLocal ? PageSize : 10)" Elevation="0" Class="admin-enhanced-grid">
     <Columns>@ChildContent</Columns>
-    <NoRecordsContent><div class="admin-empty">ردیفی مطابق جست‌وجو وجود ندارد.</div></NoRecordsContent>
+    <NoRecordsContent><div class="admin-empty" role="status">@(Loading ? "در حال دریافت اطلاعات…" : !string.IsNullOrWhiteSpace(_search) ? "ردیفی مطابق جست‌وجو وجود ندارد." : EmptyText)</div></NoRecordsContent>
     <PagerContent>
         @if (!PageLocal)
         {
@@ -59,6 +60,11 @@
     [Parameter, EditorRequired] public IEnumerable<T> Items { get; set; } = [];
     [Parameter, EditorRequired] public IReadOnlyList<AdminExportColumn<T>> ExportColumns { get; set; } = [];
     [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? ToolbarContent { get; set; }
+    [Parameter] public EventCallback OnFilter { get; set; }
+    [Parameter] public bool EnableLocalOperations { get; set; } = true;
+    [Parameter] public int PageSize { get; set; } = 25;
+    [Parameter] public string EmptyText { get; set; } = "ردیفی مطابق فیلترهای انتخاب‌شده وجود ندارد.";
     [Parameter] public bool Loading { get; set; }
     [Parameter] public bool PageLocal { get; set; }
     [Parameter] public string Name { get; set; } = "گزارش";
@@ -91,7 +97,11 @@
     private bool Matches(T item) => ExportColumns.Any(column => Normalize(SearchValue(column.Value(item))).Contains(Normalize(_search), StringComparison.OrdinalIgnoreCase));
     private static string SearchValue(object? value) => value is DateTime date ? PersianDisplay.Date(date, "yyyy/MM/dd HH:mm:ss") : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
     private static string Normalize(string text) => PersianDisplay.SearchText(text);
-    private void ShowFilters() => _grid?.ToggleFiltersMenu();
+    private async Task ShowFilters()
+    {
+        if (OnFilter.HasDelegate) await OnFilter.InvokeAsync();
+        else _grid?.ToggleFiltersMenu();
+    }
     private void ShowColumns(MouseEventArgs args) => _grid?.ShowColumnsPanel(args);
     private async Task Export(bool currentPage)
     {

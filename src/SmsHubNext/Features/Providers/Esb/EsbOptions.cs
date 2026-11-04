@@ -12,6 +12,9 @@ public sealed class EsbOptions
     public string LoginUrl { get; init; } = "https://esb.abfaisfahan.com:8243/token";
     public string SendUrl { get; init; } = "https://esb.abfaisfahan.com:8243/Nww-SendSms/1.0";
     public string DeliveryUrl { get; init; } = "https://esb.abfaisfahan.com:8243/Nww-CheckDeliverySms/1.0";
+    public bool UseBatchDeliveryQueries { get; init; } = true;
+    /// <summary>Application chunk size; the gateway's delivery-query limit is not yet confirmed.</summary>
+    public int DeliveryQueryBatchSize { get; init; } = 100;
     /// <summary>Only documented terminal codes belong here; other codes remain pending.</summary>
     public Dictionary<int, DeliveryReportStatus> TerminalDeliveryStatuses { get; init; } = new();
     public string Username { get; init; } = string.Empty;
@@ -22,6 +25,8 @@ public sealed class EsbOptions
     {
         if (!Enabled)
             return;
+        if (DeliveryQueryBatchSize is < 1 or > 100)
+            throw new InvalidOperationException("Esb:DeliveryQueryBatchSize must be between 1 and 100.");
         if (!IsHttps(LoginUrl) || !IsHttps(SendUrl) || !IsHttps(DeliveryUrl))
             throw new InvalidOperationException("Esb:LoginUrl, Esb:SendUrl and Esb:DeliveryUrl must be absolute HTTPS URLs.");
         if (TerminalDeliveryStatuses.Values.Any(status => !Enum.IsDefined(status)))

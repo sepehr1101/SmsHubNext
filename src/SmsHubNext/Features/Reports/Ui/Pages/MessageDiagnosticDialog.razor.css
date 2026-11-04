@@ -1,0 +1,4 @@
+.diagnostic-dialog-title { display:flex; align-items:center; justify-content:space-between; gap:1rem; font-family:Vazirmatn,sans-serif; color:#1e293b; }
+.diagnostic-dialog-title h2 { font-size:1.1rem; margin:0; }
+.diagnostic-dialog-title button { display:flex; padding:.35rem; color:#475569; background:transparent; border:1px solid #cbd5e1; border-radius:8px; cursor:pointer; }
+.diagnostic-dialog-title button:hover { background:#e9f0f8; }

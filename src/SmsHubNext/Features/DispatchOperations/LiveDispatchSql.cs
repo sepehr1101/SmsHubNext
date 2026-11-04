@@ -21,15 +21,17 @@ internal static class LiveDispatchSql
         """;
     public const string Messages = """
         WITH Selected AS (
-            SELECT m.* FROM dbo.Message m
+            SELECT TOP (@Take) m.* FROM dbo.Message m
             WHERE m.SubmitDateJalali >= @FromJalali AND m.SubmitDateJalali <= @ToJalali AND m.SubmittedAtUtc >= @From AND m.SubmittedAtUtc < @Until
               AND (@Status IS NULL OR m.Status = @Status)
               AND (@Provider IS NULL OR m.ProviderId = @Provider)
               AND (@Batch IS NULL OR m.MessageBatchId = @Batch)
-              AND (@Search = '' OR m.MobileNumber = @Search OR CONVERT(varchar(20), m.Id) = @Search)
-            ORDER BY m.SubmitDateJalali DESC, m.Id DESC OFFSET @Offset ROWS FETCH NEXT 26 ROWS ONLY
+              AND (@HasSearch = 0 OR m.MobileNumber = @SearchMobile OR m.Id = @SearchId)
+              AND (@BeforeId IS NULL OR m.SubmitDateJalali < @BeforeDate
+                   OR (m.SubmitDateJalali = @BeforeDate AND m.Id < @BeforeId))
+            ORDER BY m.SubmitDateJalali DESC, m.Id DESC
         )
-        SELECT m.Id, m.MessageBatchId, m.MobileNumber, s.LineNumber SenderLine, p.Name ProviderName,
+        SELECT m.Id, m.SubmitDateJalali, m.MessageBatchId, m.MobileNumber, s.LineNumber SenderLine, p.Name ProviderName,
                m.Status, m.DeliveryStatus, m.SubmittedAtUtc, a.AcceptedAtUtc, b.DispatchAttemptCount, body.Body,
                e.EventTimeUtc ErrorAtUtc, e.ProviderResultCode ErrorCode, e.EventType ErrorEvent
         FROM Selected m

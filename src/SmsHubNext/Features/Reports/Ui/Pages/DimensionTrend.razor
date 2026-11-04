@@ -1,0 +1,59 @@
+@using SmsHubNext.Features.Reports
+@using System.Globalization
+
+<section class="dimension-trend" aria-label="نمودار روند ماهانه">
+    <div class="trend-controls">
+        <label>@(Geography ? "منطقه نمودار" : "نوع پیامک نمودار")<select @bind="_selected">@foreach (TrendGroup group in _groups) { <option value="@group.Id">@group.Name</option> }</select></label>
+        <label>شاخص نمودار<select @bind="_metric"><option value="count">تعداد پیام</option><option value="cost">هزینه (ریال)</option><option value="rate">نرخ تحویل (٪)</option></select></label>
+    </div>
+    <div class="trend-bars" role="list" aria-label="مقادیر ماهانه؛ ماه فاقد ارسال با صفر نمایش داده می‌شود">
+        @foreach (string month in Months())
+        {
+            decimal value = Value(month);
+            decimal maximum = Maximum;
+            string height = (maximum == 0 ? 0 : value * 100m / maximum).ToString("0.###", CultureInfo.InvariantCulture) + "%";
+            <div class="trend-month" role="listitem">
+                <span>@PersianDisplay.Number(value, _metric == "rate" ? "N1" : "N0.####")</span>
+                <div class="trend-track"><div class="trend-bar" style="height:@height"></div></div>
+                <span dir="ltr">@PersianDisplay.Text(month)</span>
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DimensionReportRow> Rows { get; set; } = [];
+    [Parameter] public bool Geography { get; set; }
+    [Parameter] public string From { get; set; } = string.Empty;
+    [Parameter] public string To { get; set; } = string.Empty;
+    private sealed record TrendGroup(string Id, string Name);
+    private List<TrendGroup> _groups = [];
+    private string _selected = string.Empty;
+    private string _metric = "count";
+    private string Id(DimensionReportRow row) => Geography ? row.GeoSectionId?.ToString(CultureInfo.InvariantCulture) ?? "unspecified" : row.MessageTypeId!.Value.ToString(CultureInfo.InvariantCulture);
+    protected override void OnParametersSet()
+    {
+        _groups = Rows.GroupBy(Id).Select(group => new TrendGroup(group.Key, Geography ? group.First().GeoName : group.First().MessageTypeName)).ToList();
+        if (!_groups.Any(group => group.Id == _selected)) _selected = _groups.FirstOrDefault()?.Id ?? string.Empty;
+    }
+    private decimal Value(string month)
+    {
+        DimensionReportRow? row = Rows.FirstOrDefault(item => Id(item) == _selected && item.JalaliMonth == month);
+        return row is null ? 0 : _metric switch { "cost" => row.TotalCost, "rate" => row.DeliveryRate, _ => row.MessageCount };
+    }
+    private decimal Maximum => _metric == "rate" ? 100 : Rows.Where(row => Id(row) == _selected).Select(row => _metric == "cost" ? row.TotalCost : row.MessageCount).DefaultIfEmpty(0).Max();
+    private IEnumerable<string> Months()
+    {
+        int year = int.Parse(From[..4], CultureInfo.InvariantCulture);
+        int month = int.Parse(From[5..7], CultureInfo.InvariantCulture);
+        string last = To[..7];
+        for (int index = 0; index <= 60; index++)
+        {
+            string current = FormattableString.Invariant($"{year:0000}/{month:00}");
+            if (string.CompareOrdinal(current, last) > 0) yield break;
+            yield return current;
+            if (++month > 12) { month = 1; year++; }
+        }
+    }
+}
+

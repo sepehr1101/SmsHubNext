@@ -27,7 +27,8 @@ public sealed class MessageDiagnosticsHandler(Db db, SmsProviderRegistry provide
         if (provider.IsFailure) return report with { LiveError = provider.Error!.Message };
         Result<IReadOnlyList<ProviderDeliveryReport>> live = await provider.Value.GetDeliveryReportsAsync([message.ProviderMessageId], token);
         DateTime observed = clock.GetUtcNow().UtcDateTime;
-        if (live.IsFailure) return report with { LiveError = live.Error!.Message, LiveObservedAtUtc = observed };
+        if (live.IsFailure) return report with { LiveError = live.Error!.Message,
+            LiveFailure = live.Error.Diagnostic, LiveObservedAtUtc = observed };
         ProviderDeliveryReport? status = live.Value.FirstOrDefault(item => item.ProviderMessageId == message.ProviderMessageId);
         return report with { Live = status, LiveObservedAtUtc = observed,
             LiveError = status is null || !status.HasProviderStatus ? "در پاسخ سرویس، وضعیتی برای این شناسه وجود نداشت." : null };
@@ -42,13 +43,17 @@ public sealed record MessageDiagnosticRow(long Id, long MessageBatchId, string S
     int DispatchAttemptCount, DateTime? NextDispatchAtUtc, DateTime? AwaitingConfirmationSinceUtc,
     DateTime? DispatchedAtUtc, DateTime? NextPollAtUtc, int? PollAttempts);
 public sealed record DiagnosticDelivery(int RawStatusCode, DeliveryReportStatus NormalizedStatus, DateTime ReceivedAtUtc);
-public sealed record DiagnosticEvent(MessageBatchEventType EventType, int? ProviderResultCode, string? Detail, DateTime EventTimeUtc);
+public sealed record DiagnosticEvent(MessageBatchEventType EventType, int? ProviderResultCode, string? Detail, DateTime EventTimeUtc, string? FailureJson = null)
+{
+    public OperationFailure? Failure => OperationFailure.FromJson(FailureJson);
+}
 public sealed record MessageDiagnostics(MessageDiagnosticRow Message, IReadOnlyList<DiagnosticDelivery> Deliveries,
     IReadOnlyList<DiagnosticEvent> Events, DateTime ReadAtUtc)
 {
     public ProviderDeliveryReport? Live { get; init; }
     public DateTime? LiveObservedAtUtc { get; init; }
     public string? LiveError { get; init; }
+    public OperationFailure? LiveFailure { get; init; }
 }
 
 internal static class MessageDiagnosticsSql
@@ -71,7 +76,7 @@ internal static class MessageDiagnosticsSql
         SELECT TOP (100) RawStatusCode, NormalizedStatus, ReceivedAtUtc
         FROM dbo.DeliveryReport WHERE MessageId = @MessageId ORDER BY ReceivedAtUtc DESC, Id DESC;
 
-        SELECT TOP (100) EventType, ProviderResultCode, Detail, EventTimeUtc
+        SELECT TOP (100) EventType, ProviderResultCode, Detail, EventTimeUtc, FailureJson
         FROM dbo.MessageBatchEvent
         WHERE MessageBatchId = (SELECT MessageBatchId FROM dbo.Message WHERE Id = @MessageId)
         ORDER BY EventTimeUtc DESC, Id DESC;

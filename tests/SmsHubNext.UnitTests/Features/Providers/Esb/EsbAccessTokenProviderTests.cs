@@ -52,7 +52,55 @@ public sealed class EsbAccessTokenProviderTests
         Assert.Equal(2, handler.Count);
     }
 
+    [Fact]
+    public async Task Concurrent_invalidations_share_one_replacement_and_late_401_keeps_new_token()
+    {
+        using LoginHandler handler = new();
+        using EsbAccessTokenProvider provider = new(new ClientFactory(handler), Options(), new Clock());
+        string rejected = (await provider.Get(CancellationToken.None)).Value;
+
+        Task[] invalidations = Enumerable.Range(0, 50)
+            .Select(_ => provider.Invalidate(rejected, CancellationToken.None)).ToArray();
+        await Task.WhenAll(invalidations);
+        Task<Result<string>>[] requests = Enumerable.Range(0, 50)
+            .Select(_ => provider.Get(CancellationToken.None)).ToArray();
+        Result<string>[] results = await Task.WhenAll(requests);
+
+        Assert.All(results, result => Assert.Equal("token-2", result.Value));
+        await provider.Invalidate(rejected, CancellationToken.None);
+        Assert.Equal("token-2", (await provider.Get(CancellationToken.None)).Value);
+        Assert.Equal(2, handler.Count);
+    }
+
+    [Fact]
+    public async Task Failed_login_after_invalidation_never_reuses_rejected_token()
+    {
+        using LoginHandler handler = new();
+        using EsbAccessTokenProvider provider = new(new ClientFactory(handler), Options(), new Clock());
+        string rejected = (await provider.Get(CancellationToken.None)).Value;
+        await provider.Invalidate(rejected, CancellationToken.None);
+        handler.ResponseBody = "{}";
+
+        Assert.True((await provider.Get(CancellationToken.None)).IsFailure);
+        Assert.True((await provider.Get(CancellationToken.None)).IsFailure);
+        Assert.Equal(3, handler.Count);
+    }
+
     private static EsbOptions Options() => new() { Enabled = true, Username = "client", Password = "secret" };
+
+    [Fact]
+    public async Task Login_http_401_has_token_stage_and_does_not_leak_credentials_or_body()
+    {
+        using LoginHandler handler = new() { Status = HttpStatusCode.Unauthorized, ResponseBody = "secret-raw-body" };
+        using EsbAccessTokenProvider provider = new(new ClientFactory(handler), Options(), new Clock());
+        Error error = (await provider.Get(CancellationToken.None)).Error!;
+        Assert.Equal("esb.login_failed", error.Code);
+        Assert.Equal(FailureStage.Token, error.Diagnostic!.Stage);
+        Assert.Equal(FailureOrigin.EsbGateway, error.Diagnostic.Origin);
+        Assert.Equal(401, error.Diagnostic.HttpStatus);
+        Assert.Equal(FailureImpact.NotSubmitted, error.Diagnostic.Impact);
+        Assert.DoesNotContain("secret", error.Message + error.Diagnostic.ToJson());
+    }
 
     private sealed class Clock : TimeProvider
     {
@@ -72,7 +120,8 @@ public sealed class EsbAccessTokenProviderTests
         public string? AuthScheme { get; private set; }
         public string? Credentials { get; private set; }
         public string? GrantType { get; private set; }
-        public string? ResponseBody { get; init; }
+        public string? ResponseBody { get; set; }
+        public HttpStatusCode Status { get; init; } = HttpStatusCode.OK;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -85,7 +134,7 @@ public sealed class EsbAccessTokenProviderTests
             Assert.Equal("grant_type=client_credentials", body);
             GrantType = body.Split('=')[1];
             await Task.Yield();
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(Status)
             {
                 Content = new StringContent(ResponseBody ??
                     $"{{\"access_token\":\"token-{Count}\",\"token_type\":\"Bearer\",\"expires_in\":3600}}", Encoding.UTF8, "application/json"),

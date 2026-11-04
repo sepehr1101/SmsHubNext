@@ -21,7 +21,7 @@ public sealed class EsbAccessTokenProvider(
     public async Task<Result<string>> Get(CancellationToken cancellationToken)
     {
         if (!options.Enabled)
-            return Error.Provider("esb.disabled", "اتصال ESB فعال نیست.");
+            return EsbFailure.Create("esb.disabled", "اتصال ESB فعال نیست.", FailureStage.Validation, FailureOrigin.Application);
 
         await _loginLock.WaitAsync(cancellationToken);
         try
@@ -29,6 +29,21 @@ public sealed class EsbAccessTokenProvider(
             if (_cachedToken is not null && _cachedToken.ExpiresAt > clock.GetUtcNow())
                 return _cachedToken.Value;
             return await Login(cancellationToken);
+        }
+        finally
+        {
+            _loginLock.Release();
+        }
+    }
+
+    /// <summary>A late 401 must not evict a replacement obtained by another request.</summary>
+    public async Task Invalidate(string rejectedToken, CancellationToken cancellationToken)
+    {
+        await _loginLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (string.Equals(_cachedToken?.Value, rejectedToken, StringComparison.Ordinal))
+                _cachedToken = null;
         }
         finally
         {
@@ -49,35 +64,37 @@ public sealed class EsbAccessTokenProvider(
             ["grant_type"] = "client_credentials",
         });
 
+        int? httpStatus = null;
         try
         {
             using HttpResponseMessage response = await client.SendAsync(request, cancellationToken);
+            httpStatus = (int)response.StatusCode;
             if (!response.IsSuccessStatusCode)
-                return Error.Provider("esb.login_failed", "دریافت توکن ESB ناموفق بود.");
+                return EsbFailure.Create("esb.login_failed", "دریافت توکن ESB ناموفق بود.", FailureStage.Token, httpStatus: (int)response.StatusCode);
             TokenResponse? token = await response.Content.ReadFromJsonAsync<TokenResponse>(cancellationToken);
             if (token is null || string.IsNullOrWhiteSpace(token.AccessToken) || token.ExpiresIn <= 0 ||
                 !string.Equals(token.TokenType, "Bearer", StringComparison.OrdinalIgnoreCase))
             {
-                return Error.Provider("esb.invalid_token_response", "پاسخ ورود ESB معتبر نیست.");
+                return EsbFailure.Create("esb.invalid_token_response", "پاسخ ورود ESB معتبر نیست.", FailureStage.Token, httpStatus: httpStatus);
             }
 
             DateTimeOffset expiresAt = startedAt.AddSeconds(token.ExpiresIn);
             if (expiresAt <= clock.GetUtcNow())
-                return Error.Provider("esb.expired_token_response", "توکن دریافتی ESB منقضی شده است.");
+                return EsbFailure.Create("esb.expired_token_response", "توکن دریافتی ESB منقضی شده است.", FailureStage.Token, httpStatus: httpStatus);
             _cachedToken = new TokenSnapshot(token.AccessToken, expiresAt);
             return token.AccessToken;
         }
         catch (HttpRequestException)
         {
-            return Error.Provider("esb.login_transport", "ارتباط با سرویس ورود ESB برقرار نشد.");
+            return EsbFailure.Create("esb.login_transport", "ارتباط با سرویس ورود ESB برقرار نشد.", FailureStage.Token, FailureOrigin.Network);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return Error.Provider("esb.login_timeout", "زمان انتظار برای ورود ESB به پایان رسید.");
+            return EsbFailure.Create("esb.login_timeout", "زمان انتظار برای ورود ESB به پایان رسید.", FailureStage.Token, FailureOrigin.Network);
         }
         catch (JsonException)
         {
-            return Error.Provider("esb.invalid_token_response", "پاسخ ورود ESB معتبر نیست.");
+            return EsbFailure.Create("esb.invalid_token_response", "پاسخ ورود ESB معتبر نیست.", FailureStage.Token, httpStatus: httpStatus);
         }
     }
 

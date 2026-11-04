@@ -28,7 +28,7 @@ internal static class DispatchSql
             StatusChangedAtUtc = @Now
         OUTPUT INSERTED.Id, INSERTED.CustomerId, INSERTED.ProviderId, INSERTED.SenderLineId,
                DELETED.Status AS PreviousStatus, INSERTED.DispatchAttemptCount,
-               INSERTED.DispatchLeaseToken
+               INSERTED.DispatchLeaseToken, INSERTED.DispatchStartedAtUtc
         FROM dbo.MessageBatch b
         INNER JOIN next ON next.Id = b.Id;
         """;
@@ -60,8 +60,13 @@ internal static class DispatchSql
             body.Body,
             m.Status,
             m.AwaitingConfirmationSinceUtc,
-            m.ConfirmationLookupCount
+            m.ConfirmationLookupCount,
+            COALESCE(m.SendAttemptCount, b.DispatchAttemptCount - 1) AS SendAttemptCount,
+            CASE WHEN m.SendAttemptCount IS NULL
+                 THEN COALESCE(b.DispatchStartedAtUtc, m.SubmittedAtUtc)
+                 ELSE m.FirstSendAttemptAtUtc END AS FirstSendAttemptAtUtc
         FROM dbo.Message m
+        INNER JOIN dbo.MessageBatch b ON b.Id = m.MessageBatchId
         INNER JOIN dbo.MessageBody body ON body.Id = m.Id
         WHERE m.MessageBatchId = @BatchId AND m.Status IN (1, 6)   -- Queued, AwaitingConfirmation
         ORDER BY m.Id;
@@ -97,9 +102,16 @@ internal static class DispatchSql
         UPDATE dbo.Message
         SET Status = 6,                                           -- AwaitingConfirmation
             AwaitingConfirmationSinceUtc = COALESCE(AwaitingConfirmationSinceUtc, @Now),
-            ConfirmationLookupCount = CASE WHEN Status = 1 THEN 0 ELSE ConfirmationLookupCount END
+            ConfirmationLookupCount = CASE WHEN Status = 1 THEN 0 ELSE ConfirmationLookupCount END,
+            SendAttemptCount = COALESCE(SendAttemptCount, @LegacyAttemptCount) + 1,
+            FirstSendAttemptAtUtc = COALESCE(FirstSendAttemptAtUtc,
+                CASE WHEN SendAttemptCount IS NULL THEN @FirstAttemptAtUtc ELSE @Now END)
         OUTPUT INSERTED.Id
-        WHERE Id IN @Ids AND Status = 1;                         -- only ones still Queued
+        WHERE Id IN @Ids AND Status = 1
+          AND COALESCE(SendAttemptCount, @LegacyAttemptCount) < @MaximumAttempts
+          AND (@ResendCutoffUtc IS NULL OR
+               COALESCE(FirstSendAttemptAtUtc,
+                   CASE WHEN SendAttemptCount IS NULL THEN @FirstAttemptAtUtc ELSE @Now END) > @ResendCutoffUtc);
         """;
 
     public const string CountNegativeConfirmation =

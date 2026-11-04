@@ -9,7 +9,7 @@
 
 
 
-<FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
+<FeatureNotice Loading="_loading" Error="@(_editorOpen ? null : _error)" Success="@_success" OnRetry="Load" />
 
 <section class="admin-data-panel">
     <header><div><h2>فهرست مشتریان</h2></div></header>
@@ -20,22 +20,25 @@
 <PropertyColumn Property="item => item.IsActive" Title="وضعیت"><CellTemplate><div><StatusPill IsActive="context.Item.IsActive" /></div></CellTemplate></PropertyColumn>
 <PropertyColumn Property="item => item.CreatedAtUtc" Title="تاریخ ایجاد"><CellTemplate><div>@(PersianDisplay.Date(context.Item.CreatedAtUtc, "yyyy/MM/dd"))</div></CellTemplate></PropertyColumn>
 <TemplateColumn Title="کلیدهای API" Sortable="false" Filterable="false" Hideable="false"><CellTemplate><div><a class="admin-customer-keys" href="/admin/api-keys?customerId=@context.Item.Id" aria-label="@($"کلیدهای API مشتری {context.Item.Name}")"><MudIcon Icon="@Icons.Material.Rounded.VpnKey" /> کلیدهای API</a></div></CellTemplate></TemplateColumn>
-<TemplateColumn Title="عملیات" Sortable="false" Filterable="false" Hideable="false"><CellTemplate><div class="admin-row-actions"><button title="ویرایش" @onclick="() => OpenEdit(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Edit" /></button><button class="danger" title="حذف منطقی" @onclick="() => Delete(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.DeleteOutline" /></button></div></CellTemplate></TemplateColumn></AdminGrid>
+<TemplateColumn Title="عملیات" Sortable="false" Filterable="false" Hideable="false"><CellTemplate><div class="admin-row-actions"><button title="ویرایش" aria-label="ویرایش مشتری" @onclick="() => OpenEdit(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.Edit" /></button><button class="danger" title="حذف منطقی" aria-label="حذف مشتری" @onclick="() => Delete(context.Item)"><MudIcon Icon="@Icons.Material.Rounded.DeleteOutline" /></button></div></CellTemplate></TemplateColumn></AdminGrid>
     </div>
 </section>
 
 @if (_editorOpen)
 {
     <div class="admin-drawer-backdrop" @onclick="CloseEditor"></div>
-    <aside class="admin-editor" aria-label="فرم مشتری">
-        <header><div><h2>@(_editingId is null ? "مشتری جدید" : "ویرایش مشتری")</h2><p>نام نمایشی و کد یکتای مشتری را وارد کنید.</p></div><button @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></header>
+    <MudFocusTrap DefaultFocus="DefaultFocus.FirstChild">
+    <aside class="admin-editor" role="dialog" aria-modal="true" aria-labelledby="customer-editor-title" @onkeydown="EditorKey" @ref="_editorRoot">
+        <header><div><h2 id="customer-editor-title">@(_editingId is null ? "مشتری جدید" : "ویرایش مشتری")</h2><p>نام نمایشی و کد یکتای مشتری را وارد کنید.</p></div><button type="button" aria-label="بستن فرم مشتری" disabled="_saving" @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></header>
         <div class="admin-editor-body">
-            <label><span>نام مشتری</span><input @bind="_name" placeholder="مثلاً شرکت آب منطقه‌ای" /></label>
-            <label><span>کد مشتری</span><input @bind="_code" dir="ltr" placeholder="water-company" disabled="@(_editingId is not null)" /><small>کد حذف‌شده دوباره قابل استفاده نیست.</small></label>
-            @if (_editingId is not null) { <label class="admin-checkbox"><input type="checkbox" @bind="_isActive" /> مشتری فعال باشد</label> }
+            @if (_error is not null) { <p role="alert" class="ux-field-error">@_error</p> }
+            <label><span>نام مشتری</span><input @bind="_name" @bind:after="MarkDirty" placeholder="مثلاً شرکت آب منطقه‌ای" disabled="_saving" aria-invalid="@(_validated && string.IsNullOrWhiteSpace(_name) ? "true" : "false")" aria-describedby="customer-name-error" /><small id="customer-name-error" class="ux-field-error">@(_validated && string.IsNullOrWhiteSpace(_name) ? "نام مشتری را وارد کنید." : null)</small></label>
+            <label><span>کد مشتری</span><input @bind="_code" @bind:after="MarkDirty" aria-invalid="@(_validated && string.IsNullOrWhiteSpace(_code) ? "true" : "false")" aria-describedby="customer-code-error" dir="ltr" placeholder="water-company" disabled="@(_saving || _editingId is not null)" /><small id="customer-code-error" class="ux-field-error">@(_validated && string.IsNullOrWhiteSpace(_code) ? "کد مشتری را وارد کنید." : null)</small><small>کد حذف‌شده دوباره قابل استفاده نیست.</small></label>
+            @if (_editingId is not null) { <label class="admin-checkbox"><input type="checkbox" @bind="_isActive" @bind:after="MarkDirty" disabled="_saving" /> مشتری فعال باشد</label> }
         </div>
-        <footer><button class="admin-button secondary" @onclick="CloseEditor">انصراف</button><button class="admin-button primary" disabled="@_saving" @onclick="Save">@(_saving ? "در حال ذخیره…" : "ذخیره")</button></footer>
+        <footer><button class="admin-button secondary" disabled="_saving" @onclick="CloseEditor">انصراف</button><button class="admin-button primary" disabled="@_saving" @onclick="Save">@(_saving ? "در حال ذخیره…" : "ذخیره")</button></footer>
     </aside>
+    </MudFocusTrap>
 }
 
 @code {
@@ -43,6 +46,14 @@
     private IReadOnlyList<CustomerItem> _items = [];
     private bool _loading = true;
     private bool _saving;
+    private bool _dirty, _validated, _focusInvalid;
+    private ElementReference _editorRoot;
+    private void MarkDirty() { _dirty = true; _error = null; }
+    private async Task EditorKey(KeyboardEventArgs args) { if (args.Key == "Escape") await CloseEditor(); }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusInvalid) { _focusInvalid = false; await JS.InvokeVoidAsync("adminForms.focusInvalid", _editorRoot); }
+    }
     private bool _editorOpen;
     private short? _editingId;
     private string _name = string.Empty;
@@ -53,10 +64,16 @@
 
     protected override Task OnInitializedAsync() => Load();
     private async Task Load() { _loading = true; _error = null; UiResult<IReadOnlyList<CustomerItem>> result = await Service.List(_disposeToken.Token); _items = result.Value ?? []; _error = result.ErrorMessage; _loading = false; }
-    private void OpenCreate() { _editingId = null; _name = string.Empty; _code = string.Empty; _isActive = true; _editorOpen = true; }
-    private void OpenEdit(CustomerItem item) { _editingId = item.Id; _name = item.Name; _code = item.Code; _isActive = item.IsActive; _editorOpen = true; }
-    private void CloseEditor() => _editorOpen = false;
-    private async Task Save() { if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_code)) { _error = "نام و کد مشتری الزامی است."; return; } _saving = true; UiResult<string?> result; if (_editingId is null) { UiResult<CreateCustomerResponse> create = await Service.Create(new CreateCustomerRequest { Name = _name.Trim(), Code = _code.Trim() }, _disposeToken.Token); result = create.IsSuccess ? UiResult<string?>.Success(null) : UiResult<string?>.Failure(create.ErrorMessage!); } else { result = await Service.Update(_editingId.Value, new UpdateCustomerRequest { Name = _name.Trim(), Code = _code.Trim(), IsActive = _isActive }, _disposeToken.Token); } _saving = false; if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _editorOpen = false; _success = "اطلاعات مشتری ذخیره شد."; await Load(); }
+    private void OpenCreate() { _dirty = _validated = false; _error = _success = null; _editingId = null; _name = string.Empty; _code = string.Empty; _isActive = true; _editorOpen = true; }
+    private void OpenEdit(CustomerItem item) { _dirty = _validated = false; _error = _success = null; _editingId = item.Id; _name = item.Name; _code = item.Code; _isActive = item.IsActive; _editorOpen = true; }
+    private async Task CloseEditor()
+    {
+        if (_saving) return;
+        if (_dirty && !await JS.InvokeAsync<bool>("confirm", "تغییرات ذخیره نشده‌اند. فرم بسته شود؟")) return;
+        _editorOpen = false;
+        _error = null;
+    }
+    private async Task Save() { if (_saving) return; _validated = true; if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_code)) { _error = "فیلدهای مشخص‌شده را تکمیل کنید."; _focusInvalid = true; return; } _saving = true; UiResult<string?> result; if (_editingId is null) { UiResult<CreateCustomerResponse> create = await Service.Create(new CreateCustomerRequest { Name = _name.Trim(), Code = _code.Trim() }, _disposeToken.Token); result = create.IsSuccess ? UiResult<string?>.Success(null) : UiResult<string?>.Failure(create.ErrorMessage!); } else { result = await Service.Update(_editingId.Value, new UpdateCustomerRequest { Name = _name.Trim(), Code = _code.Trim(), IsActive = _isActive }, _disposeToken.Token); } _saving = false; if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _dirty = false; _editorOpen = false; _error = null; _success = "اطلاعات مشتری ذخیره شد."; await Load(); }
     private async Task Delete(CustomerItem item) { bool confirmed = await JS.InvokeAsync<bool>("confirm", $"مشتری «{item.Name}» حذف منطقی شود؟"); if (!confirmed) return; UiResult<string?> result = await Service.Delete(item.Id, _disposeToken.Token); if (!result.IsSuccess) { _error = result.ErrorMessage; return; } _success = $"مشتری «{item.Name}» به‌صورت منطقی حذف شد."; await Load(); }
     public void Dispose() { _disposeToken.Cancel(); _disposeToken.Dispose(); }
 }

@@ -7,15 +7,15 @@ using SmsHubNext.Features.Tariffs;
 
 namespace SmsHubNext.Features.Sending.Ui;
 
-public sealed class SendingService(
+public class SendingService(
     UiOperations operations,
     QuoteHandler quoteHandler,
     SendMessagesHandler sendMessagesHandler)
 {
-    public Task<UiResult<CostQuote>> Quote(QuoteRequest request, CancellationToken token) =>
+    public virtual Task<UiResult<CostQuote>> Quote(QuoteRequest request, CancellationToken token) =>
         operations.Run((identity, cancellationToken) => quoteHandler.Handle(request, cancellationToken), token);
 
-    public Task<UiResult<SendMessagesResponse>> Send(SendMessagesRequest request, CancellationToken token) =>
-        operations.Run((identity, cancellationToken) => sendMessagesHandler.Handle(request, identity, cancellationToken), token, customerKey: true);
+    public virtual Task<UiResult<SendMessagesResponse>> Send(SendMessagesRequest request, short customerId, CancellationToken token) =>
+        operations.Run((identity, cancellationToken) => sendMessagesHandler.HandleManagement(request, identity, customerId, cancellationToken), token);
 
 }

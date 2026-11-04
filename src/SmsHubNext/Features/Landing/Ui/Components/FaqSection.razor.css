@@ -1,0 +1,12 @@
+.wrap { width:min(800px,calc(100% - 64px)); margin-inline:auto; }
+.section { padding-block:76px; scroll-margin-top:24px; }
+.section-heading { text-align:right; margin-bottom:35px; }
+.eyebrow { color:#2468db; font-size:12px; margin-bottom:10px; }
+h2 { font-size:29px; line-height:1.65; font-weight:750; letter-spacing:-.7px; }
+.faq-section { border-top:1px solid #e8edf3; }
+details { border-bottom:1px solid #e3eaf3; padding:18px 0; }
+summary { cursor:pointer; font-weight:550; font-size:15px; }
+summary:focus-visible { outline:3px solid #3986ef; outline-offset:5px; }
+details p { color:#75849a; font-size:14px; margin-top:12px; white-space:pre-line; }
+@media(max-width:800px) { .wrap { width:calc(100% - 40px); } .section { padding-block:48px; } h2 { font-size:25px; } }
+@media(max-width:400px) { .wrap { width:calc(100% - 28px); } }

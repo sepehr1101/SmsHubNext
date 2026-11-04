@@ -1,4 +1,5 @@
 using Dapper;
+using DNTPersianUtils.Core;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Enums;
@@ -121,6 +122,7 @@ public sealed class DispatchOperationsHandler
         request.ProviderId,
         request.Status is null ? null : (byte?)request.Status.Value,
         request.OnlyProblems,
+        string.IsNullOrWhiteSpace(request.Search) ? null : request.Search.ToEnglishNumbers().Trim().Replace('ي', 'ی').Replace('ك', 'ک'),
         request.Offset,
         request.Take,
         _clock.GetUtcNow().UtcDateTime);
@@ -132,6 +134,7 @@ public sealed class DispatchOperationsHandler
         byte? ProviderId,
         byte? Status,
         bool OnlyProblems,
+        string? Search,
         int Offset,
         int Take,
         DateTime Now);

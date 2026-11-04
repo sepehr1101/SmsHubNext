@@ -3,7 +3,10 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Options;
+using SmsHubNext.Features.Authentication;
 using MudBlazor.Services;
+using SmsHubNext.Features.Administration.Ui.Components;
 using SmsHubNext.Features.Authentication.Ui;
 using SmsHubNext.Features.ApiKeys.Ui;
 using SmsHubNext.Features.Billing.Ui;
@@ -29,11 +32,13 @@ public static class ManagementUiExtensions
     {
         services.AddRazorComponents().AddInteractiveServerComponents();
         services.AddMudServices();
-        services.AddTransient<MudBlazor.MudLocalizer, SmsHubNext.Features.Administration.Ui.Components.PersianMudLocalizer>();
+        services.AddPersianMudLocalization();
         services.AddCascadingAuthenticationState();
         services.AddHttpContextAccessor();
         services.Configure<ManagementUiOptions>(configuration.GetSection(ManagementUiOptions.SectionName));
         services.AddScoped<UiOperations>();
+        services.AddScoped<SmsHubNext.Features.DatabaseMonitoring.Ui.DatabaseMonitoringService>();
+        services.AddScoped<SmsHubNext.Features.Landing.Ui.FaqService>();
         services.AddScoped<SmsHubNext.Features.Administration.Ui.ApplicationErrorsService>();
         services.AddScoped<CustomersService>();
         services.AddScoped<ProvidersService>();
@@ -48,9 +53,11 @@ public static class ManagementUiExtensions
         services.AddScoped<LiveDispatchService>();
         services.AddSingleton<SmsHubNext.Features.DispatchOperations.LiveDispatchCache>();
         services.AddScoped<ReportsService>();
+        services.AddScoped<TroubleshootingService>();
         services.AddScoped<InboundMessagesService>();
         services.AddScoped<DeliveryReportsService>();
         services.AddScoped<SendingService>();
+        services.AddScoped<SmsHubNext.Features.Sending.Ui.DailyResendService>();
 
         services.AddAuthentication(options =>
         {
@@ -83,7 +90,8 @@ public static class ManagementUiExtensions
 
     public static WebApplication MapManagementUi(this WebApplication app)
     {
-        app.MapPost("/auth/login", Login).AllowAnonymous().ExcludeFromDescription();
+        app.MapPost("/auth/login", Login).AllowAnonymous().ExcludeFromDescription()
+            .RequireRateLimiting(AuthenticationPolicies.TokenExchangeRateLimit);
         app.MapPost("/auth/logout", Logout).RequireAuthorization(DevelopmentAccount.ManagementPolicy)
             .ExcludeFromDescription();
         app.MapStaticAssets();
@@ -97,22 +105,22 @@ public static class ManagementUiExtensions
         path.StartsWithSegments("/admin") || path.StartsWithSegments("/_blazor");
 
     private static async Task<IResult> Login(
-        HttpContext context, IAntiforgery antiforgery, IWebHostEnvironment environment, TimeProvider clock)
+        HttpContext context, IAntiforgery antiforgery, IWebHostEnvironment environment, TimeProvider clock,
+        IOptions<ManagementUiOptions> options)
     {
-        if (!environment.IsDevelopment())
-            return Results.NotFound();
         await antiforgery.ValidateRequestAsync(context);
         IFormCollection form = await context.Request.ReadFormAsync(context.RequestAborted);
-        bool credentialsAreValid =
-            string.Equals(form["username"].ToString().Trim(), DevelopmentAccount.UserName, StringComparison.OrdinalIgnoreCase) &&
-            form["password"] == DevelopmentAccount.Password;
+        bool credentialsAreValid = ManagementUiCredentials.AreValid(
+            form["username"].ToString(), form["password"].ToString(), options.Value, environment.IsDevelopment());
         if (!credentialsAreValid)
             return Results.Redirect("/login?error=invalid_credentials");
 
+        string userName = string.IsNullOrWhiteSpace(options.Value.LoginUserName)
+            ? DevelopmentAccount.UserName : options.Value.LoginUserName;
         Claim[] claims =
         [
-            new(ClaimTypes.NameIdentifier, DevelopmentAccount.UserName),
-            new(ClaimTypes.Name, DevelopmentAccount.UserName),
+            new(ClaimTypes.NameIdentifier, userName),
+            new(ClaimTypes.Name, userName),
             new(ClaimTypes.Role, DevelopmentAccount.AdministratorRole),
         ];
         ClaimsPrincipal principal = new(new ClaimsIdentity(claims, DevelopmentAccount.AuthenticationScheme));
@@ -134,3 +142,7 @@ public static class ManagementUiExtensions
         return Results.Redirect("/login");
     }
 }
+
+
+
+

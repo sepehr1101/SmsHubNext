@@ -5,13 +5,13 @@
 @using SmsHubNext.Features.Administration.Ui
 @inject ApplicationErrorsService Service
 @inject TimeProvider Clock
+@inject IDialogService Dialogs
 @implements IDisposable
 
 <PageTitle>خطاهای نرم‌افزار | SmsHub</PageTitle>
 
 <FeatureNotice Loading="_loading" Error="@_error" OnRetry="Load" />
 <section class="admin-data-panel">
-    <header><div><h2>خطاهای نرم‌افزار</h2></div></header>
     <div class="error-log-range">
         <label><span>از تاریخ و ساعت شمسی (تهران)</span><PersianDateTimeInput @bind-Value="_from" Required="true" ValidityChanged="valid => _fromValid = valid" /></label>
         <label><span>تا تاریخ و ساعت شمسی (تهران)</span><PersianDateTimeInput @bind-Value="_to" Required="true" ValidityChanged="valid => _toValid = valid" /></label>
@@ -39,7 +39,7 @@
                     <CellTemplate>
                         @if (!string.IsNullOrEmpty(context.Item.Exception))
                         {
-                            <details class="error-log-details"><summary>جزئیات خطا</summary><pre dir="ltr">@context.Item.Exception</pre></details>
+                            <button type="button" class="admin-button secondary" disabled="@_detailsOpen" @onclick="() => OpenDetails(context.Item)">نمایش جزئیات</button>
                         }
                     </CellTemplate>
                 </TemplateColumn>
@@ -55,6 +55,7 @@
     private bool _fromValid = true;
     private bool _toValid = true;
     private bool _loading;
+    private bool _detailsOpen;
     private bool _searched;
     private bool _truncated;
     private int _skippedLines;
@@ -106,6 +107,20 @@
             }
         }
         finally { _loading = false; }
+    }
+
+    private async Task OpenDetails(ApplicationError error)
+    {
+        if (_detailsOpen) return;
+        _detailsOpen = true;
+        try
+        {
+            DialogParameters<ApplicationErrorDialog> parameters = new() { { dialog => dialog.Error, error } };
+            IDialogReference dialog = await Dialogs.ShowAsync<ApplicationErrorDialog>("جزئیات خطای نرم‌افزار", parameters,
+                new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseOnEscapeKey = true });
+            await dialog.Result;
+        }
+        finally { _detailsOpen = false; }
     }
 
     public void Dispose()

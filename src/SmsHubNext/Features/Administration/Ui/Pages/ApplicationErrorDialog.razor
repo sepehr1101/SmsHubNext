@@ -1,0 +1,33 @@
+@using SmsHubNext.Features.Administration
+
+<MudDialog>
+    <TitleContent>
+        <div class="error-dialog-title">
+            <h2>جزئیات خطای نرم‌افزار</h2>
+            <MudTooltip Text="بستن جزئیات خطا" ShowOnFocus="true"><button type="button" class="error-dialog-close" aria-label="بستن جزئیات خطا" @onclick="Close"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></MudTooltip>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <div class="error-dialog-content">
+            <dl class="error-dialog-facts">
+                <div><dt>زمان (تهران)</dt><dd>@PersianDisplay.Date(ApplicationLogTime.ToTehran(Error.Timestamp), "yyyy/MM/dd HH:mm:ss")</dd></div>
+                <div><dt>سطح</dt><dd>@(Error.Level == "Fatal" ? "بحرانی" : "خطا")</dd></div>
+                <div><dt>بخش نرم‌افزار</dt><dd dir="ltr">@Error.Source</dd></div>
+                <div><dt>شناسه پیگیری</dt><dd dir="ltr">@(string.IsNullOrEmpty(Error.TraceId) ? "—" : Error.TraceId)</dd></div>
+            </dl>
+            <h3>پیام خطا</h3>
+            <p class="error-dialog-message" dir="auto">@Error.Message</p>
+            <h3>متن کامل استثنا و مسیر فراخوانی</h3>
+            <pre class="error-dialog-stack" dir="ltr" tabindex="0" role="region" aria-label="متن کامل استثنا و مسیر فراخوانی">@Error.Exception</pre>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <button type="button" class="admin-button secondary" @onclick="Close">بستن</button>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter, EditorRequired] public ApplicationError Error { get; set; } = null!;
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+    private void Close() => Dialog.Close();
+}

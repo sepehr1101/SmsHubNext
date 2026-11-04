@@ -86,6 +86,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<DevelopmentDataSeeder>();
 
         services.AddFeatureHandlers();
+        services.AddSingleton<SmsHubNext.Features.DatabaseMonitoring.DatabaseMonitoringCollectorState>();
+        if (configuration.GetValue("DatabaseMonitoring:Enabled", true))
+            services.AddHostedService<SmsHubNext.Features.DatabaseMonitoring.DatabaseMonitoringWorker>();
         services.AddEsb(configuration);
         services.AddBackgroundDispatch(configuration, environment);
         services.AddDeliveryReportPolling(configuration);
@@ -305,6 +308,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MessageDispatcher>();
         services.AddSingleton<SmsProviderRegistry>();
         services.AddHostedService<DispatchWorker>();
+        services.AddScoped<DailyResendProcessor>();
+        services.AddHostedService<DailyResendWorker>();
 
         return services;
     }
@@ -444,3 +449,6 @@ public static class ServiceCollectionExtensions
         return services;
     }
 }
+
+
+

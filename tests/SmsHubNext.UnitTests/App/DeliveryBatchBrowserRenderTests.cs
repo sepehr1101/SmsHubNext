@@ -39,6 +39,9 @@ public sealed class DeliveryBatchBrowserRenderTests
             Assert.DoesNotContain("شناسه دسته ارسال", html);
             Assert.DoesNotContain("type=\"number\"", html);
             Assert.Contains("نمایش دسته‌ها", html);
+            Match searchButton = Regex.Match(html, "<button\\b[^>]*>نمایش دسته‌ها</button>");
+            Assert.True(searchButton.Success);
+            Assert.DoesNotContain("disabled", searchButton.Value);
             Assert.Contains("صفحه قبل", html);
             Assert.Contains("صفحه بعد", html);
         });

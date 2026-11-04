@@ -331,6 +331,8 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `Status` | `TINYINT` | **send-lifecycle**: Queued / Submitted / Sent / Rejected / Unknown |
 | `DeliveryStatus` | `TINYINT` | **current delivery state** (read model): Pending / Delivered / Undelivered / Expired / Unknown |
 | `DeliveredAtUtc` | `DATETIME2(3)` | nullable — set when `DeliveryStatus` becomes Delivered |
+| `SendAttemptCount` | `INT` | nullable for legacy rows; default 0 on new messages, incremented before transport; initial attempt plus at most three retries |
+| `FirstSendAttemptAtUtc` | `DATETIME2(3)` | nullable, immutable first dispatch attempt; anchors the 4040 24-hour UID window |
 | `ProviderMessageId` | `VARCHAR(50)` | provider's id — the key used to **match incoming DLRs** |
 
 **Primary/clustered/indexes (justified in §8):**
@@ -443,13 +445,16 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 | `ProviderId` | `TINYINT` | nullable |
 | `RawProviderCode` | `INT` | nullable — provider-native code |
 | `Detail` | `NVARCHAR(400)` | nullable — short free-text note |
+| `FailureJson` | `NVARCHAR(1000)` | nullable, valid JSON — allow-listed operational failure origin/stage/code/impact/action and separate HTTP, envelope and business codes (migration 0038); no raw payloads or credentials |
 | `CorrelationId` | `VARCHAR(64)` | nullable — ties to a dispatch attempt / trace id |
 
 **Indexes:** **CIX** `(EventTimeUtc, Id)` — append locality + time-range purge; **NCIX** `(MessageBatchId, EventTimeUtc)` — "show this batch's timeline."
 
-**This is an _operational event store_, NOT an audit/business-history table.** Its purpose is **troubleshooting, monitoring, and operational analysis** — the granular lifecycle timeline (retries, timeouts, provider-unavailable, resume) that would otherwise force ever more nullable columns onto `MessageBatch`. Accordingly it is **append-only with short retention (~90 days)**, partitioned by `EventTimeUtc` and purged by partition switching — **not** kept lockstep with the business tables. (Contrast: `DeliveryReport` is business delivery history kept long; `BalanceTransaction` is an immutable money trail kept forever; this table is disposable ops telemetry.) `MetadataJson` is **intentionally omitted** — the typed columns plus `Detail` suffice; add JSON later only against a concrete need. *Volume:* ~3–5× batches, but bounded by the short retention window.
+**This is an _operational event store_, NOT an audit/business-history table.** Its purpose is **troubleshooting, monitoring, and operational analysis** — the granular lifecycle timeline (retries, timeouts, provider-unavailable, resume) that would otherwise force ever more nullable columns onto `MessageBatch`. Accordingly it is **append-only with short retention (~90 days)**, partitioned by `EventTimeUtc` and purged by partition switching — **not** kept lockstep with the business tables. (Contrast: `DeliveryReport` is business delivery history kept long; `BalanceTransaction` is an immutable money trail kept forever; this table is disposable ops telemetry.) General-purpose `MetadataJson` remains omitted. The concrete need to distinguish local validation, network, ESB and provider failures adds bounded `FailureJson` in migration 0038. Event type 13 records one classified failure per affected batch per failed provider operation, rather than per recipient; delivery-query failures are operational evidence, never delivery outcomes. Legacy events retain null diagnostics and are not retrospectively classified from an ambiguous code. *Volume:* ~3–5× batches normally, with additional events during provider outages, bounded by short retention.
 
 ### 4.17 `ProviderAccount` — provider account auth data (security/infra)
+
+
 | Column | Type | Notes |
 |---|---|---|
 | `Id` | `INT IDENTITY` | **PK**, `CIX` |
@@ -467,6 +472,10 @@ Reports are predominantly **aggregations over large ranges** plus a few **point-
 **Why it exists / how it's protected:** providers have different auth shapes, so fixed columns like username/domain/password/api-key do not belong on the account row. Non-sensitive shape-specific values live in `SettingsJson`; the one sensitive value lives in `SecretEncrypted`. For Magfa, `AuthType = UsernamePasswordDomain`, settings contain `username` and `domain`, and the encrypted secret is the password. For Kavenegar and sms.ir, `AuthType = ApiKey`, settings can be `{}`, and the encrypted secret is the API key. The app encrypts/decrypts via **ASP.NET Core Data Protection**, whose key ring is **protected by Windows DPAPI (machine-scoped)** — so the encryption key lives **outside** the database and a stolen connection string alone cannot decrypt the secrets. SQL Server only ever sees ciphertext. API reads never return plaintext or ciphertext secrets.
 
 ---
+
+### 4.18 Daily resend safety manifest (additive)
+
+Additive daily-resend safety storage (migration 0039): `DailyResendOperation` has `Id UNIQUEIDENTIFIER`, unique `SubmitDateJalali`, a fixed message-ID cutoff, lifecycle state and administrator creation/confirmation attribution with UTC milestones. `DailyResendItem` has `Id BIGINT`, `OperationId` FK, globally unique `SourceMessageId`, immutable request UUID, estimated cost, processing state/skip code and resulting message/batch IDs. These are durable idempotency records, not short-retention telemetry. Message references deliberately have no FK into the partitioned facts so their independent retention remains possible. The existing customer-scoped client-batch key makes acceptance and debit idempotent across crashes before result bookkeeping. See [daily resend workflow](docs/operations/daily-resend-fa.md) for eligibility, immutable membership and dispatch-time safety checks. Core fact schema and provider retry limits remain unchanged.
 
 ## 5. Reporting Validation
 
@@ -666,3 +675,16 @@ All six reviewer questions were resolved in favor of the design as presented:
 ### Operational acceptance evidence (0034)
 
 `DispatchAcceptance` is a narrow operational companion table, separate from the locked business fact/dimension model: `Id BIGINT PRIMARY KEY` is the accepted message identity; `AcceptedAtUtc DATETIME2(3)` is when the host confirmed provider acceptance; `ProviderId TINYINT` identifies its provider. A time index supports the bounded ten-minute dashboard query. The guarded message status transition writes this row atomically through `OUTPUT INTO`; polling completion cannot erase it. Existing messages are not backfilled. Reconciliation records confirmation time, since the provider's original acceptance instant is unavailable. No body, credentials or raw provider payload is stored. Retention is operationally configurable; this increment does not automate deletion. See [live dispatch operations](docs/operations/live-dispatch-fa.md) for counter semantics and limits.
+
+### Landing-page FAQ
+
+Migration 0036 adds FrequentlyAskedQuestion (question, plain-text answer, ordered position and last-edit attribution). Administrators manage it under /admin/settings/faq through the authenticated UI boundary; the public landing page reads the same ordered rows. The migration seeds the three existing homepage questions once. New entries append; up/down moves serialize the small ordered set in a transaction. Deleting FAQ content is permanent after confirmation; this is website content, not historical messaging reference data.
+
+
+### Database monitoring
+
+The settings panel includes a database-monitoring hub with nine diagnostic views. Migration 0037 adds only operational snapshots and observed resumable-index history (90-day retention). Background collection runs every 15 minutes; fragmentation scans remain manual. No index maintenance, permission grants, or Query Store configuration changes run automatically. See [the monitoring guide](docs/operations/database-monitoring-fa.md).
+
+### Standard Production publish
+
+Run `./scripts/publish-production.ps1` for the standard Release Windows x64 self-contained package, including private host settings and IIS Production configuration. The script runs unit tests, verifies the deployment contract, and produces a timestamped ZIP without replacing prior packages. Private settings belong at `artifacts/host-settings/appsettings.Production.json` (gitignored); a missing file stops the build. See [publish instructions](scripts/README.md) and [the deployment runbook](docs/operations/deployment-runbook-fa.md).

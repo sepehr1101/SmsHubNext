@@ -112,7 +112,8 @@ public sealed class ServiceCollectionExtensionsTests
         using ServiceProvider provider = services.BuildServiceProvider();
         ISmsProvider registered = Assert.Single(provider.GetServices<ISmsProvider>());
         Assert.Equal("4040", registered.Name);
-        Assert.False(registered.SupportsIdempotentResend);
+        Assert.True(registered.SupportsIdempotentResend);
+        Assert.Equal(TimeSpan.FromHours(24), registered.UncertainResendWindow);
         Assert.Equal(SmsHubNext.Shared.Enums.DeliveryReportStatus.Delivered,
             provider.GetRequiredService<SmsHubNext.Features.Providers.Esb.EsbOptions>().TerminalDeliveryStatuses[1]);
     }

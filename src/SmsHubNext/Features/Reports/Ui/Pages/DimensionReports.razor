@@ -1,0 +1,163 @@
+@page "/admin/reports/dimensions/{Report}"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@using SmsHubNext.Features.Reports
+@inject ReportsService Service
+@inject TimeProvider Clock
+@implements IDisposable
+
+<PageTitle>@Title | SmsHub</PageTitle>
+<div class="dimension-reports">
+    <nav class="report-links" aria-label="گزارش‌های تحلیلی">
+        @foreach (ReportLink link in Links)
+        {
+            <NavLink href="@($"/admin/reports/dimensions/{link.Route}")" class="admin-button secondary">@link.Title</NavLink>
+        }
+    </nav>
+    <h2>@Title</h2>
+    <ReportPeriodPresets Disabled="_loading" OnSelect="SelectPeriod" />
+    <form class="dimension-filters" @onsubmit="Load" @onsubmit:preventDefault>
+        <fieldset disabled="_loading"><legend class="sr-only">فیلترهای گزارش</legend>
+        <label>از تاریخ شمسی<input @bind="_from" maxlength="10" dir="ltr" required /></label>
+        <label>تا تاریخ شمسی<input @bind="_to" maxlength="10" dir="ltr" required /></label>
+        <label>مشتری<select @bind="_customer"><option value="">همه مشتریان</option>@foreach (ReportFilterOption option in _options.Customers) { <option value="@option.Id">@option.Name</option> }</select></label>
+        <label>ارائه‌دهنده<select @bind="_provider"><option value="">همه ارائه‌دهندگان</option>@foreach (ReportFilterOption option in _options.Providers) { <option value="@option.Id">@option.Name</option> }</select></label>
+        <label>نوع پیامک<select @bind="_messageType"><option value="">همه انواع</option>@foreach (ReportFilterOption option in _options.MessageTypes) { <option value="@option.Id">@option.Name</option> }</select></label>
+        <label>منطقه و زیرمجموعه‌ها<select @bind="_geo"><option value="">همه مناطق</option>@foreach (ReportFilterOption option in _options.Geography) { <option value="@option.Id">@option.Name</option> }</select></label>
+        @if (HasGeo)
+        {
+            <label>سطح تجمیع<select @bind="_level"><option value="1">استان</option><option value="2">شهر</option><option value="3">ناحیه</option></select></label>
+        }
+        <button class="admin-button primary" type="submit" disabled="_loading">نمایش گزارش</button>
+        </fieldset>
+    </form>
+    <FeatureNotice Loading="_loading" Error="@_error" OnRetry="Load" />
+    <details class="report-definition"><summary>راهنمای شاخص‌ها</summary><p>نرخ تحویل: تحویل‌شده تقسیم بر پیام‌های پذیرفته‌شده توسط ارائه‌دهنده. تحویل‌نشده شامل منقضی‌شده است. هزینه، هزینه ثبت‌شده هنگام پذیرش درخواست است؛ منطقه نیز منطقه ثبت‌شده پیام است.</p></details>
+    @if (_hasResult)
+    {
+        <p class="report-applied-period">بازه گزارش: <b dir="ltr">@PersianDisplay.Text(_appliedFrom)</b> تا <b dir="ltr">@PersianDisplay.Text(_appliedTo)</b></p>
+        <div class="dimension-totals" aria-label="جمع گزارش">
+            <span>پیام: <b>@PersianDisplay.Number(_rows.Sum(row => row.MessageCount), "N0")</b></span>
+            <span>قطعه: <b>@PersianDisplay.Number(_rows.Sum(row => row.SegmentCount), "N0")</b></span>
+            <span>هزینه (ریال): <b>@PersianDisplay.Number(_rows.Sum(row => row.TotalCost), "N0.####")</b></span>
+        </div>
+        @if (Kind == DimensionReportKind.GeographyMessageType)
+        {
+            <label class="matrix-metric">مقدار ماتریس<select @bind="_costMatrix"><option value="false">تعداد پیام</option><option value="true">هزینه (ریال)</option></select></label>
+            <DimensionMatrix Rows="_rows" Cost="_costMatrix" Loading="_loading" />
+        }
+        else
+        {
+            @if (HasMonth && _rows.Count > 0)
+            {
+                <DimensionTrend Rows="_rows" Geography="HasGeo" From="_appliedFrom" To="_appliedTo" />
+            }
+            <section class="admin-data-panel"><div class="admin-table-wrap">
+                <AdminGrid @key="Kind" T="DimensionReportRow" Items="_rows" Loading="_loading" Name="@Title" ExportColumns="Columns">
+                    @if (HasMonth) { <PropertyColumn Property="row => row.JalaliMonth" Title="ماه شمسی"><CellTemplate>@PersianDisplay.Text(context.Item.JalaliMonth)</CellTemplate></PropertyColumn> }
+                    @if (HasGeo) { <PropertyColumn Property="row => row.GeoName" Title="منطقه" /> }
+                    @if (HasType) { <PropertyColumn Property="row => row.MessageTypeName" Title="نوع پیامک" /> }
+                    <PropertyColumn Property="row => row.MessageCount" Title="تعداد پیام"><CellTemplate>@PersianDisplay.Number(context.Item.MessageCount, "N0")</CellTemplate></PropertyColumn>
+                    <PropertyColumn Property="row => row.SegmentCount" Title="تعداد قطعات"><CellTemplate>@PersianDisplay.Number(context.Item.SegmentCount, "N0")</CellTemplate></PropertyColumn>
+                    <PropertyColumn Property="row => row.TotalCost" Title="هزینه (ریال)"><CellTemplate>@PersianDisplay.Number(context.Item.TotalCost, "N0.####")</CellTemplate></PropertyColumn>
+                    <PropertyColumn Property="row => row.AcceptedCount" Title="پذیرفته‌شده"><CellTemplate>@PersianDisplay.Number(context.Item.AcceptedCount, "N0")</CellTemplate></PropertyColumn>
+                    <PropertyColumn Property="row => row.DeliveredCount" Title="تحویل‌شده"><CellTemplate>@PersianDisplay.Number(context.Item.DeliveredCount, "N0")</CellTemplate></PropertyColumn>
+                    <PropertyColumn Property="row => row.UndeliveredCount" Title="تحویل‌نشده"><CellTemplate>@PersianDisplay.Number(context.Item.UndeliveredCount, "N0")</CellTemplate></PropertyColumn>
+                    <PropertyColumn Property="row => row.PendingCount" Title="در انتظار تحویل"><CellTemplate>@PersianDisplay.Number(context.Item.PendingCount, "N0")</CellTemplate></PropertyColumn>
+                    <PropertyColumn Property="row => row.UnknownCount" Title="تحویل نامشخص"><CellTemplate>@PersianDisplay.Number(context.Item.UnknownCount, "N0")</CellTemplate></PropertyColumn>
+                    <PropertyColumn Property="row => row.DeliveryRate" Title="نرخ تحویل (٪)"><CellTemplate>@PersianDisplay.Number(context.Item.DeliveryRate, "N1")٪</CellTemplate></PropertyColumn>
+                </AdminGrid>
+            </div></section>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Report { get; set; } = "geography";
+    private sealed record ReportLink(string Route, string Title, DimensionReportKind Kind);
+    private static readonly ReportLink[] Links = [new("geography", "خلاصه عملکرد مناطق", DimensionReportKind.Geography), new("message-types", "خلاصه انواع پیامک", DimensionReportKind.MessageType), new("matrix", "ماتریس منطقه و نوع پیامک", DimensionReportKind.GeographyMessageType), new("geography-monthly", "روند ماهانه مناطق", DimensionReportKind.GeographyMonth), new("message-types-monthly", "روند ماهانه انواع پیامک", DimensionReportKind.MessageTypeMonth)];
+    private DimensionReportKind Kind => Links.FirstOrDefault(link => link.Route == Report)?.Kind ?? DimensionReportKind.Geography;
+    private string Title => Links.FirstOrDefault(link => link.Route == Report)?.Title ?? "خلاصه عملکرد مناطق";
+    private bool HasGeo => Kind is DimensionReportKind.Geography or DimensionReportKind.GeographyMessageType or DimensionReportKind.GeographyMonth;
+    private bool HasType => Kind is DimensionReportKind.MessageType or DimensionReportKind.GeographyMessageType or DimensionReportKind.MessageTypeMonth;
+    private bool HasMonth => Kind is DimensionReportKind.GeographyMonth or DimensionReportKind.MessageTypeMonth;
+    private readonly CancellationTokenSource _lifetime = new();
+    private DimensionReportOptions _options = new([], [], [], []);
+    private IReadOnlyList<DimensionReportRow> _rows = [];
+    private string _from = string.Empty;
+    private string _to = string.Empty;
+    private string _appliedFrom = string.Empty;
+    private string _appliedTo = string.Empty;
+    private short? _customer;
+    private byte? _provider;
+    private byte? _messageType;
+    private int? _geo;
+    private byte _level = 1;
+    private bool _loading;
+    private bool _hasResult;
+    private bool _costMatrix;
+    private string? _error;
+    private int _version;
+    private bool _optionsLoaded;
+    private CancellationTokenSource? _requestToken;
+
+    protected override void OnInitialized()
+    {
+        string today = PersianDisplay.Date(IranTime.FromUtc(Clock.GetUtcNow()), "yyyy/MM/dd");
+        _from = today[..7] + "/01";
+        _to = today;
+    }
+    protected override Task OnParametersSetAsync() => Load();
+    private Task SelectPeriod(ReportPeriod period) { _from = period.From; _to = period.To; return Load(); }
+    private async Task Load()
+    {
+        int version = ++_version;
+        _requestToken?.Cancel();
+        using CancellationTokenSource requestToken = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _requestToken = requestToken;
+        _loading = true;
+        _hasResult = false;
+        _rows = [];
+        string from = PersianDisplay.SearchText(_from);
+        string to = PersianDisplay.SearchText(_to);
+        try
+        {
+            if (!_optionsLoaded)
+            {
+                UiResult<DimensionReportOptions> options = await Service.DimensionOptions(requestToken.Token);
+                if (version != _version) return;
+                if (!options.IsSuccess) { _error = options.ErrorMessage; return; }
+                _options = options.Value!;
+                _optionsLoaded = true;
+            }
+            UiResult<IReadOnlyList<DimensionReportRow>> result = await Service.Dimensions(new()
+            {
+                Kind = Kind, GeographyLevel = _level,
+                Filters = new() { FromJalali = from, ToJalali = to, CustomerId = _customer, ProviderId = _provider, MessageTypeId = _messageType, GeoSectionId = _geo },
+            }, requestToken.Token);
+            if (version != _version) return;
+            _error = result.ErrorMessage;
+            _rows = result.Value ?? [];
+            _hasResult = result.IsSuccess;
+            _appliedFrom = from;
+            _appliedTo = to;
+        }
+        finally { if (version == _version) { _loading = false; _requestToken = null; } }
+    }
+    private IReadOnlyList<AdminExportColumn<DimensionReportRow>> Columns
+    {
+        get
+        {
+            List<AdminExportColumn<DimensionReportRow>> columns = [];
+            if (HasMonth) columns.Add(new("ماه شمسی", row => row.JalaliMonth));
+            if (HasGeo) columns.Add(new("منطقه", row => row.GeoName));
+            if (HasType) columns.Add(new("نوع پیامک", row => row.MessageTypeName));
+            columns.AddRange([new("تعداد پیام", row => row.MessageCount), new("تعداد قطعات", row => row.SegmentCount), new("هزینه (ریال)", row => row.TotalCost), new("پذیرفته‌شده", row => row.AcceptedCount), new("تحویل‌شده", row => row.DeliveredCount), new("تحویل‌نشده", row => row.UndeliveredCount), new("در انتظار تحویل", row => row.PendingCount), new("تحویل نامشخص", row => row.UnknownCount), new("نرخ تحویل (٪)", row => row.DeliveryRate)]);
+            return columns;
+        }
+    }
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}
+
+
+

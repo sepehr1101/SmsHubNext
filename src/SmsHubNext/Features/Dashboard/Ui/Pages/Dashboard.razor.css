@@ -1,0 +1,14 @@
+.dashboard-page { display:grid; gap:20px; min-width:0; }
+.admin-page-head { margin-bottom:0; flex-wrap:wrap; }
+.dashboard-period { color:#425b78; margin:0; }
+.dashboard-month-chart { display:flex; gap:14px; direction:ltr; overflow-x:auto; padding:12px 2px; }
+.dashboard-month { flex:1; min-width:70px; text-align:center; font-size:12px; color:#425b78; }
+.dashboard-month-track { height:180px; display:flex; align-items:end; justify-content:center; background:#f3f6fa; margin:12px 0; border-bottom:1px solid #bac9db; }
+.dashboard-month-track i { display:block; width:28px; background:#3576b8; border-radius:5px 5px 0 0; }
+.admin-panel { background:white; border:1px solid #dce5ef; }
+.admin-panel-head h2 { color:#203954; font-size:16px; }
+.admin-panel-head p { color:#526780; font-size:13px; }
+.admin-panel-head a { color:#245eaa; }
+.admin-dashboard-grid { min-width:0; }
+.admin-panel-head { flex-wrap:wrap; }
+@media(max-width:600px) { .admin-page-actions { flex-wrap:wrap; }.dashboard-month { min-width:78px; }.admin-panel { padding:16px; } }

@@ -2,4 +2,12 @@
 @layout AdminLayout
 @attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
 
-<SendMessageForm />
+<PageTitle>@(_dailyMode ? "ارسال مجدد روزانه | SmsHub" : "ارسال پیامک | SmsHub")</PageTitle>
+<nav class="send-mode" aria-label="نوع عملیات ارسال">
+    <button type="button" aria-pressed="@(!_dailyMode ? "true" : "false")" @onclick="() => _dailyMode = false"><MudIcon Icon="@Icons.Material.Rounded.AddComment" />ارسال پیام جدید</button>
+    <button type="button" aria-pressed="@(_dailyMode ? "true" : "false")" @onclick="() => _dailyMode = true"><MudIcon Icon="@Icons.Material.Rounded.Replay" />ارسال مجدد روزانه</button>
+</nav>
+@if (_dailyMode) { <DailyResendPanel InitiallyOpen="true" /> }
+else { <SendMessageForm /> }
+
+@code { private bool _dailyMode; }

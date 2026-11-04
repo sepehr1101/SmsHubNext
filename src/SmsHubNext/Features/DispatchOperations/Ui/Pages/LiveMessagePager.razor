@@ -1,0 +1,34 @@
+<nav class="admin-pagination live-pagination" aria-label="صفحه‌بندی پیام‌ها">
+    <label>تعداد در صفحه
+        <select aria-label="تعداد پیام در صفحه" value="@PageSize" @onchange="ChangeSize" disabled="@Loading">
+            @foreach (int size in Sizes)
+            {
+                <option value="@size">@PersianDisplay.Number(size)</option>
+            }
+        </select>
+    </label>
+    <span role="status">صفحه @PersianDisplay.Number(Page) · @Range</span>
+    <div class="live-page-buttons">
+        <button type="button" disabled="@(Loading || Page == 1)" @onclick="First" aria-label="صفحه اول">اول</button>
+        <button type="button" disabled="@(Loading || Page == 1)" @onclick="Previous" aria-label="صفحه قبل">قبلی</button>
+        <button type="button" disabled="@(Loading || !HasMore)" @onclick="Next" aria-label="صفحه بعد">بعدی</button>
+    </div>
+</nav>
+
+@code {
+    [Parameter] public int Page { get; set; } = 1;
+    [Parameter] public int PageSize { get; set; } = 25;
+    [Parameter] public int Count { get; set; }
+    [Parameter] public bool HasMore { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public EventCallback First { get; set; }
+    [Parameter] public EventCallback Previous { get; set; }
+    [Parameter] public EventCallback Next { get; set; }
+    [Parameter] public EventCallback<int> SizeChanged { get; set; }
+    private static readonly int[] Sizes = [25, 50, 100];
+    private string Range => Count == 0 ? "بدون نتیجه" :
+        $"ردیف {PersianDisplay.Number((long)(Page - 1) * PageSize + 1)} تا {PersianDisplay.Number((long)(Page - 1) * PageSize + Count)}";
+    private Task ChangeSize(ChangeEventArgs args) =>
+        int.TryParse(Convert.ToString(args.Value), out int size) && Sizes.Contains(size)
+            ? SizeChanged.InvokeAsync(size) : Task.CompletedTask;
+}
