@@ -7,6 +7,13 @@ namespace SmsHubNext.UnitTests.Features.DispatchOperations;
 public sealed class DispatchOperationsRequestTests
 {
     [Fact]
+    public void Search_length_and_status_are_validated_before_querying()
+    {
+        Assert.True(new DispatchOperationsRequest { Search = new string('x', 101) }.Validate(true).IsFailure);
+        Assert.True(new DispatchOperationsRequest { Status = (SmsHubNext.Shared.Enums.BatchStatus)255 }.Validate(true).IsFailure);
+        Assert.True(new DispatchOperationsRequest { Search = "۱۲۳" }.Validate(true).IsSuccess);
+    }
+    [Fact]
     public void Validates_optional_jalali_range_order()
     {
         DispatchOperationsRequest request = new DispatchOperationsRequest

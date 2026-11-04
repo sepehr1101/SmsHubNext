@@ -9,21 +9,20 @@
 
 <PageTitle>جست‌وجوی پیامک | SmsHub</PageTitle>
 <section class="admin-data-panel">
-    <header><div><h2>جست‌وجوی پیامک</h2></div></header>
     <form class="message-search-form" @onsubmit="Search" @onsubmit:preventDefault>
         <label><span>جست‌وجو بر اساس</span><select @bind="_field"><option value="@MessageSearchField.BillId">شناسه قبض</option><option value="@MessageSearchField.PayId">شناسه پرداخت</option><option value="@MessageSearchField.MobileNumber">شماره تلفن</option></select></label>
-        <label><span>مقدار جست‌وجو</span><input type="search" @bind="_value" dir="ltr" maxlength="31" aria-label="شناسه قبض، شناسه پرداخت یا شماره تلفن" placeholder="مقدار کامل؛ اختیاری" /></label>
+        <label><span>مقدار جست‌وجو</span><input type="search" @bind="_value" @bind:event="oninput" dir="ltr" maxlength="31" aria-label="شناسه قبض، شناسه پرداخت یا شماره تلفن" placeholder="مقدار کامل؛ اختیاری" /></label>
         <label><span>از تاریخ شمسی</span><input @bind="_from" dir="ltr" maxlength="10" placeholder="۱۴۰۵/۰۷/۰۱" required /></label>
         <label><span>از ساعت (ایران)</span><input @bind="_fromTime" dir="ltr" maxlength="5" placeholder="۰۰:۰۰" required /></label>
         <label><span>تا تاریخ شمسی</span><input @bind="_to" dir="ltr" maxlength="10" placeholder="۱۴۰۵/۰۷/۳۰" required /></label>
         <label><span>تا ساعت (ایران)</span><input @bind="_toTime" dir="ltr" maxlength="5" placeholder="۲۳:۵۹" required /></label>
-        <button class="admin-button primary" type="submit" disabled="_loading">جست‌وجو</button>
+        <button class="admin-button primary" type="submit" disabled="@_loading">جست‌وجو</button>
     </form>
     <FeatureNotice Loading="_loading" Error="@_error" OnRetry="Search" />
     @if (_searched)
     {
         <div class="admin-table-wrap">
-            <AdminGrid T="MessageSearchRow" Items="_items" Loading="_loading" PageLocal="true" ShowSearch="false" Name="جست‌وجوی پیامک" ExportColumns="Columns">
+            <AdminGrid T="MessageSearchRow" Items="_items" Loading="_loading" PageLocal="true" ShowSearch="false" EnableLocalOperations="false" Name="جست‌وجوی پیامک" ExportColumns="Columns">
                 <PropertyColumn Property="item => item.Id" Title="شناسه پیام"><CellTemplate>@PersianDisplay.Number(context.Item.Id)</CellTemplate></PropertyColumn>
                 <PropertyColumn Property="item => item.SubmittedAtUtc" Title="زمان ثبت (ایران)"><CellTemplate>@SmsHubNext.Features.Reports.Ui.MessageDiagnosticText.Time(context.Item.SubmittedAtUtc)</CellTemplate></PropertyColumn>
                 <PropertyColumn Property="item => item.MobileNumber" Title="شماره تلفن"><CellTemplate><span dir="ltr">@PersianDisplay.Text(context.Item.MobileNumber)</span></CellTemplate></PropertyColumn>
@@ -67,7 +66,7 @@
     private IReadOnlyList<MessageSearchRow> _items = [];
     private static readonly AdminExportColumn<MessageSearchRow>[] Columns =
     [
-        new("شناسه پیام", item => item.Id), new("زمان ثبت (UTC)", item => item.SubmittedAtUtc),
+        new("شناسه پیام", item => item.Id), new("زمان ثبت (ایران)", item => IranTime.FromUtc(new DateTimeOffset(DateTime.SpecifyKind(item.SubmittedAtUtc, DateTimeKind.Utc)))),
         new("شماره تلفن", item => item.MobileNumber), new("شناسه قبض", item => item.BillId), new("شناسه پرداخت", item => item.PayId),
         new("مشتری", item => item.CustomerName), new("ارائه‌دهنده", item => item.ProviderName),
         new("وضعیت ارسال", item => SendLabel(item.Status)), new("وضعیت تحویل", item => DeliveryLabel(item.DeliveryStatus)),

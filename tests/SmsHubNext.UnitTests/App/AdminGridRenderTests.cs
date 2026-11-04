@@ -25,7 +25,7 @@ public sealed class AdminGridRenderTests
         services.AddLogging();
         services.AddMudServices();
         services.AddSingleton<IJSRuntime, NoScriptRuntime>();
-        services.AddTransient<MudLocalizer, PersianMudLocalizer>();
+        services.AddPersianMudLocalization();
         await using ServiceProvider provider = services.BuildServiceProvider();
         await using HtmlRenderer renderer = new(provider, provider.GetRequiredService<ILoggerFactory>());
         await renderer.Dispatcher.InvokeAsync(async () =>
@@ -71,9 +71,44 @@ public sealed class AdminGridRenderTests
     }
 
     public sealed record GridRow(string Name);
+
+    [Theory]
+    [InlineData(25)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public async Task Server_page_renders_every_loaded_row_instead_of_silently_limiting_to_twenty_five(int pageSize)
+    {
+        ServiceCollection services = new();
+        services.AddLogging();
+        services.AddMudServices();
+        services.AddSingleton<IJSRuntime, NoScriptRuntime>();
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        await using HtmlRenderer renderer = new(provider, provider.GetRequiredService<ILoggerFactory>());
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            await renderer.RenderComponentAsync<MudPopoverProvider>();
+            RenderFragment columns = builder =>
+            {
+                builder.OpenComponent<PropertyColumn<GridRow, string>>(0);
+                builder.AddAttribute(1, "Property", (Expression<Func<GridRow, string>>)(row => row.Name));
+                builder.CloseComponent();
+            };
+            Microsoft.AspNetCore.Components.Web.HtmlRendering.HtmlRootComponent grid =
+                await renderer.RenderComponentAsync<AdminGrid<GridRow>>(ParameterView.FromDictionary(new Dictionary<string, object?>
+                {
+                    ["Items"] = Enumerable.Range(1, pageSize).Select(index => new GridRow($"unique-row-{index}-end")).ToArray(),
+                    ["ExportColumns"] = new AdminExportColumn<GridRow>[] { new("نام", row => row.Name) },
+                    ["ChildContent"] = columns, ["PageLocal"] = true, ["PageSize"] = pageSize,
+                    ["EnableLocalOperations"] = false,
+                }));
+            string html = grid.ToHtmlString();
+            Assert.Equal(pageSize, System.Text.RegularExpressions.Regex.Matches(html, "unique-row-[0-9]+-end").Count);
+        });
+    }
     private sealed class NoScriptRuntime : IJSRuntime
     {
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) => ValueTask.FromResult(default(TValue)!);
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args) => ValueTask.FromResult(default(TValue)!);
     }
 }
+

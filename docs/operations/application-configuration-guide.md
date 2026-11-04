@@ -96,7 +96,7 @@ Operational rule: while a message is in `AwaitingConfirmation`, do not send it a
 | `PollInterval` | Idle delay when no batch is ready to dispatch. |
 | `HoldRetryDelay` | Delay before a provider-credit `Held` batch can be checked again. |
 | `DispatchLeaseTimeout` | Renewable ownership lease for a `Dispatching` batch. It must be at least one minute. A replacement worker may reclaim an expired lease, while the old worker's token prevents it from sending later chunks or changing the reclaimed batch. |
-| `MaxDispatchAttempts` | Maximum ordinary transient dispatch attempts before terminal dispatch failure. Awaiting-confirmation reconciliation is intentionally more conservative and should not be treated as ordinary resend retry. |
+| `MaxDispatchAttempts` | Maximum ordinary transient batch dispatch attempts before terminal dispatch failure. Independently, each stored message has a durable ceiling of four submission attempts (initial + three retries), which this setting cannot increase. 4040 uncertain-outcome retries use its 24-hour UID window and the per-message budget rather than this batch counter. |
 | `RetryBackoffSeconds` | Backoff schedule for ordinary transient resend retries. |
 
 ## Delivery Report Polling

@@ -1,7 +1,7 @@
 @using SmsHubNext.Features.DispatchOperations
     <section class="admin-data-panel live-chart">
         <h2>پذیرش موفق سرویس‌دهنده در ۱۰ دقیقه اخیر</h2>
-        <p>هر ستون یک بازه کامل ۱۰ثانیه‌ای است؛ زمان ثبت تأیید پذیرش در سرور، مستقل از مرورگر. پذیرش‌های تأییدشده پس از پاسخ نامشخص، در زمان تأیید شمرده می‌شوند. فقط رخدادهای ثبت‌شده پس از نصب این قابلیت.</p>
+        <details class="live-chart-help"><summary>راهنمای نمودار</summary><p>هر ستون یک بازه کامل ۱۰ثانیه‌ای از زمان ثبت تأیید پذیرش در سرور است. پذیرش پس از پاسخ نامشخص، در زمان تأیید شمرده می‌شود. فقط رخدادهای ثبت‌شده پس از نصب این قابلیت نمایش دارند.</p></details>
         <div class="live-bars" role="img" aria-label="نمودار تعداد پذیرش در بازه‌های ده ثانیه‌ای">
         @foreach (LiveBucket bucket in Snapshot.Buckets)
         {

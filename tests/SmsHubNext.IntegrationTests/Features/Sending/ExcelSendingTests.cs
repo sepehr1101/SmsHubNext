@@ -92,6 +92,43 @@ public sealed class ExcelSendingTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Repeated_excel_submission_of_850_rows_dispatches_each_row_once_in_hundreds()
+    {
+        ApiKeyIdentity identity = await CreateIdentity(10000m);
+        Dictionary<string, object>[] rows = Enumerable.Range(0, 850)
+            .Select(index => Row($"نام {index}", $"{index:D5}", $"0912{index:D7}")).ToArray();
+        using MemoryStream workbook = Workbook(true, rows);
+        List<SendMessageDraft> drafts = ExcelMessageImport.Read(workbook, "مشترک [A] قبض [B]", "D", true);
+        Assert.Equal(850, drafts.Count);
+        SendMessagesRequest request = Request(drafts);
+        SendMessagesHandler handler = new(_db, TimeProvider.System);
+        Result<SendMessagesResponse> first = await handler.Handle(request, identity, CancellationToken.None);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Result<SendMessagesResponse> repeated = await handler.Handle(request, identity, CancellationToken.None);
+        Assert.True(repeated.IsSuccess, repeated.Error?.Message);
+        Assert.True(repeated.Value.IsDuplicate);
+        Assert.Equal(first.Value.BatchId, repeated.Value.BatchId);
+        _provider.MaxBatchSize = 100;
+
+        Assert.True(await Dispatcher().DispatchNextBatchAsync(CancellationToken.None));
+        Result<SendMessagesResponse> afterDispatch = await handler.Handle(request, identity, CancellationToken.None);
+        Assert.True(afterDispatch.IsSuccess, afterDispatch.Error?.Message);
+        Assert.True(afterDispatch.Value.IsDuplicate);
+        Assert.Equal(first.Value.BatchId, afterDispatch.Value.BatchId);
+        Assert.False(await Dispatcher().DispatchNextBatchAsync(CancellationToken.None));
+        Assert.Equal(new[] { 100, 100, 100, 100, 100, 100, 100, 100, 50 }, _provider.BatchSizes);
+        Assert.Equal(850, _provider.Requests.Select(item => item.MessageId).Distinct().Count());
+        Assert.Equal(drafts.Select(draft => draft.Text), _provider.Requests.Select(item => item.Body));
+        Assert.Equal(drafts.Select(draft => "98" + draft.Recipient[1..]), _provider.Requests.Select(item => item.MobileNumber));
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        Assert.Equal(-840000m, await Balance(connection, identity.CustomerId));
+        Assert.Equal(1, await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.BalanceTransaction WHERE MessageBatchId = @Id AND Type = 2", new { Id = first.Value.BatchId }));
+        Assert.Equal(850, await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.Message WHERE MessageBatchId = @Id AND Status = @Status", new { Id = first.Value.BatchId, Status = (byte)SendStatus.Submitted }));
+    }
+
+    [Fact]
     public async Task Insufficient_balance_accepts_excel_batch_and_dispatches_with_debt()
     {
         ApiKeyIdentity identity = await CreateIdentity(500m);
@@ -167,10 +204,12 @@ public sealed class ExcelSendingTests : IAsyncLifetime
     {
         public List<ProviderSendRequest> Requests { get; } = [];
         public string Name => "magfa";
-        public int MaxBatchSize => 1000;
+        public int MaxBatchSize { get; set; } = 1000;
+        public List<int> BatchSizes { get; } = [];
         public bool SupportsIdempotentResend => true;
         public Task<Result<IReadOnlyList<Result<ProviderDispatchResult>>>> SendBatchAsync(IReadOnlyList<ProviderSendRequest> requests, CancellationToken cancellationToken)
         {
+            BatchSizes.Add(requests.Count);
             Requests.AddRange(requests);
             IReadOnlyList<Result<ProviderDispatchResult>> results = requests.Select(request => Result.Success(ProviderDispatchResult.Accepted($"fake-{request.MessageId}"))).ToList();
             return Task.FromResult(Result.Success(results));

@@ -7,7 +7,7 @@ internal static class MessageSearchSql
         WITH Matches AS
         (
             SELECT TOP (@Take) m.Id, m.MessageBatchId, m.SubmitDateJalali, m.SubmittedAtUtc,
-                   m.MobileNumber, m.BillId, m.PayId, m.CustomerId, m.ProviderId,
+                   m.MobileNumber, m.BillId, m.PayId, m.CustomerId, m.ProviderId, m.SenderLineId,
                    m.Status, m.DeliveryStatus, m.TotalCost
             FROM dbo.Message m
             WHERE m.SubmitDateJalali >= @FromJalali AND m.SubmitDateJalali <= @ToJalali
@@ -22,10 +22,11 @@ internal static class MessageSearchSql
         )
         SELECT m.Id, m.MessageBatchId, m.SubmitDateJalali, m.SubmittedAtUtc,
                m.MobileNumber, m.BillId, m.PayId, c.Name AS CustomerName, p.Name AS ProviderName,
-               m.Status, m.DeliveryStatus, m.TotalCost, b.Body
+               m.Status, m.DeliveryStatus, m.TotalCost, b.Body, s.LineNumber AS SenderLine
         FROM Matches m
         INNER JOIN dbo.Customer c ON c.Id = m.CustomerId
         INNER JOIN dbo.Provider p ON p.Id = m.ProviderId
+        INNER JOIN dbo.SenderLine s ON s.Id = m.SenderLineId
         LEFT JOIN dbo.MessageBody b ON b.Id = m.Id
         ORDER BY m.SubmitDateJalali DESC, m.Id DESC
         OPTION (RECOMPILE);

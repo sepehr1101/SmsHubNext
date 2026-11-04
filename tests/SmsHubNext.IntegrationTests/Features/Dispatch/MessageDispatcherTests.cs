@@ -24,7 +24,7 @@ using Xunit;
 
 namespace SmsHubNext.IntegrationTests.Features.Dispatch;
 
-public sealed class MessageDispatcherTests : IAsyncLifetime
+public sealed partial class MessageDispatcherTests : IAsyncLifetime
 {
     private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
     private Db _db = null!;
@@ -442,16 +442,99 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
         Assert.Equal(BatchStatus.DispatchCompleted, batch.Value.Status);
     }
 
+    [Fact]
+    public async Task Bounded_uid_retries_keep_the_same_id_and_stop_after_four_submissions()
+    {
+        (long batchId, short customerId) = await SendBatchAsync(1);
+        List<long> sentIds = [];
+        MessageDispatcher dispatcher = Dispatcher(request =>
+        {
+            sentIds.Add(request.MessageId);
+            return Error.Provider("test.unknown", "Lost response");
+        }, options: new DispatchOptions { AwaitingConfirmationRetryDelay = TimeSpan.FromMilliseconds(1) },
+            uncertainResendWindow: TimeSpan.FromHours(24),
+            resolve: _ => throw new InvalidOperationException("Bounded UID retries do not need UID lookup."));
+
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            await connection.ExecuteAsync("""
+                UPDATE dbo.MessageBatch SET NextDispatchAtUtc = NULL WHERE Id = @batchId;
+                UPDATE dbo.Message SET AwaitingConfirmationSinceUtc = DATEADD(SECOND, -1, SYSUTCDATETIME())
+                WHERE MessageBatchId = @batchId AND Status = 6;
+                """, new { batchId });
+            Assert.True(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
+        }
+
+        Assert.Equal(4, sentIds.Count);
+        Assert.Single(sentIds.Distinct());
+        Assert.Equal(9000m, await BalanceAsync(customerId));
+        Result<Batch> batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(BatchStatus.Held, batch.Value.Status);
+        Assert.Equal((byte)SendStatus.AwaitingConfirmation, await MessageStatusAsync(batchId));
+        Assert.Equal(4, await connection.ExecuteScalarAsync<int>(
+            "SELECT SendAttemptCount FROM dbo.Message WHERE MessageBatchId = @batchId;", new { batchId }));
+
+        // Resetting the batch's operational counter cannot replenish a message's send budget.
+        await connection.ExecuteAsync("""
+            UPDATE dbo.MessageBatch SET Status = 1, DispatchAttemptCount = 0, NextDispatchAtUtc = NULL
+            WHERE Id = @batchId;
+            """, new { batchId });
+        Assert.True(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
+        Assert.Equal(4, sentIds.Count);
+    }
+
+    [Fact]
+    public async Task Bounded_uid_window_does_not_restart_when_a_message_is_requeued()
+    {
+        (long batchId, _) = await SendBatchAsync(1);
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        await connection.ExecuteAsync("""
+            UPDATE dbo.Message SET SendAttemptCount = 1,
+                FirstSendAttemptAtUtc = DATEADD(HOUR, -24, SYSUTCDATETIME())
+            WHERE MessageBatchId = @batchId;
+            """, new { batchId });
+        MessageDispatcher dispatcher = Dispatcher(_ => throw new InvalidOperationException("Expired UID must not be sent."),
+            uncertainResendWindow: TimeSpan.FromHours(24));
+        Assert.True(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
+        Result<Batch> batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(BatchStatus.Held, batch.Value.Status);
+    }
+
+    [Fact]
+    public async Task Eight_hundred_fifty_messages_are_dispatched_in_eight_hundreds_and_one_fifty()
+    {
+        (long batchId, short customerId) = await SendBatchAsync(messageCount: 850);
+        StubProvider provider = new(request => ProviderDispatchResult.Accepted($"sms-{request.MessageId}"))
+        {
+            MaxBatchSize = 100,
+        };
+        MessageDispatcher dispatcher = new(_db, new SmsProviderRegistry([provider]), new DispatchOptions(),
+            TimeProvider.System, NullLogger<MessageDispatcher>.Instance);
+
+        Assert.True(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
+
+        Assert.Equal(new[] { 100, 100, 100, 100, 100, 100, 100, 100, 50 }, provider.SentBatchSizes);
+        Result<Batch> batch = await new GetBatchHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(BatchStatus.DispatchCompleted, batch.Value.Status);
+        Result<IReadOnlyList<BatchMessage>> messages = await new ListBatchMessagesHandler(_db).Handle(batchId, CancellationToken.None);
+        Assert.Equal(850, messages.Value.Count);
+        Assert.All(messages.Value, message => Assert.Equal(SendStatus.Submitted, message.Status));
+        Assert.False(await dispatcher.DispatchNextBatchAsync(CancellationToken.None));
+    }
+
     private MessageDispatcher Dispatcher(
         Func<ProviderSendRequest, Result<ProviderDispatchResult>> behavior,
         DispatchOptions? options = null,
         Func<long, Result<string?>>? resolve = null,
         Error? sendFailure = null,
-        bool supportsIdempotentResend = true)
+        bool supportsIdempotentResend = true,
+        TimeSpan? uncertainResendWindow = null)
     {
         StubProvider provider = new StubProvider(behavior, resolve, sendFailure)
         {
             SupportsIdempotentResend = supportsIdempotentResend,
+            UncertainResendWindow = uncertainResendWindow,
         };
 
         return new MessageDispatcher(
@@ -517,7 +600,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
             .Handle(new IssueApiKeyRequest { CustomerId = customerId, Name = "k" }, CancellationToken.None);
 
         List<SendMessageItem> items = Enumerable.Range(0, messageCount)
-            .Select(i => new SendMessageItem { Recipient = $"98912000000{i}", Text = "Hello" })
+            .Select(i => new SendMessageItem { Recipient = $"98912{i:D7}", Text = "Hello" })
             .ToList();
 
         Result<SendMessagesResponse> send = await new SendMessagesHandler(_db, TimeProvider.System).Handle(
@@ -554,9 +637,11 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
 
         public string Name => "magfa";
 
-        public int MaxBatchSize => 1000;
+        public int MaxBatchSize { get; init; } = 1000;
+        public List<int> SentBatchSizes { get; } = [];
 
         public bool SupportsIdempotentResend { get; init; } = true;
+        public TimeSpan? UncertainResendWindow { get; init; }
 
         // Apply the per-message behavior to each request, aligned to input order — unless a whole-batch
         // (transport) failure is configured.
@@ -566,6 +651,7 @@ public sealed class MessageDispatcherTests : IAsyncLifetime
             if (_sendFailure is not null)
                 return Task.FromResult(Result.Failure<IReadOnlyList<Result<ProviderDispatchResult>>>(_sendFailure));
 
+            SentBatchSizes.Add(requests.Count);
             IReadOnlyList<Result<ProviderDispatchResult>> results = requests.Select(_behavior).ToList();
             return Task.FromResult(Result.Success(results));
         }

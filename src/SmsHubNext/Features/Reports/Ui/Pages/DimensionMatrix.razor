@@ -1,0 +1,44 @@
+@using SmsHubNext.Features.Reports
+
+<section class="admin-data-panel"><div class="admin-table-wrap">
+    <AdminGrid @key="Cost" T="MatrixRow" Items="_matrix" Loading="Loading" Name="ماتریس منطقه و نوع پیامک" ExportColumns="_columns">
+        <PropertyColumn Property="row => row.Name" Title="منطقه" />
+        @foreach (MatrixType type in _types)
+        {
+            <TemplateColumn @key="type.Id" Title="@type.Name" Sortable="false" Filterable="false">
+                <CellTemplate>@PersianDisplay.Number(context.Item.Values.GetValueOrDefault(type.Id), Cost ? "N0.####" : "N0")</CellTemplate>
+            </TemplateColumn>
+        }
+        <PropertyColumn Property="row => row.Total" Title="جمع"><CellTemplate>@PersianDisplay.Number(context.Item.Total, Cost ? "N0.####" : "N0")</CellTemplate></PropertyColumn>
+    </AdminGrid>
+</div></section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DimensionReportRow> Rows { get; set; } = [];
+    [Parameter] public bool Cost { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    private sealed record MatrixType(byte Id, string Name);
+    private sealed record MatrixRow(int? Id, string Name, IReadOnlyDictionary<byte, decimal> Values)
+    {
+        public decimal Total => Values.Values.Sum();
+    }
+    private List<MatrixType> _types = [];
+    private List<MatrixRow> _matrix = [];
+    private List<AdminExportColumn<MatrixRow>> _columns = [];
+
+    protected override void OnParametersSet()
+    {
+        _types = Rows.GroupBy(row => row.MessageTypeId!.Value)
+            .Select(group => new MatrixType(group.Key, group.First().MessageTypeName)).OrderBy(type => type.Id).ToList();
+        // Distinguish equal display names while retaining stable dimension IDs.
+        _types = _types.Select(type => _types.Count(other => other.Name == type.Name) > 1
+            ? type with { Name = $"{type.Name} ({PersianDisplay.Number(type.Id)})" } : type).ToList();
+        _matrix = Rows.GroupBy(row => row.GeoSectionId).Select(group => new MatrixRow(group.Key, group.First().GeoName,
+            group.GroupBy(row => row.MessageTypeId!.Value).ToDictionary(cell => cell.Key,
+                cell => cell.Sum(row => Cost ? row.TotalCost : row.MessageCount)))).ToList();
+        _columns = [new("منطقه", row => row.Name)];
+        foreach (MatrixType type in _types)
+            _columns.Add(new(type.Name, row => row.Values.GetValueOrDefault(type.Id)));
+        _columns.Add(new("جمع", row => row.Total));
+    }
+}

@@ -1,0 +1,20 @@
+.database-monitor { display:grid; gap:18px; min-width:0; }
+.monitor-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+.monitor-toolbar label { display:grid; gap:6px; color:#334155; }
+select { font:inherit; border:1px solid #bac8d8; border-radius:8px; min-height:42px; padding:8px; color:#203954; background:white; }
+select:focus-visible,.monitor-help summary:focus-visible { outline:3px solid #74a5e1; outline-offset:2px; }
+.monitor-note,.monitor-help { color:#425b78; font-size:14px; line-height:1.9; background:#f3f6fa; padding:14px 18px; border-radius:10px; margin:0; }
+.monitor-help summary { cursor:pointer; font-weight:600; }
+.monitor-time { color:#526780; font-size:13px; margin:0; }
+.monitor-detail { display:grid; gap:10px; padding:18px; color:#203954; }
+.monitor-chart { display:flex; overflow-x:auto; gap:14px; direction:ltr; padding:18px; }
+.monitor-day { min-width:85px; flex:1; text-align:center; color:#425b78; font-size:12px; }
+.monitor-track { display:flex; align-items:end; justify-content:center; height:160px; background:#f3f6fa; margin:12px 0; border-bottom:1px solid #bac8d8; }
+.monitor-track i { display:block; width:30px; background:#3576b8; border-radius:5px 5px 0 0; }
+@media(max-width:600px) { .monitor-toolbar>* { width:100%; }.monitor-toolbar .admin-button { justify-content:center; } }
+.monitor-warning { padding:14px 18px; border:1px solid #dec68b; border-radius:10px; color:#715014; background:#fff8e8; line-height:1.9; }
+.monitor-detail b,.monitor-note,.monitor-help p,.report-summary small { overflow-wrap:anywhere; }
+.database-monitor ::deep .mud-table-container { max-width:100%; overflow-x:auto; }
+.database-monitor ::deep .mud-table-cell { font-variant-numeric:tabular-nums; }
+.monitor-identifier { display:block; unicode-bidi:isolate; white-space:normal; overflow-wrap:anywhere; max-width:28rem; }
+.database-monitor ::deep .mud-table-head .mud-table-cell { white-space:nowrap; }

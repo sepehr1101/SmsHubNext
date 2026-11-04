@@ -25,6 +25,8 @@ public class AdminMenuNavigationTests
                 await renderer.RenderComponentAsync<MenuHub>();
             Assert.Contains("/admin/settings/general", page.ToHtmlString());
             Assert.Contains("/admin/settings/errors", page.ToHtmlString());
+            Assert.Contains("/admin/settings/faq", page.ToHtmlString());
+
 
             navigation.Go("admin/operations");
             Assert.Contains("/admin/send", page.ToHtmlString());
@@ -38,6 +40,8 @@ public class AdminMenuNavigationTests
             navigation.Go("admin/settings");
             Assert.Contains("/admin/settings/general", page.ToHtmlString());
             Assert.Contains("/admin/settings/errors", page.ToHtmlString());
+            Assert.Contains("/admin/settings/faq", page.ToHtmlString());
+
             Assert.DoesNotContain("/admin/reports", page.ToHtmlString());
         });
     }
@@ -53,3 +57,6 @@ public class AdminMenuNavigationTests
         }
     }
 }
+
+
+

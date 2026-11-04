@@ -1,0 +1,118 @@
+@page "/admin/dispatch-operations/troubleshoot"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@using SmsHubNext.Features.Reports
+@using SmsHubNext.Features.Administration
+@using SmsHubNext.Features.Sending
+@using SmsHubNext.Features.DeliveryReports.Ui.Pages
+@inject TroubleshootingService Service
+@inject DeliveryReportsService Delivery
+@inject TimeProvider Clock
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>اشکال‌یابی پیامک | SmsHub</PageTitle>
+<div class="troubleshoot">
+    <a href="/admin/dispatch-operations">بازگشت به ارسال‌ها و نتیجه تحویل</a>
+    <ol class="wizard-steps" aria-label="مراحل اشکال‌یابی">
+        @for (int index = 1; index <= 4; index++)
+        {
+            int step = index;
+            <li aria-current="@(step == _step ? "step" : null)" class="@(step == _step ? "current" : "")"><span>@PersianDisplay.Number(step)</span>@StepTitle(step)</li>
+        }
+    </ol>
+    <section class="admin-data-panel wizard-content" aria-busy="@_loading">
+        <h2 tabindex="-1" @ref="_heading">@StepTitle(_step)</h2>
+        <FeatureNotice Loading="_loading" Error="@_error" Success="@_success" />
+        @if (_step == 1)
+        {
+            <form @onsubmit="Search" @onsubmit:preventDefault class="wizard-form">
+                <fieldset disabled="@_loading">
+                    <label>شماره همراه گیرنده<input type="tel" inputmode="tel" autocomplete="tel" dir="ltr" maxlength="20" required @bind="_mobile" @bind:event="oninput" placeholder="۰۹۱۲۱۲۳۴۵۶۷" /></label>
+                    <label>بازه بررسی<select @bind="_range" @bind:after="SetRange"><option value="today">امروز</option><option value="week">۷ روز اخیر</option><option value="month">۳۰ روز اخیر</option><option value="custom">بازه دلخواه</option></select></label>
+                    @if (_range == "custom")
+                    {
+                        <label>از تاریخ شمسی<input dir="ltr" required maxlength="10" @bind="_from" @bind:event="oninput" placeholder="۱۴۰۵/۰۸/۰۱" /></label>
+                        <label>تا تاریخ شمسی<input dir="ltr" required maxlength="10" @bind="_to" @bind:event="oninput" placeholder="۱۴۰۵/۰۸/۰۷" /></label>
+                        <label>از ساعت ایران<input dir="ltr" required maxlength="5" @bind="_fromTime" @bind:event="oninput" /></label>
+                        <label>تا ساعت ایران<input dir="ltr" required maxlength="5" @bind="_toTime" @bind:event="oninput" /></label>
+                    }
+                </fieldset>
+                <button type="submit" class="admin-button primary" disabled="@_loading">پیدا کردن پیام‌ها</button>
+            </form>
+        }
+        else if (_step == 2)
+        {
+            <p>شماره <b dir="ltr">@PersianDisplay.Text(_query?.Value)</b> · @PersianDisplay.Text(_query?.FromJalali) تا @PersianDisplay.Text(_query?.ToJalali) · جدیدترین پیام‌ها، هر بار ۱۰ مورد</p>
+            @if (_items.Count == 0)
+            {
+                <div class="wizard-empty" role="status"><p>در این بازه سابقه‌ای پیدا نشد؛ این نتیجه به معنی شکست ارسال نیست.</p><button class="admin-button secondary" disabled="@_loading" @onclick="ExpandRange">بررسی ۳۰ روز اخیر</button></div>
+            }
+            @foreach (MessageSearchRow item in _items)
+            {
+                <article class="wizard-message">
+                    <header><b>@MessageDiagnosticText.Time(item.SubmittedAtUtc)</b><span>@TroubleshootingText.Age(item.SubmittedAtUtc, Clock.GetUtcNow())</span></header>
+                    <p>@item.CustomerName · @item.ProviderName · خط <b dir="ltr">@PersianDisplay.Text(item.SenderLine)</b></p>
+                    <p>ارسال: <strong>@MessageDiagnosticText.Send(item.Status)</strong> · تحویل: <strong>@MessageDiagnosticText.Delivery(item.DeliveryStatus)</strong></p>
+                    <p class="wizard-body">@(item.Body is null ? "متن پیام دیگر در دسترس نیست" : item.Body.Length > 160 ? item.Body[..160] + "…" : item.Body)</p>
+                    <button type="button" class="admin-button primary" disabled="@_loading" @onclick="() => Select(item.Id)" aria-label="@($"بررسی پیام {PersianDisplay.Number(item.Id)}")">بررسی این پیام</button>
+                </article>
+            }
+            <div class="wizard-actions">
+                <button class="admin-button secondary" disabled="@_loading" @onclick="Edit">تغییر شماره یا بازه</button>
+                @if (_history.Count > 0) { <button class="admin-button secondary" disabled="@_loading" @onclick="Previous">۱۰ پیام جدیدتر</button> }
+                @if (_next is not null) { <button class="admin-button secondary" disabled="@_loading" @onclick="Next">۱۰ پیام قدیمی‌تر</button> }
+            </div>
+        }
+        else if (_report is not null)
+        {
+            MessageDiagnostics diagnostic = _report.Diagnostics;
+            TroubleshootingAssessment assessment = TroubleshootingText.Assess(diagnostic);
+            <p>گیرنده <b dir="ltr">@PersianDisplay.Text(diagnostic.Message.MobileNumber)</b> · @MessageDiagnosticText.Time(diagnostic.Message.SubmittedAtUtc) · خط <span dir="ltr">@PersianDisplay.Text(diagnostic.Message.SenderLine)</span></p>
+            <div class="wizard-assessment" role="status"><h3>@assessment.Result</h3><p><b>شاهد:</b> @assessment.Evidence</p><p><b>اقدام پیشنهادی:</b> @assessment.Action</p></div>
+            @if (_step == 3)
+            {
+                <button class="admin-button secondary" disabled="@_loading" @onclick="Live">استعلام زنده تحویل</button>
+                @if (diagnostic.LiveError is not null) { <p role="status">استعلام ناموفق: @diagnostic.LiveError؛ این خطا، تحویل‌نشدن را اثبات نمی‌کند.</p> }
+                @if (diagnostic.LiveFailure is not null) { <p>@MessageDiagnosticText.Failure(diagnostic.LiveFailure)</p> }
+                <dl class="wizard-facts"><div><dt>تلاش ارسال دسته</dt><dd>@PersianDisplay.Number(diagnostic.Message.DispatchAttemptCount)</dd></div><div><dt>تلاش ارسال بعدی</dt><dd>@MessageDiagnosticText.Time(diagnostic.Message.NextDispatchAtUtc)</dd></div><div><dt>استعلام بعدی</dt><dd>@MessageDiagnosticText.Time(diagnostic.Message.NextPollAtUtc)</dd></div></dl>
+                <details class="wizard-technical"><summary>جزئیات فنی، خطاها و تاریخچه</summary>
+                    <p>رویدادهای زیر متعلق به کل دسته‌اند؛ بدون شاهد، علت شکست همین پیام محسوب نمی‌شوند. رویدادهای عملیاتی و فایل‌های خطا نگهداری محدود دارند.</p>
+                    @foreach (DiagnosticEvent item in diagnostic.Events)
+                    {
+                        <article><b>@MessageDiagnosticText.Time(item.EventTimeUtc)؛ @MessageDiagnosticText.EventTitle(item.EventType)</b><p>@TroubleshootingText.Redact(item.Detail)</p>@if (item.Failure is not null) { <p>@MessageDiagnosticText.Failure(item.Failure)</p> }</article>
+                    }
+                    @if (diagnostic.Events.Count == 0) { <p>رویداد عملیاتی نگهداری‌شده‌ای وجود ندارد.</p> }
+                    <h3>گزارش‌های تحویل همین پیام</h3>
+                    @foreach (DiagnosticDelivery item in diagnostic.Deliveries) { <p>@MessageDiagnosticText.Time(item.ReceivedAtUtc)؛ کد @PersianDisplay.Number(item.RawStatusCode): @MessageDiagnosticText.StoredDlr(diagnostic.Message.ProviderCode, item)</p> }
+                    @if (diagnostic.Deliveries.Count == 0) { <p>گزارش جزئی تحویل ذخیره نشده است.</p> }
+                    <h3>Exception و Stack trace مرتبط با این پیام</h3>
+                    @if (_report.LogError is not null) { <p role="alert">خواندن فایل خطا ممکن نشد: @_report.LogError</p> }
+                    else if (_report.Errors.Count == 0) { <p>در فایل‌های موجودِ ۳۰ روز اخیر، خطایی با شناسه صریح این پیام پیدا نشد؛ این نتیجه نبود خطا را اثبات نمی‌کند.</p> }
+                    @foreach (ApplicationError item in _report.Errors)
+                    {
+                        <article><p>@MessageDiagnosticText.Time(item.Timestamp.UtcDateTime)؛ @item.Message</p><pre dir="ltr" tabindex="0" aria-label="متن خطا و مسیر فراخوانی">@(string.IsNullOrWhiteSpace(item.Exception) ? "استثنا و مسیر فراخوانی ثبت نشده است." : item.Exception)</pre></article>
+                    }
+                    @if (_report.LogsTruncated || _report.SkippedLogLines > 0) { <p>فهرست خطاها ممکن است کامل نباشد؛ محدودیت تعداد یا سطر ناخوانا وجود دارد.</p> }
+                    <p><a href="/admin/settings/errors">بررسی سایر خطاهای داخلی سیستم</a></p>
+                    <label>گزارش فنی قابل کپی<textarea readonly rows="12" dir="auto">@TechnicalReport</textarea></label>
+                </details>
+                <div class="wizard-actions"><button class="admin-button secondary" disabled="@_loading" @onclick="BackToMessages">انتخاب پیام دیگر</button><button class="admin-button primary" disabled="@_loading" @onclick="Actions">ادامه و اقدام بعدی</button></div>
+            }
+            else
+            {
+                <label>پاسخ پیشنهادی به تماس‌گیرنده<textarea readonly rows="5">@TroubleshootingText.CustomerReply(diagnostic)</textarea></label>
+                <div class="wizard-actions"><button class="admin-button secondary" @onclick="() => Copy(false)">کپی پاسخ تماس‌گیرنده</button><button class="admin-button secondary" @onclick="() => Copy(true)">کپی گزارش فنی</button><a class="admin-button secondary" href="/admin/dispatch-operations/@diagnostic.Message.MessageBatchId">مشاهده دسته ارسال</a></div>
+                @if (diagnostic.Message.StatusReason is BatchStatusReason.InsufficientProviderCredit or BatchStatusReason.InvalidProviderCredentials && diagnostic.Message.Status == SmsHubNext.Shared.Enums.SendStatus.Queued) { <p><a href="/admin/provider-accounts">بررسی حساب ارائه‌دهنده</a></p> }
+                @if (_previewError is not null) { <p role="alert">بررسی مجازبودن ارسال مجدد انجام نشد: @_previewError</p><button class="admin-button secondary" disabled="@_loading" @onclick="Actions">تلاش دوباره</button> }
+                @if (_preview is not null)
+                {
+                    @if (_preview.Allowed && _preview.BodyAvailable) { <a class="admin-button secondary" href="/admin/dispatch-operations/@diagnostic.Message.MessageBatchId">بازبینی و ارسال مجدد از جزئیات دسته</a><p>در جزئیات دسته، همین پیام را انتخاب کنید. تأیید ارسال مجدد و هزینه جدید در مسیر موجود انجام می‌شود.</p> }
+                    else { <p role="status">@(_preview.BodyAvailable ? "ارسال مجدد برای وضعیت فعلی این پیام مجاز نیست." : "متن پیام نگهداری نمی‌شود؛ ارسال مجدد ممکن نیست.")</p> }
+                }
+                <details class="wizard-technical" open="@_copyFailed"><summary>متن گزارش فنی برای کپی دستی</summary><textarea readonly rows="12">@TechnicalReport</textarea></details>
+                <div class="wizard-actions"><button class="admin-button secondary" @onclick="BackToDiagnosis">بازگشت به تشخیص</button><button class="admin-button primary" @onclick="Edit">اشکال‌یابی شماره دیگر</button></div>
+            }
+        }
+    </section>
+</div>

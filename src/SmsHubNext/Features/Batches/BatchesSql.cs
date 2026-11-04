@@ -11,6 +11,10 @@ internal static class BatchesSql
             FROM dbo.MessageBatch b
             WHERE b.SubmitDateJalali >= @FromJalali AND b.SubmitDateJalali <= @ToJalali
               AND b.ReceivedAtUtc >= @FromUtc AND b.ReceivedAtUtc < @ToUtcExclusive
+              AND (@Search IS NULL OR b.Id = TRY_CONVERT(BIGINT, @Search)
+                  OR (TRY_CONVERT(BIGINT, @Search) IS NULL AND (CHARINDEX(@Search, b.ClientBatchId) > 0
+                  OR EXISTS (SELECT 1 FROM dbo.Customer sc WHERE sc.Id = b.CustomerId AND CHARINDEX(@Search, sc.Name) > 0)
+                  OR EXISTS (SELECT 1 FROM dbo.Provider sp WHERE sp.Id = b.ProviderId AND CHARINDEX(@Search, sp.Name) > 0))))
               AND (@BeforeId IS NULL OR b.SubmitDateJalali < @BeforeDate
                    OR (b.SubmitDateJalali = @BeforeDate AND b.Id < @BeforeId))
             ORDER BY b.SubmitDateJalali DESC, b.Id DESC

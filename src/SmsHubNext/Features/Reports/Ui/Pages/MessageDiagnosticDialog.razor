@@ -1,0 +1,23 @@
+<MudDialog>
+    <TitleContent>
+        <div class="diagnostic-dialog-title">
+            <h2>عیب‌یابی پیام @PersianDisplay.Number(MessageId)</h2>
+            <MudTooltip Text="بستن جزئیات" ShowOnFocus="true"><button type="button" aria-label="بستن جزئیات" @onclick="Close"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></MudTooltip>
+        </div>
+    </TitleContent>
+    <TitleContent>
+        <div class="diagnostic-dialog-title">
+            <h2>عیب‌یابی پیام @PersianDisplay.Number(MessageId)</h2>
+            <MudTooltip Text="بستن جزئیات" ShowOnFocus="true"><button type="button" aria-label="بستن جزئیات" @onclick="Close"><MudIcon Icon="@Icons.Material.Rounded.Close" /></button></MudTooltip>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MessageDiagnosticPanel MessageId="MessageId" InDialog="true" Close="Close" />
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [Parameter] public long MessageId { get; set; }
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+    private void Close() => Dialog.Close();
+}

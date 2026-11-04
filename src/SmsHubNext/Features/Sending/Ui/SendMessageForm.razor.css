@@ -1,0 +1,8 @@
+.send-summary { background:#fff; border-color:#bfd0e5; color:#173d73; box-shadow:0 8px 26px rgba(23,61,115,.12); backdrop-filter:none; flex-wrap:wrap; gap:12px; }
+.send-summary > div { min-width:125px; padding:10px 14px; border:1px solid #d6e2ef; border-radius:10px; background:#f3f6fa; }
+.send-summary span { color:#43566e; font-size:.88rem; }
+.send-summary b { color:#173d73; font-size:1rem; font-weight:700; }
+.send-summary button:disabled { opacity:.55; cursor:wait; }
+.send-summary button:focus-visible { outline:3px solid #4784cc; outline-offset:3px; }
+.send-submit-error { flex-basis:100%; margin:0; padding:10px 12px; border-radius:8px; color:#9d1c2d; background:#fff1f2; font-size:.9rem; }
+@media(max-width:600px) { .send-summary > div { width:auto; min-width:0; flex:1 1 120px; }.send-summary button { flex:1 1 100%; } }

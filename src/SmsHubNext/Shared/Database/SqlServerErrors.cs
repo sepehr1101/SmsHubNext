@@ -28,4 +28,7 @@ public static class SqlServerErrors
     /// <summary>True when the exception is a duplicate-key violation on a unique index or constraint.</summary>
     public static bool IsUniqueViolation(this SqlException ex) =>
         ex.Number is DuplicateUniqueIndex or DuplicateUniqueConstraint;
+    public static bool IsMonitoringPermissionDenied(this SqlException exception) => exception.Number is 229 or 297 or 300;
+    public static bool IsCommandTimeout(this SqlException exception) => exception.Number == -2;
 }
+

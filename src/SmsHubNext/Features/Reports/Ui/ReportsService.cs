@@ -9,9 +9,16 @@ namespace SmsHubNext.Features.Reports.Ui;
 public sealed class ReportsService(
     UiOperations operations,
     MessageReportsHandler messageReportsHandler,
+    DimensionReportsHandler dimensionReportsHandler,
     SearchMessagesHandler searchMessagesHandler,
     MessageDiagnosticsHandler messageDiagnosticsHandler)
 {
+    public Task<UiResult<DimensionReportOptions>> DimensionOptions(CancellationToken token) =>
+        operations.Run((identity, cancellationToken) => dimensionReportsHandler.Options(cancellationToken), token);
+
+    public Task<UiResult<IReadOnlyList<DimensionReportRow>>> Dimensions(DimensionReportRequest request, CancellationToken token) =>
+        operations.Run((identity, cancellationToken) => dimensionReportsHandler.Handle(request, cancellationToken), token);
+
     public Task<UiResult<MessageDiagnostics>> Diagnostics(long messageId, bool live, CancellationToken token) =>
         operations.Run((identity, cancellationToken) => messageDiagnosticsHandler.Handle(messageId, live, cancellationToken), token);
 

@@ -89,6 +89,32 @@ public sealed class ApplicationErrorsTests : IDisposable
     private ListApplicationErrorsHandler Handler() => new(
         Options.Create(new ApplicationLogOptions { DirectoryPath = _directory }), new TestEnvironment());
 
+    [Fact]
+    public async Task Message_lookup_uses_structured_ids_before_truncation_and_ignores_text_and_batch_matches()
+    {
+        Directory.CreateDirectory(_directory);
+        DateTimeOffset start = new(2026, 10, 18, 0, 0, 0, TimeSpan.Zero);
+        string path = Path.Combine(_directory, "errors-correlated.jsonl");
+        using (Logger logger = new LoggerConfiguration().WriteTo.File(new JsonFormatter(renderMessage: true), path).CreateLogger())
+        {
+            logger.ForContext("MessageId", 123L).Error(new InvalidOperationException("synthetic exception"), "matching message");
+            logger.ForContext("MessageIds", new long[] { 123, 124 }).Error("matching chunk");
+            logger.ForContext("MessageId", 1234L).Error("another message");
+            logger.ForContext("BatchId", 123L).Error("batch only");
+            for (int index = 0; index < 1002; index++) logger.Error("123 appears only in text");
+        }
+        Result<ApplicationErrorResults> result = await Handler().HandleForMessage(start.UtcDateTime,
+            start.AddYears(1).UtcDateTime, 123, CancellationToken.None);
+        Assert.True(result.IsFailure); // The usual bounded-range validation also applies to correlated queries.
+        DateTime now = TimeProvider.System.GetUtcNow().UtcDateTime;
+        result = await Handler().HandleForMessage(now.AddMinutes(-2), now.AddMinutes(2), 123, CancellationToken.None);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Value.Items.Count);
+        Assert.False(result.Value.Truncated);
+        Assert.Contains(result.Value.Items, item => item.Exception?.Contains("synthetic exception", StringComparison.Ordinal) == true);
+        Assert.All(result.Value.Items, item => Assert.StartsWith("matching", item.Message));
+    }
+
     private static void Write(Logger logger, DateTimeOffset instant, LogEventLevel level, string message, Exception? exception = null)
     {
         LogEvent entry = new(instant, level, exception, new MessageTemplateParser().Parse("{Message:l}"),

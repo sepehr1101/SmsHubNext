@@ -13,6 +13,8 @@ internal static class FactoryResetSql
     public const string ResetDatabase =
         """
         -- Clear outbound/inbound operational data first.
+        DELETE FROM dbo.DailyResendItem;
+        DELETE FROM dbo.DailyResendOperation;
         DELETE FROM dbo.DeliveryReportPoll;
         DELETE FROM dbo.DeliveryReport;
         DELETE FROM dbo.MessageBody;
@@ -21,6 +23,8 @@ internal static class FactoryResetSql
         DELETE FROM dbo.BalanceTransaction;
         DELETE FROM dbo.MessageBatch;
         DELETE FROM dbo.InboundMessage;
+        DELETE FROM dbo.DatabaseTableSnapshot;
+        DELETE FROM dbo.DatabaseIndexObservation;
 
         -- Break attribution cycles before removing API keys and reference data.
         UPDATE dbo.Customer SET DeletedAtUtc = NULL, DeletedByApiKeyId = NULL;
@@ -32,6 +36,7 @@ internal static class FactoryResetSql
         UPDATE dbo.ProviderAccount SET DeletedAtUtc = NULL, DeletedByApiKeyId = NULL;
         UPDATE dbo.ApiKeyIpRestriction SET DeletedAtUtc = NULL, DeletedByApiKeyId = NULL;
         UPDATE dbo.ApiKey SET RevokedByApiKeyId = NULL;
+        UPDATE dbo.FrequentlyAskedQuestion SET UpdatedByApiKeyId = NULL;
 
         -- Clear installation-specific business configuration in FK-safe order.
         DELETE FROM dbo.ApiKeyIpRestriction;

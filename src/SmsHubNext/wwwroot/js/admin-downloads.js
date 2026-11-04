@@ -9,3 +9,15 @@ window.adminDownloads = {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 };
+
+window.adminForms = {
+    focusInvalid(root) {
+        const input = root?.querySelector('[aria-invalid="true"]');
+        if (!input) return;
+        for (let parent = input.parentElement; parent && parent !== root; parent = parent.parentElement) {
+            if (parent.tagName === 'DETAILS') parent.open = true;
+        }
+        input.focus();
+        input.scrollIntoView({block: 'center'});
+    }
+};

@@ -1,0 +1,11 @@
+@inject TimeProvider Clock
+<div class="report-period-presets" role="group" aria-label="بازه‌های آماده گزارش">
+    <button type="button" disabled="Disabled" @onclick='() => Select("today")'>امروز</button>
+    <button type="button" disabled="Disabled" @onclick='() => Select("month")'>ماه جاری</button>
+    <button type="button" disabled="Disabled" @onclick='() => Select("year")'>سال جاری</button>
+</div>
+@code {
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<ReportPeriod> OnSelect { get; set; }
+    private Task Select(string period) => OnSelect.InvokeAsync(ReportPeriod.Current(Clock, period));
+}

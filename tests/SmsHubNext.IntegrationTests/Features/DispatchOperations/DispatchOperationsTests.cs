@@ -61,7 +61,8 @@ public sealed class DispatchOperationsTests : IAsyncLifetime
         Assert.Equal(1, result.Value.Buckets[^1].Count);
         Assert.Equal(1, result.Value.Buckets.Sum(bucket => bucket.Count));
         Assert.Same(result.Value, (await handler.Summary(CancellationToken.None)).Value);
-        Result<LiveMessagePage> failed = await handler.Messages(24, (byte)SendStatus.Rejected, null, batchId, "", 1, CancellationToken.None);
+        Result<LiveMessagePage> failed = await handler.Messages(
+            new LiveMessageRequest { Status = (byte)SendStatus.Rejected, Batch = batchId }, CancellationToken.None);
         Assert.True(failed.IsSuccess);
         Assert.Equal(SendStatus.Rejected, Assert.Single(failed.Value.Items).Status);
     }
@@ -107,7 +108,103 @@ public sealed class DispatchOperationsTests : IAsyncLifetime
         Assert.Empty(problems.Value.Items);
     }
 
-    private async Task<long> SendBatchAsync()
+    [Fact]
+    public async Task Live_monitor_searches_the_entire_window_and_pages_without_duplicates_or_offsets()
+    {
+        long batchId = await SendBatchAsync(80);
+        LiveDispatchHandler handler = new(_db, TimeProvider.System, new LiveDispatchCache());
+        LiveMessageRequest request = new() { Batch = batchId, PageSize = 25 };
+        HashSet<long> seen = [];
+        LiveMessage? oldest = null;
+        int pageCount = 0;
+        while (true)
+        {
+            Result<LiveMessagePage> result = await handler.Messages(request, CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Error?.Message);
+            LiveMessagePage page = result.Value;
+            Assert.InRange(page.Items.Count, 1, 25);
+            Assert.All(page.Items, message => Assert.True(seen.Add(message.Id), "A message appeared on more than one page."));
+            Assert.Equal(page.Items.OrderByDescending(message => message.SubmitDateJalali).ThenByDescending(message => message.Id), page.Items);
+            oldest = page.Items[^1];
+            pageCount++;
+            if (!page.HasMore) { Assert.Null(page.NextCursor); break; }
+            Assert.NotNull(page.NextCursor);
+            request = request with { UntilUtc = page.UntilUtc, Before = page.NextCursor };
+        }
+        Assert.Equal(80, seen.Count);
+        Assert.Equal(4, pageCount);
+        Assert.NotNull(oldest);
+
+        // The oldest message was not on the first page. Both national and stored
+        // formats must search all matching rows, not just the currently loaded page.
+        foreach (string search in new[] { "0" + oldest.MobileNumber[2..], oldest.MobileNumber, oldest.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) })
+        {
+            Result<LiveMessagePage> result = await handler.Messages(
+                new LiveMessageRequest { Batch = batchId, Search = search }, CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Error?.Message);
+            Assert.Equal(oldest.Id, Assert.Single(result.Value.Items).Id);
+            Assert.False(result.Value.HasMore);
+        }
+
+        Result<LiveMessagePage> filtered = await handler.Messages(
+            new LiveMessageRequest { Batch = batchId, Search = oldest.MobileNumber, Status = (byte)SendStatus.Rejected }, CancellationToken.None);
+        Assert.True(filtered.IsSuccess);
+        Assert.Empty(filtered.Value.Items);
+        Result<LiveMessagePage> largePage = await handler.Messages(
+            new LiveMessageRequest { Batch = batchId, PageSize = 100 }, CancellationToken.None);
+        Assert.Equal(80, largePage.Value.Items.Count);
+        Assert.False(largePage.Value.HasMore);
+    }
+
+    [Fact]
+    public async Task Batch_search_finds_records_outside_the_current_page_and_keeps_summary_filters_consistent()
+    {
+        long target = await SendBatchAsync();
+        await SendBatchAsync();
+        await SendBatchAsync();
+        DispatchOperationsHandler handler = new(_db, TimeProvider.System);
+        Result<DispatchOperationsBatchPage> first = await handler.Batches(new() { Take = 1 }, CancellationToken.None);
+        Assert.DoesNotContain(first.Value.Items, item => item.Id == target);
+
+        string persianId = SmsHubNext.Shared.Ui.PersianDisplay.Number(target);
+        DispatchOperationsRequest search = new() { Search = persianId, Take = 1 };
+        Result<DispatchOperationsBatchPage> filtered = await handler.Batches(search, CancellationToken.None);
+        Assert.Equal(target, Assert.Single(filtered.Value.Items).Id);
+        Assert.Equal(1, filtered.Value.TotalCount);
+        Result<DispatchOperationsSummary> summary = await handler.Summary(search, CancellationToken.None);
+        Assert.Equal(1, summary.Value.Totals.BatchCount);
+        Assert.Equal(2, summary.Value.Totals.MessageCount);
+
+        await using SqlConnection connection = await _db.OpenConnectionAsync();
+        string? clientId = await connection.ExecuteScalarAsync<string>(
+            "SELECT ClientBatchId FROM dbo.MessageBatch WHERE Id = @target", new { target });
+        Assert.NotNull(clientId);
+        Result<DispatchOperationsBatchPage> byReference = await handler.Batches(new() { Search = clientId }, CancellationToken.None);
+        Assert.Equal(target, Assert.Single(byReference.Value.Items).Id);
+        Result<DispatchOperationsBatchPage> problems = await handler.Batches(new() { Search = persianId, OnlyProblems = true }, CancellationToken.None);
+        Assert.Empty(problems.Value.Items);
+        Assert.Equal(0, problems.Value.TotalCount);
+        Result<DispatchOperationsBatchPage> cleared = await handler.Batches(new() { Search = " " }, CancellationToken.None);
+        Assert.Equal(3, cleared.Value.TotalCount);
+
+        DateTime now = TimeProvider.System.GetUtcNow().UtcDateTime;
+        SmsHubNext.Features.Batches.BrowseBatchesHandler browser = new(_db);
+        Result<SmsHubNext.Features.Batches.BatchListPage> legacy = await browser.Handle(
+            new(now.AddDays(-1), now.AddDays(1)) { Search = persianId }, CancellationToken.None);
+        Assert.Equal(target, Assert.Single(legacy.Value.Items).Id);
+    }
+
+    [Fact]
+    public async Task Batch_search_treats_sql_wildcards_as_literal_text()
+    {
+        await SendBatchAsync();
+        DispatchOperationsHandler handler = new(_db, TimeProvider.System);
+        Result<DispatchOperationsBatchPage> result = await handler.Batches(new() { Search = "%" }, CancellationToken.None);
+        Assert.Empty(result.Value.Items);
+        Assert.Equal(0, result.Value.TotalCount);
+    }
+
+    private async Task<long> SendBatchAsync(int count = 2)
     {
         await ProviderAccountTestData.AssignActiveMagfaAccountToDefaultTestLineAsync(_db);
         Result<CreateCustomerResponse> customer = await new CreateCustomerHandler(_db)
@@ -129,11 +226,8 @@ public sealed class DispatchOperationsTests : IAsyncLifetime
                 CustomerId = customerId,
                 SenderLine = "30001234",
                 MessageTypeId = 1,
-                Messages =
-                [
-                    new SendMessageItem { Recipient = "989120000001", Text = "Hello" },
-                    new SendMessageItem { Recipient = "989120000002", Text = "World" },
-                ],
+                Messages = Enumerable.Range(1, count)
+                    .Select(index => new SendMessageItem { Recipient = $"98912{index:D7}", Text = "Hello" }).ToList(),
             },
             new ApiKeyIdentity(key.Value.Id, customerId, key.Value.KeyPrefix),
             CancellationToken.None);

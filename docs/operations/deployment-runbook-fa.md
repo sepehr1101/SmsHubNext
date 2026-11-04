@@ -4,24 +4,43 @@
 
 ## 1. ساخت artifact
 
-از ریشه repo اجرا کنید:
+برای پابلیش معمول پروژه، از ریشهٔ مخزن فقط این دستور را اجرا کنید:
 
 ```powershell
-.\scripts\publish.ps1
+.\scripts\publish-production.ps1
 ```
 
-خروجی پیش‌فرض:
+این دستور همیشه خروجی `Release / win-x64 / SelfContained=true` را همراه .NET و ASP.NET Core، فایل اجرایی ویندوز، تنظیمات واقعی Production و `web.config` با محیط Production می‌سازد. فایل تنظیمات پیش‌فرض `artifacts\host-settings\appsettings.Production.json` است و باید از قبل موجود باشد. در نبود آن، اسکریپت پیش از ساخت متوقف می‌شود؛ خروجی سبک یا بدون تنظیمات جایگزین نمی‌شود.
 
-- پوشه publish: `artifacts\publish\SmsHubNext`
-- فایل zip: `artifacts\publish\SmsHubNext.zip`
+خروجی تاریخ‌دار، بدون بازنویسی نسخه‌های قبلی:
 
-اگر می‌خواهید تست‌های یکپارچگی هم قبل از publish اجرا شوند:
+- پوشه: `artifacts\publish\SmsHubNext-Production-yyyyMMdd-HHmmss`
+- فایل ZIP: `artifacts\publish\SmsHubNext-Production-yyyyMMdd-HHmmss.zip`
+- زمان نام فایل: دبی (`UTC+04:00`).
+
+تست‌های واحد به‌صورت پیش‌فرض اجرا می‌شوند. برای اجرای تست‌های یکپارچه نیز:
 
 ```powershell
-.\scripts\publish.ps1 -IncludeIntegrationTests
+.\scripts\publish-production.ps1 -IncludeIntegrationTests
 ```
 
-این حالت به Docker/Testcontainers نیاز دارد و کندتر است.
+این حالت به Docker/Testcontainers نیاز دارد و کندتر است. وجود فایل اجرایی، محیط اجرا، تنظیمات بسته و ZIP در پایان کنترل می‌شود. اسکریپت به سرور چیزی منتقل نمی‌کند.
+
+برای انتخاب تنظیمات یک محیط دیگر، فقط مسیر فایل را مشخص کنید:
+
+```powershell
+.\scripts\publish-production.ps1 -ProductionSettingsPath 'D:\Private\appsettings.Production.json'
+```
+
+بسته حاوی تنظیمات خصوصی همان هاست است. تنظیمات در هر دو فایل `appsettings.json` و `appsettings.Production.json` قرار می‌گیرند تا فایل قدیمی روی سرور تنظیمات جدید را بازنویسی نکند. فایل‌های Development و local وارد بسته نمی‌شوند.
+
+[راهنمای کامل اسکریپت‌ها](../../scripts/README.md) جزئیات استفاده را توضیح می‌دهد. `scripts/publish.ps1` ابزار پایهٔ قابل سفارشی‌سازی است و فقط در صورت درخواست صریح برای بسته‌ای متفاوت استفاده می‌شود؛ دستور روزمرهٔ پابلیش، `publish-production.ps1` است.
+
+ورود پنل در Production از `ManagementUi:LoginUserName` و `ManagementUi:LoginPasswordHash` استفاده می‌کند.
+هش باید با قالب ASP.NET Core Identity PasswordHasher سازگار باشد؛ رمز خام را در تنظیمات برنامه ذخیره نکنید.
+حساب ثابت توسعه فقط در محیط Development و در نبود تنظیمات ورود قابل استفاده است.
+کلیدهای `ManagementUi:AdminApiKey` و `ManagementUi:CustomerApiKey` همچنان باید در دیتابیس معتبر باشند؛
+رمز ورود پنل جایگزین اعتبارسنجی این کلیدها در مرز عملیات UI نیست.
 
 ## 2. تنظیم production
 

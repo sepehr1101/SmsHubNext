@@ -187,3 +187,38 @@
 @media(max-width:650px) { .dispatch-page .dispatch-table-header { align-items:stretch; gap:14px; }.dispatch-table-actions { justify-content:space-between; }.dispatch-problem-toggle { flex:1; }.dispatch-page .report-summary { gap:10px; }.dispatch-page .report-summary article { padding:15px; }.dispatch-page .report-summary strong { font-size:22px; } }
 /* Keep notice controls visible for keyboard users on the light management theme. */
 .admin-feature-notice button:focus-visible,.api-key-reveal button:focus-visible { outline:2px solid currentColor; outline-offset:3px; }
+/* Dashboard and reporting: keyboard access, light surfaces, and narrow screens. */
+.report-period-presets { display:flex; flex-wrap:wrap; gap:8px; }
+.report-period-presets button { min-height:42px; padding:8px 16px; border:1px solid #c4d2e3; border-radius:9px; background:#fff; color:#245eaa; font:inherit; cursor:pointer; }
+.report-period-presets button:hover { background:#e9f0f8; }
+.report-period-presets button:disabled { opacity:.5; cursor:wait; }
+.report-period-presets button:focus-visible,.admin-shell .dashboard-page a:focus-visible,.admin-shell .dashboard-page button:focus-visible { outline:3px solid #74a5e1; outline-offset:3px; }
+.report-applied-period { color:#425b78; font-size:14px; margin:0; }
+.admin-shell .dashboard-page .admin-kpi { background:white; border-color:#dce5ef; }
+.admin-shell .dashboard-page .admin-kpi header span,.admin-shell .dashboard-page .admin-kpi footer { color:#526780; }
+.admin-shell .dashboard-page .admin-kpi strong { color:#203954; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.admin-shell .dashboard-page .admin-provider-list small,.admin-shell .dashboard-page .admin-provider-list em,.admin-shell .dashboard-page .admin-activity small,.admin-shell .dashboard-page .admin-activity time,.admin-shell .dashboard-page .admin-next-steps small { color:#526780; font-size:13px; }
+.admin-shell .dashboard-page .admin-provider-list b,.admin-shell .dashboard-page .admin-activity b,.admin-shell .dashboard-page .admin-next-steps b { color:#203954; font-size:14px; }
+.admin-shell .dimension-reports .mud-table-container { max-width:100%; overflow-x:auto; }
+.admin-shell .dimension-reports .mud-table-cell { font-variant-numeric:tabular-nums; }
+@media(max-width:600px) { .report-summary { grid-template-columns:1fr; }.admin-shell .dashboard-page .admin-activity>a { grid-template-columns:32px minmax(0,1fr); }.admin-shell .dashboard-page .admin-activity time { grid-column:2; }.admin-shell .dashboard-page .admin-provider-list>div { flex-wrap:wrap; gap:8px; } }
+@media(prefers-reduced-motion:reduce) { .dashboard-page *,.dimension-reports *,.reports-page * { animation:none!important; transition:none!important; } }
+@media(max-width:900px) { .admin-sidebar:not(.open) { box-shadow:none; } }
+
+/* Guided sending and field-level feedback. */
+.ux-fieldset { border:0; margin:0; padding:0; min-width:0; }
+.ux-steps { display:flex; flex-wrap:wrap; gap:12px; padding:0; list-style:none; margin:0 0 20px; }
+.ux-steps li { color:#526780; padding:10px 16px; border-radius:9px; background:#f3f6fa; }
+.ux-steps li[aria-current=step] { color:#174f91; background:#e9f0f8; font-weight:700; }
+.ux-guidance { padding:18px; margin:16px 0; color:#203954; background:#f3f6fa; border:1px solid #dce5ef; border-radius:12px; line-height:1.9; }
+.ux-guidance h2 { font-size:18px; margin:0 0 10px; }
+.admin-shell .ux-field-error { display:block; color:#a23847; font-size:14px; line-height:1.8; }
+.admin-shell [aria-invalid=true] { border:2px solid #a23847 !important; }
+.ux-fieldset:disabled { opacity:.85; }
+.admin-shell fieldset:disabled input,.admin-shell fieldset:disabled textarea,.admin-shell fieldset:disabled select { color:#203954; opacity:1; }
+.admin-page-actions details a { display:inline-block; margin:10px; }
+.dashboard-page .admin-kpi select { width:100%; max-width:240px; padding:6px; border-radius:6px; }
+.send-config details { align-self:start; }
+@media(max-width:650px) { .ux-steps { gap:6px; }.ux-steps li { padding:8px; font-size:13px; }.send-summary { flex-wrap:wrap; }.send-result { flex-wrap:wrap; } }
+
+.batch-message-details { grid-column:1/-1; min-width:0; }

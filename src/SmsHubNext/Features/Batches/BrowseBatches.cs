@@ -7,8 +7,11 @@ namespace SmsHubNext.Features.Batches;
 public sealed record BatchCursor(string SubmitDateJalali, long Id);
 public sealed record BrowseBatchesRequest(DateTime FromUtc, DateTime ToUtcExclusive, BatchCursor? Before = null)
 {
+    public string? Search { get; init; }
     public Result Validate()
     {
+        if (Search?.Length > 100)
+            return Error.Validation("batches.search_too_long", "جست‌وجو باید حداکثر ۱۰۰ نویسه باشد.");
         if (FromUtc.Kind != DateTimeKind.Utc || ToUtcExclusive.Kind != DateTimeKind.Utc || FromUtc >= ToUtcExclusive)
             return Error.Validation("batches.invalid_range", "بازهٔ تاریخ و ساعت معتبر نیست؛ شروع باید پیش از پایان باشد.");
         try

@@ -10,6 +10,12 @@ public sealed class ListApplicationErrorsHandler(IOptions<ApplicationLogOptions>
     public const int MaximumResults = 1000;
 
     public async Task<Result<ApplicationErrorResults>> Handle(DateTime fromUtc, DateTime toUtc, CancellationToken token)
+        => await Read(fromUtc, toUtc, null, token);
+
+    public Task<Result<ApplicationErrorResults>> HandleForMessage(DateTime fromUtc, DateTime toUtc, long messageId, CancellationToken token)
+        => Read(fromUtc, toUtc, messageId, token);
+
+    private async Task<Result<ApplicationErrorResults>> Read(DateTime fromUtc, DateTime toUtc, long? messageId, CancellationToken token)
     {
         if (fromUtc.Kind != DateTimeKind.Utc || toUtc.Kind != DateTimeKind.Utc || fromUtc > toUtc)
             return Error.Validation("logs.invalid_range", "بازه تاریخ و ساعت معتبر نیست؛ زمان شروع باید پیش از پایان باشد.");
@@ -40,7 +46,7 @@ public sealed class ListApplicationErrorsHandler(IOptions<ApplicationLogOptions>
                     remainingBytes -= Encoding.UTF8.GetByteCount(line) + 1;
                     token.ThrowIfCancellationRequested();
                     ApplicationError? entry;
-                    try { entry = Parse(line); }
+                    try { entry = Parse(line, messageId); }
                     catch (JsonException) { skipped++; continue; }
                     if (entry is null || entry.Timestamp.UtcDateTime < fromUtc || entry.Timestamp.UtcDateTime > toUtc)
                         continue;
@@ -56,7 +62,7 @@ public sealed class ListApplicationErrorsHandler(IOptions<ApplicationLogOptions>
         return new ApplicationErrorResults(items, matching > MaximumResults, skipped);
     }
 
-    private static ApplicationError? Parse(string line)
+    private static ApplicationError? Parse(string line, long? messageId)
     {
         using JsonDocument document = JsonDocument.Parse(line);
         JsonElement root = document.RootElement;
@@ -67,8 +73,18 @@ public sealed class ListApplicationErrorsHandler(IOptions<ApplicationLogOptions>
             !timestamp.TryGetDateTimeOffset(out DateTimeOffset instant))
             throw new JsonException("Missing log timestamp.");
         JsonElement properties = root.TryGetProperty("Properties", out JsonElement values) ? values : default;
+        if (messageId.HasValue && !MatchesMessage(properties, messageId.Value)) return null;
         return new ApplicationError(instant, level, Text(root, "RenderedMessage"), Text(properties, "SourceContext"),
             Text(root, "Exception"), Text(root, "TraceId") is { Length: > 0 } traceId ? traceId : Text(properties, "TraceId"));
+    }
+
+    private static bool MatchesMessage(JsonElement properties, long messageId)
+    {
+        if (properties.ValueKind != JsonValueKind.Object) return false;
+        if (properties.TryGetProperty("MessageId", out JsonElement id) && id.ValueKind == JsonValueKind.Number &&
+            id.TryGetInt64(out long value) && value == messageId) return true;
+        return properties.TryGetProperty("MessageIds", out JsonElement ids) && ids.ValueKind == JsonValueKind.Array &&
+            ids.EnumerateArray().Any(item => item.ValueKind == JsonValueKind.Number && item.TryGetInt64(out long candidate) && candidate == messageId);
     }
 
     private static string Text(JsonElement element, string name) =>

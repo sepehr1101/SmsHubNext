@@ -6,9 +6,12 @@
     <a class="admin-logo" href="/admin/dashboard"><span>S</span><strong dir="ltr">SMS<span>Hub</span></strong></a>
     <nav class="admin-nav" aria-label="منوی مدیریت">
         <NavLink href="/admin/dashboard" Match="NavLinkMatch.All" @onclick="Close"><MudIcon Icon="@Icons.Material.Rounded.Dashboard" /> داشبورد</NavLink>
+        <NavLink href="/admin/send" Match="NavLinkMatch.All" @onclick="Close"><MudIcon Icon="@Icons.Material.Rounded.AddComment" /> ارسال پیامک</NavLink>
+        <NavLink href="/admin/dispatch-operations" @onclick="Close"><MudIcon Icon="@Icons.Material.Rounded.FactCheck" /> ارسال‌ها و نتیجه تحویل</NavLink>
         @foreach (AdminMenuGroup group in AdminNavigation.Groups)
         {
             <a href="@group.Route" class="@(IsCurrent(group) ? "active" : null)" aria-current="@(IsCurrent(group) ? "page" : null)" @onclick="Close"><MudIcon Icon="@group.Icon" /> @group.Title</a>
+
         }
     </nav>
 </aside>
@@ -41,6 +44,8 @@
     private bool IsCurrent(AdminMenuGroup group)
     {
         string path = new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+        if (group.Route == "/admin/operations" && (path == "/admin/send" || path.StartsWith("/admin/dispatch-operations", StringComparison.OrdinalIgnoreCase))) return false;
+        if (group.Route == "/admin/operations" && path is "/admin/dispatch-live" or "/admin/delivery-reports") return true;
         return (group.Route == "/admin/settings" && path.StartsWith("/admin/api-keys", StringComparison.OrdinalIgnoreCase))
             || path.Equals(group.Route, StringComparison.OrdinalIgnoreCase)
             || group.Cards.Any(card => path.Equals(card.Route, StringComparison.OrdinalIgnoreCase)

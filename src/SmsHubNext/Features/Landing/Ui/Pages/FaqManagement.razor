@@ -1,0 +1,103 @@
+@page "/admin/settings/faq"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@using SmsHubNext.Features.Landing
+@using SmsHubNext.Features.Landing.Ui
+@inject FaqService Service
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>سؤال‌های پرتکرار | SmsHub</PageTitle>
+<FeatureNotice Loading="_loading" Error="@_error" Success="@_success" OnRetry="Load" />
+<section class="admin-data-panel">
+    <header><h2>سؤال‌های پرتکرار</h2></header>
+    <div class="admin-table-wrap">
+        <AdminGrid T="FaqItem" Items="_items" Loading="_loading" OnAdd="Create" AddDisabled="_busy" AddLabel="افزودن سؤال" Name="سؤال‌های پرتکرار" ExportColumns="ExportColumns">
+            <PropertyColumn Property="item => item.SortOrder" Title="ترتیب"><CellTemplate>@PersianDisplay.Number(_items.ToList().FindIndex(item => item.Id == context.Item.Id) + 1)</CellTemplate></PropertyColumn>
+            <PropertyColumn Property="item => item.Question" Title="سؤال" />
+            <PropertyColumn Property="item => item.Answer" Title="پاسخ" />
+            <TemplateColumn Title="عملیات" Sortable="false" Filterable="false">
+                <CellTemplate>
+                    <MudTooltip Text="ویرایش" ShowOnFocus="true"><MudIconButton Icon="@Icons.Material.Rounded.Edit" aria-label="ویرایش" Disabled="_busy" OnClick="() => Edit(context.Item)" /></MudTooltip>
+                    <MudTooltip Text="انتقال به بالا" ShowOnFocus="true"><MudIconButton Icon="@Icons.Material.Rounded.ArrowUpward" aria-label="انتقال به بالا" Disabled="@(_busy || context.Item.Id == _items.FirstOrDefault()?.Id)" OnClick="() => Move(context.Item, -1)" /></MudTooltip>
+                    <MudTooltip Text="انتقال به پایین" ShowOnFocus="true"><MudIconButton Icon="@Icons.Material.Rounded.ArrowDownward" aria-label="انتقال به پایین" Disabled="@(_busy || context.Item.Id == _items.LastOrDefault()?.Id)" OnClick="() => Move(context.Item, 1)" /></MudTooltip>
+                    <MudTooltip Text="حذف" ShowOnFocus="true"><MudIconButton Icon="@Icons.Material.Rounded.DeleteOutline" aria-label="حذف" Disabled="_busy" OnClick="() => Delete(context.Item)" /></MudTooltip>
+                </CellTemplate>
+            </TemplateColumn>
+        </AdminGrid>
+    </div>
+</section>
+@if (_editorOpen)
+{
+    <div class="admin-drawer-backdrop" @onclick="Close"></div>
+    <aside class="admin-editor" role="dialog" aria-modal="true" aria-label="ویرایش سؤال">
+        <header><h2>@(_editingId.HasValue ? "ویرایش سؤال" : "افزودن سؤال")</h2></header>
+        <div class="admin-editor-body">
+            <label><span>سؤال</span><input @bind="_request.Question" maxlength="500" /></label>
+            <label><span>پاسخ</span><textarea @bind="_request.Answer" maxlength="4000" rows="8"></textarea></label>
+        </div>
+        <footer><button class="admin-button secondary" disabled="_busy" @onclick="Close">انصراف</button><button class="admin-button primary" disabled="_busy" @onclick="Save">ذخیره</button></footer>
+    </aside>
+}
+
+@code {
+    private static readonly AdminExportColumn<FaqItem>[] ExportColumns = [new("ترتیب", item => item.SortOrder), new("سؤال", item => item.Question), new("پاسخ", item => item.Answer)];
+    private readonly CancellationTokenSource _lifetime = new();
+    private IReadOnlyList<FaqItem> _items = [];
+    private SaveFaqRequest _request = new();
+    private int? _editingId;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _editorOpen;
+    private string? _error;
+    private string? _success;
+
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load()
+    {
+        _loading = true;
+        UiResult<IReadOnlyList<FaqItem>> result = await Service.List(_lifetime.Token);
+        _error = result.ErrorMessage;
+        if (result.IsSuccess) _items = result.Value ?? [];
+        _loading = false;
+    }
+    private void Create() { _editingId = null; _request = new(); _editorOpen = true; _error = null; _success = null; }
+    private void Edit(FaqItem item) { _editingId = item.Id; _request = new() { Question = item.Question, Answer = item.Answer }; _editorOpen = true; _error = null; _success = null; }
+    private void Close() { if (!_busy) _editorOpen = false; }
+    private async Task Save()
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            UiResult<string?> result = await Service.Save(_editingId, _request, _lifetime.Token);
+            if (result.IsSuccess) _editorOpen = false;
+            await Complete(result, "سؤال ذخیره شد.");
+        }
+        finally { _busy = false; }
+    }
+    private async Task Delete(FaqItem item)
+    {
+        if (_busy || !await JS.InvokeAsync<bool>("confirm", $"سؤال «{item.Question}» حذف شود؟")) return;
+        _busy = true;
+        try { await Complete(await Service.Delete(item.Id, _lifetime.Token), "سؤال حذف شد."); }
+        finally { _busy = false; }
+    }
+    private async Task Move(FaqItem item, int direction)
+    {
+        if (_busy) return;
+        _busy = true;
+        try { await Complete(await Service.Move(item.Id, direction, _lifetime.Token), "ترتیب سؤال‌ها ذخیره شد."); }
+        finally { _busy = false; }
+    }
+    private async Task Complete(UiResult<string?> result, string message)
+    {
+        _success = null;
+        _error = result.ErrorMessage;
+        if (!result.IsSuccess) return;
+        _success = message;
+        await Load();
+    }
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}
+

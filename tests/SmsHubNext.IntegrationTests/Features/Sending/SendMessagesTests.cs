@@ -23,7 +23,7 @@ using Xunit;
 
 namespace SmsHubNext.IntegrationTests.Features.Sending;
 
-public sealed class SendMessagesTests : IAsyncLifetime
+public sealed partial class SendMessagesTests : IAsyncLifetime
 {
     private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(Literals.sqlImage).Build();
     private Db _db = null!;

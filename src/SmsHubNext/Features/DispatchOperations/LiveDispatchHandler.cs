@@ -13,10 +13,10 @@ public sealed record LiveSnapshot(DateTime ObservedAtUtc, DateTime FromUtc, Live
 {
     public DateTime TotalsAtUtc { get; init; }
 }
-public sealed record LiveMessage(long Id, long MessageBatchId, string MobileNumber, string SenderLine, string ProviderName,
+public sealed record LiveMessage(long Id, string SubmitDateJalali, long MessageBatchId, string MobileNumber, string SenderLine, string ProviderName,
     SendStatus Status, DeliveryStatus DeliveryStatus, DateTime SubmittedAtUtc, DateTime? AcceptedAtUtc,
     int DispatchAttemptCount, string? Body, DateTime? ErrorAtUtc, int? ErrorCode, MessageBatchEventType? ErrorEvent);
-public sealed record LiveMessagePage(IReadOnlyList<LiveMessage> Items, bool HasMore);
+public sealed record LiveMessagePage(IReadOnlyList<LiveMessage> Items, bool HasMore, DateTime UntilUtc, LiveMessageCursor? NextCursor);
 
 public static class LiveDispatchBuckets
 {
@@ -61,17 +61,29 @@ public sealed class LiveDispatchHandler(Db db, TimeProvider clock, LiveDispatchC
         finally { cache.Gate.Release(); }
     }
 
-    public async Task<Result<LiveMessagePage>> Messages(int hours, byte? status, byte? provider, long? batch, string search, int page, CancellationToken token)
+    public async Task<Result<LiveMessagePage>> Messages(LiveMessageRequest request, CancellationToken token)
     {
-        if (hours is < 1 or > 24 || page is < 1 or > 1000 || (status.HasValue && !Enum.IsDefined((SendStatus)status.Value)))
+        if (request.Hours is < 1 or > 24 || request.PageSize is not (25 or 50 or 100) ||
+            request.Batch is <= 0 || request.Provider is 0 ||
+            (request.Status.HasValue && !Enum.IsDefined((SendStatus)request.Status.Value)) ||
+            (request.Before is { IsValid: false }))
             return Error.Validation("monitor.invalid_filter", "بازه یا وضعیت معتبر نیست.");
-        DateTime until = clock.GetUtcNow().UtcDateTime;
-        DateTime from = until.AddHours(-hours);
+        LiveMessageSearch search = LiveMessageSearch.Parse(request.Search);
+        if (!search.IsValid)
+            return Error.Validation("monitor.invalid_search", "شماره گیرنده یا شناسه پیام معتبر نیست.");
+        DateTime until = request.UntilUtc ?? clock.GetUtcNow().UtcDateTime;
+        DateTime from = until.AddHours(-request.Hours);
         await using SqlConnection connection = await db.OpenConnectionAsync(token);
         List<LiveMessage> items = (await connection.QueryAsync<LiveMessage>(new CommandDefinition(LiveDispatchSql.Messages,
-            new { From = from, Until = until, FromJalali = DateKey(from), ToJalali = DateKey(until), Status = status,
-                Provider = provider, Batch = batch, Search = search, Offset = (page - 1) * 25 }, commandTimeout: 10, cancellationToken: token))).AsList();
-        return new LiveMessagePage(items.Take(25).ToList(), items.Count > 25);
+            new { From = from, Until = until, FromJalali = DateKey(from), ToJalali = DateKey(until), request.Status,
+                request.Provider, request.Batch, search.HasSearch, SearchId = search.MessageId,
+                SearchMobile = new DbString { Value = search.MobileNumber, IsAnsi = true, Length = 12 },
+                BeforeDate = new DbString { Value = request.Before?.SubmitDateJalali, IsAnsi = true, IsFixedLength = true, Length = 10 },
+                BeforeId = request.Before?.Id, Take = request.PageSize + 1 }, commandTimeout: 10, cancellationToken: token))).AsList();
+        bool hasMore = items.Count > request.PageSize;
+        List<LiveMessage> page = items.Take(request.PageSize).ToList();
+        LiveMessageCursor? next = hasMore ? new(page[^1].SubmitDateJalali, page[^1].Id) : null;
+        return new LiveMessagePage(page, hasMore, until, next);
     }
 
     private static DbString DateKey(DateTime utc) => new() { Value = JalaliDate.FromUtc(utc), IsAnsi = true, IsFixedLength = true, Length = 10 };

@@ -9,6 +9,11 @@ internal static class DispatchOperationsSql
           AND (@CustomerId IS NULL OR b.CustomerId = @CustomerId)
           AND (@ProviderId IS NULL OR b.ProviderId = @ProviderId)
           AND (@Status IS NULL OR b.Status = @Status)
+          AND (@Search IS NULL OR b.Id = TRY_CONVERT(BIGINT, @Search)
+              OR (TRY_CONVERT(BIGINT, @Search) IS NULL AND (CHARINDEX(@Search, b.ClientBatchId) > 0
+              OR EXISTS (SELECT 1 FROM dbo.Customer c WHERE c.Id = b.CustomerId AND CHARINDEX(@Search, c.Name) > 0)
+              OR EXISTS (SELECT 1 FROM dbo.Provider searchProvider WHERE searchProvider.Id = b.ProviderId
+                  AND (CHARINDEX(@Search, searchProvider.Name) > 0 OR CHARINDEX(@Search, searchProvider.Code) > 0)))))
           AND (
               @OnlyProblems = 0
               OR b.Status IN (4, 5, 7) -- DispatchPartiallyFailed, Held, DispatchFailed

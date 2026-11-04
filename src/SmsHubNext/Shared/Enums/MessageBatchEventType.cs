@@ -18,4 +18,5 @@ public enum MessageBatchEventType : byte
     DispatchFailed = 10,
     DeliveryUpdated = 11,
     DispatchRetryRequested = 12,
+    ProviderOperationFailed = 13,
 }

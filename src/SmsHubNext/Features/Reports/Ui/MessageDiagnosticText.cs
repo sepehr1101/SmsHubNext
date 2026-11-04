@@ -2,11 +2,26 @@ using System.Globalization;
 using System.Text;
 using SmsHubNext.Shared.Enums;
 using SmsHubNext.Shared.Ui;
+using SmsHubNext.Shared.Results;
 
 namespace SmsHubNext.Features.Reports.Ui;
 
 public static class MessageDiagnosticText
 {
+    // Batch events remain after recovery and cannot establish an individual message's current state.
+    public static string BatchErrorHistory(MessageBatchEventType type) => type == MessageBatchEventType.AwaitingConfirmation
+        ? "سابقه پاسخ نامشخص در دسته"
+        : $"سابقه دسته: {EventTitle(type)}";
+
+    public static string EventTitle(MessageBatchEventType type) => type switch
+    {
+        MessageBatchEventType.AwaitingConfirmation => "پاسخ نامشخص؛ انتظار تأیید",
+        MessageBatchEventType.MessageRejected => "رد پذیرش سرویس‌دهنده",
+        MessageBatchEventType.DispatchFailed => "خطای عملیات ارسال",
+        MessageBatchEventType.ProviderOperationFailed => "خطای تفکیک‌شده عملیات",
+        _ => EventStage(type),
+    };
+
     public static string EventStage(MessageBatchEventType type) => type switch
     {
         MessageBatchEventType.AwaitingConfirmation => "مرحله ثبت نزد سرویس؛ پاسخ نامشخص (ارتباط یا پاسخ ناقص)",
@@ -20,6 +35,7 @@ public static class MessageDiagnosticText
         MessageBatchEventType.DispatchCompleted => "پایان عملیات ارسال",
         MessageBatchEventType.DispatchPartiallyFailed => "پایان ارسال با شکست بخشی از پیام‌ها",
         MessageBatchEventType.DispatchRetryRequested => "درخواست تلاش مجدد",
+        MessageBatchEventType.ProviderOperationFailed => "خطای عملیاتی؛ منشأ و مرحله در جزئیات",
         _ => "پذیرش درخواست در سامانه",
     };
     public static string Dlr(string provider, int code) => provider == "4040" ? code switch
@@ -60,6 +76,35 @@ public static class MessageDiagnosticText
     };
     public static string Time(DateTime? utc) => utc is null ? "ثبت نشده" :
         PersianDisplay.Date(IranTime.FromUtc(new DateTimeOffset(DateTime.SpecifyKind(utc.Value, DateTimeKind.Utc))), "yyyy/MM/dd HH:mm:ss") + " (ایران)";
+
+    public static string Failure(OperationFailure failure)
+    {
+        string origin = failure.Origin switch
+        {
+            FailureOrigin.Application => "سامانه", FailureOrigin.Network => "ارتباط شبکه",
+            FailureOrigin.EsbGateway => "درگاه ESB", FailureOrigin.SmsProvider => "سرویس پیامک", _ => "نامشخص",
+        };
+        string stage = failure.Stage switch
+        {
+            FailureStage.Validation => "اعتبارسنجی", FailureStage.Token => "دریافت توکن",
+            FailureStage.Submission => "ارسال", FailureStage.DeliveryQuery => "استعلام تحویل", _ => "نامشخص",
+        };
+        string impact = failure.Impact switch
+        {
+            FailureImpact.NotSubmitted => "پیام پذیرفته نشده است",
+            FailureImpact.SubmissionUnknown => "پذیرش پیام مشخص نیست",
+            FailureImpact.DeliveryQueryUnavailable => "استعلام ناموفق است؛ تحویل‌نشدن پیام اثبات نشده است", _ => "نامشخص",
+        };
+        string action = failure.Action switch
+        {
+            FailureAction.RetryAutomatically => "تلاش خودکار طبق محدودیت‌های سامانه",
+            FailureAction.FixConfiguration => "بررسی و اصلاح تنظیمات", _ => "بررسی دستی",
+        };
+        string codes = failure.HttpStatus.HasValue ? $"؛ کد HTTP بالادستی: {PersianDisplay.Number(failure.HttpStatus)}" : "";
+        if (failure.UpstreamStatus.HasValue) codes += $"؛ کد وضعیت در بدنه پاسخ: {PersianDisplay.Number(failure.UpstreamStatus)}";
+        if (failure.BusinessCode.HasValue) codes += $"؛ کد تجاری سرویس: {PersianDisplay.Number(failure.BusinessCode)}";
+        return $"منشأ: {origin}؛ مرحله: {stage}{codes}؛ اثر: {impact}؛ اقدام بعدی: {action}؛ کد داخلی: {failure.Code}";
+    }
 
     public static string Assessment(MessageDiagnostics report)
     {
@@ -106,6 +151,7 @@ public static class MessageDiagnosticText
         text.AppendLine("استعلام زنده فقط وضعیت را می‌خواند و وضعیت ذخیره‌شده را تغییر نمی‌دهد.");
         if (report.LiveObservedAtUtc.HasValue) Date("زمان مشاهده پاسخ زنده", report.LiveObservedAtUtc);
         if (report.LiveError is not null) Add("نتیجه استعلام زنده", report.LiveError);
+        if (report.LiveFailure is not null) Add("تفکیک خطای استعلام زنده", Failure(report.LiveFailure));
         if (report.Live is { HasProviderStatus: true } live)
         {
             Add("dlr زنده", live.RawStatusCode); Add("تفسیر dlr زنده", Dlr(m.ProviderCode, live.RawStatusCode));
@@ -116,7 +162,11 @@ public static class MessageDiagnosticText
         foreach (DiagnosticDelivery d in report.Deliveries)
             Add(Time(d.ReceivedAtUtc), $"raw={d.RawStatusCode}; normalized={d.NormalizedStatus}; {StoredDlr(m.ProviderCode, d)}");
         text.AppendLine("رویدادهای کل دسته (حداکثر ۱۰۰ مورد آخر؛ لزوماً مربوط به همین گیرنده نیستند):");
-        foreach (DiagnosticEvent e in report.Events) Add(Time(e.EventTimeUtc), $"{e.EventType}; code={e.ProviderResultCode}; {e.Detail}");
+        foreach (DiagnosticEvent e in report.Events)
+        {
+            Add(Time(e.EventTimeUtc), $"{e.EventType}; code={e.ProviderResultCode}; {e.Detail}");
+            if (e.Failure is OperationFailure failure) Add("تفکیک خطا", Failure(failure));
+        }
         return text.ToString();
     }
 

@@ -23,6 +23,12 @@ public sealed class DispatchOperationsService(
     public Task<UiResult<DispatchOperationsBatchPage>> Batches(bool onlyProblems, int page, int take, CancellationToken token) =>
         operations.Run((identity, cancellationToken) => dispatchOperationsHandler.Batches(new DispatchOperationsRequest { OnlyProblems = onlyProblems, Page = page, Take = take }, cancellationToken), token);
 
+    public Task<UiResult<DispatchOperationsSummary>> Summary(DispatchOperationsRequest request, CancellationToken token) =>
+        operations.Run((identity, cancellationToken) => dispatchOperationsHandler.Summary(request, cancellationToken), token);
+
+    public Task<UiResult<DispatchOperationsBatchPage>> Batches(DispatchOperationsRequest request, CancellationToken token) =>
+        operations.Run((identity, cancellationToken) => dispatchOperationsHandler.Batches(request, cancellationToken), token);
+
     public Task<UiResult<BatchDetails>> GetBatch(long id, CancellationToken token) =>
         operations.Run((identity, cancellationToken) => getBatchHandler.Handle(id, cancellationToken), token);
 

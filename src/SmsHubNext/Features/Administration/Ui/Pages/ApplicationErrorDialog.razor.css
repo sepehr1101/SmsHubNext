@@ -1,0 +1,14 @@
+.error-dialog-title { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+.error-dialog-title h2 { margin:0; font-size:1.15rem; line-height:1.8; }
+.error-dialog-close { display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; width:40px; height:40px; border:1px solid #cbd5e1; border-radius:8px; color:#334155; background:#f3f6fa; cursor:pointer; }
+.error-dialog-close:hover { background:#e9f0f8; }
+.error-dialog-close:focus-visible,.error-dialog-stack:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+.error-dialog-content { min-width:0; color:#1e293b; }
+.error-dialog-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; margin:0 0 1.25rem; }
+.error-dialog-facts div { min-width:0; padding:.75rem; border:1px solid #dbe4ee; border-radius:8px; background:#f3f6fa; }
+.error-dialog-facts dt { margin-bottom:.35rem; color:#475569; font-size:.85rem; }
+.error-dialog-facts dd { margin:0; overflow-wrap:anywhere; }
+.error-dialog-content h3 { margin:1rem 0 .5rem; font-size:1rem; }
+.error-dialog-message { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; line-height:1.9; }
+.error-dialog-stack { max-height:55vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; margin:0; padding:1rem; border:1px solid #cbd5e1; border-radius:8px; background:#f3f6fa; color:#0f172a; font:inherit; font-size:.9rem; line-height:1.8; text-align:left; unicode-bidi:plaintext; }
+@media (max-width:600px) { .error-dialog-facts { grid-template-columns:minmax(0,1fr); gap:.5rem; }.error-dialog-stack { padding:.75rem; } }

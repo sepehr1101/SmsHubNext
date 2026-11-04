@@ -1,0 +1,59 @@
+@inject DailyResendService Service
+@inject TimeProvider Clock
+@implements IDisposable
+
+<details id="daily-resend" class="daily-resend admin-panel" open="@InitiallyOpen" aria-label="ارسال مجدد روزانه">
+    <summary class="daily-heading"><MudIcon Icon="@Icons.Material.Rounded.Replay" /><span><strong>ارسال مجدد پیام‌های ناموفق یک روز</strong></span><MudIcon Class="daily-chevron" Icon="@Icons.Material.Rounded.ExpandMore" /></summary>
+    <div class="daily-content">
+        <form class="daily-date-form" @onsubmit="Begin" @onsubmit:preventDefault>
+            <label for="daily-resend-date">تاریخ شمسی ارسال اولیه</label>
+            <div class="daily-date-controls">
+                <input id="daily-resend-date" type="text" autocomplete="off" @bind="_day" @bind:event="oninput" @bind:after="DateChanged" disabled="@_busy" placeholder="۱۴۰۵/۰۸/۱۰" dir="ltr" aria-invalid="@(!string.IsNullOrEmpty(_dateError) ? "true" : "false")" aria-describedby="daily-date-hint daily-date-error" />
+                <button type="submit" class="admin-button secondary" disabled="@_busy">@(_busy ? "لطفاً صبر کنید…" : "بررسی روز و هزینه")</button>
+            </div>
+            <small id="daily-date-hint">تاریخ ارسال اولیه، به وقت ایران.</small>
+            <span id="daily-date-error" class="daily-field-error" role="alert">@_dateError</span>
+        </form>
+        <details class="daily-rules"><summary>پیام‌های قابل ارسال مجدد</summary><p>فقط پیام‌های قطعاً ارسال‌نشده یا دارای گزارش قطعی عدم تحویل بررسی می‌شوند.</p></details>
+        @if (!string.IsNullOrEmpty(_error)) { <div class="daily-error" role="alert">@_error</div> }
+        @if (_summary is not null)
+        {
+            <section class="daily-result" aria-label="نتیجه بررسی روز">
+                <header class="daily-result-heading"><h3>روز @PersianDisplay.Text(_summary.SubmitDateJalali)</h3><button type="button" class="admin-button secondary daily-refresh" disabled="@(_busy || _refreshing)" @onclick="Refresh" aria-label="به‌روزرسانی وضعیت ارسال مجدد"><MudIcon Icon="@Icons.Material.Rounded.Refresh" />به‌روزرسانی وضعیت</button></header>
+                @if (_summary.State != DailyResendState.Completed || _summary.Queued > 0) { <p class="daily-state" role="status" aria-live="polite" aria-atomic="true">@StateLabel(_summary.State)</p> }
+                @if (!string.IsNullOrEmpty(_refreshError)) { <p class="daily-refresh-error" role="status">@_refreshError اطلاعات قبلی حفظ شده است.</p> }
+                @if (_summary.State == DailyResendState.Preparing)
+                {
+                    <div class="daily-preparing" aria-busy="true"><MudIcon Icon="@Icons.Material.Rounded.HourglassTop" /><span>لطفاً منتظر بمانید…</span></div>
+                }
+                else if (_summary.State == DailyResendState.Completed && _summary.Queued == 0)
+                {
+                    <div class="daily-empty" role="status"><MudIcon Icon="@Icons.Material.Outlined.Info" /><div><h4>پیامی قابل ارسال مجدد نیست</h4><p>@(_summary.Examined == 0 ? "پیام ارسال‌نشده یا دارای گزارش قطعی عدم تحویل یافت نشد." : "پیام‌های بررسی‌شده کنار گذاشته شدند؛ علت‌ها در پایین آمده است.")</p></div></div>
+                }
+                @if (_summary.State is DailyResendState.Ready or DailyResendState.Paused)
+                {
+                    <div class="daily-review" aria-label="بازبینی هزینه ارسال مجدد">
+                        <h4>@(_summary.Queued > 0 ? "ادامهٔ پیام‌های باقی‌مانده" : "بازبینی پیش از ارسال مجدد")</h4>
+                        <dl class="daily-review-metrics"><div><dt>تعداد آماده برای تأیید</dt><dd>@PersianDisplay.Number(_summary.Remaining) پیام</dd></div><div><dt>سقف هزینهٔ باقی‌مانده</dt><dd>@PersianDisplay.Number(_summary.RemainingCost, "#,0.####") <small>ریال</small></dd></div></dl>
+                        <p>هزینه از حساب مشتری هر پیام کسر می‌شود.</p>
+                        @if (_summary.Remaining > 0) { <button type="button" class="admin-button primary daily-confirm" disabled="@_busy" @onclick="Confirm">@(_summary.Queued > 0 ? "تأیید هزینهٔ باقی‌مانده و ادامه" : "تأیید هزینه و ثبت ارسال مجدد")</button> }
+                    </div>
+                }
+                @if (_summary.Queued > 0 || _summary.State == DailyResendState.Running)
+                {
+                    <dl class="daily-metrics" aria-label="شمارنده‌های ارسال مجدد"><div class="daily-total"><dt>ارسال مجدد ثبت‌شده در صف</dt><dd>@PersianDisplay.Number(_summary.Queued)</dd></div><div><dt>پذیرفته‌شده توسط سرویس‌دهنده</dt><dd>@PersianDisplay.Number(_summary.Submitted)</dd></div><div><dt>هنوز در صف یا نتیجه نامشخص</dt><dd>@PersianDisplay.Number(_summary.Pending)</dd></div><div><dt>ردشده در تلاش جدید</dt><dd>@PersianDisplay.Number(_summary.Failed)</dd></div></dl>
+                    <a class="daily-follow" href="/admin/dispatch-operations">پیگیری ارسال و تحویل<MudIcon Icon="@Icons.Material.Rounded.ArrowBack" /></a>
+                }
+                @if (_summary.MissingHistory > 0) { <p class="daily-refresh-error">سابقه فعلی @PersianDisplay.Number(_summary.MissingHistory) پیام دیگر موجود نیست؛ نتیجه ارسال آن‌ها قابل اثبات نیست.</p> }
+                @if (_summary.Skipped > 0)
+                {
+                    <details class="daily-skips"><summary>علت کنارگذاشتن @PersianDisplay.Number(_summary.Skipped) پیام</summary>
+                        @if (_summary.SkipReasons.Count > 0) { <ul>@foreach (DailyResendSkipReason reason in _summary.SkipReasons) { <li><span>@SkipLabel(reason.Code)</span><b>@PersianDisplay.Number(reason.Count) پیام</b></li> }</ul> }
+                        else { <p>اعتبارسنجی ارسال این پیام‌ها ناموفق بود.</p> }
+                    </details>
+                }
+                @if (_updatedAtUtc is DateTime updated) { <small class="daily-updated">آخرین دریافت وضعیت: @PersianDisplay.Date(IranTime.FromUtc(new DateTimeOffset(updated)), "HH:mm:ss") به وقت ایران</small> }
+            </section>
+        }
+    </div>
+</details>

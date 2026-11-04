@@ -1,4 +1,5 @@
 using Dapper;
+using DNTPersianUtils.Core;
 using Microsoft.Data.SqlClient;
 using SmsHubNext.Shared.Database;
 using SmsHubNext.Shared.Results;
@@ -20,6 +21,7 @@ public sealed class BrowseBatchesHandler(Db db)
             new
             {
                 request.FromUtc, request.ToUtcExclusive,
+                Search = string.IsNullOrWhiteSpace(request.Search) ? null : request.Search.ToEnglishNumbers().Trim().Replace('ي', 'ی').Replace('ك', 'ک'),
                 FromJalali = DateParameter(request.FromUtc),
                 ToJalali = DateParameter(request.ToUtcExclusive.AddTicks(-1)),
                 BeforeDate = new DbString { Value = request.Before?.SubmitDateJalali, IsAnsi = true, Length = 10 },

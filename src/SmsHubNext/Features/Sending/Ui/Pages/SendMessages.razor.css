@@ -1,0 +1,7 @@
+.send-mode { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:22px; padding:6px; border:1px solid #d6e2ef; border-radius:12px; background:#fff; width:fit-content; max-width:100%; }
+.send-mode button { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:10px 18px; border:1px solid transparent; border-radius:9px; color:#43566e; background:transparent; font:600 .92rem Vazirmatn,sans-serif; cursor:pointer; }
+.send-mode button[aria-pressed=true] { color:#173d73; border-color:#bfd5ef; background:#eaf2fc; }
+.send-mode button:focus-visible { outline:3px solid #4784cc; outline-offset:2px; }
+.send-mode button:hover { background:#e9f0f8; }
+.send-mode ::deep .mud-icon-root { font-size:20px; }
+@media(max-width:600px) { .send-mode { display:grid; grid-template-columns:1fr; width:100%; }.send-mode button { width:100%; } }

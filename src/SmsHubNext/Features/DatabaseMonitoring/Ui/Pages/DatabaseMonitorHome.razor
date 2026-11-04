@@ -1,0 +1,16 @@
+@page "/admin/settings/database"
+@layout AdminLayout
+@attribute [Authorize(Policy = DevelopmentAccount.ManagementPolicy)]
+@using SmsHubNext.Features.DatabaseMonitoring.Ui
+<PageTitle>پایش پایگاه داده | SmsHub</PageTitle>
+<div class="admin-menu-cards">
+    @foreach (DatabaseMonitorEntry entry in DatabaseMonitoringNavigation.Pages)
+    {
+        <a class="admin-menu-card" href="@(DatabaseMonitoringNavigation.Root + "/" + entry.Route)">
+            <span class="admin-menu-icon"><MudIcon Icon="@entry.Icon" /></span>
+            <h2>@entry.Title</h2><p>@entry.Description</p>
+        </a>
+    }
+</div>
+
+

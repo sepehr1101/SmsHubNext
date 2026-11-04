@@ -12,6 +12,7 @@ public sealed class DispatchOperationsRequest
     public byte? ProviderId { get; init; }
     public BatchStatus? Status { get; init; }
     public bool OnlyProblems { get; init; }
+    public string? Search { get; init; }
     public int Page { get; init; } = 1;
     public int Take { get; init; } = 50;
 
@@ -19,6 +20,10 @@ public sealed class DispatchOperationsRequest
 
     public Result Validate(bool includePaging)
     {
+        if (Search?.Length > 100)
+            return Error.Validation("dispatch_operations.search_too_long", "جست‌وجو باید حداکثر ۱۰۰ نویسه باشد.");
+        if (Status is not null && !Enum.IsDefined(Status.Value))
+            return Error.Validation("dispatch_operations.status_invalid", "وضعیت انتخاب‌شده معتبر نیست.");
         if (FromJalali is not null && !IsValidJalaliDate(FromJalali))
             return Error.Validation("dispatch_operations.from_jalali_invalid", UserMessages.DispatchOperations.FromJalaliInvalid);
 
